@@ -19,8 +19,28 @@ const usuarioSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   senhaHash: { type: String, required: true, select: false },
   perfil: { type: String, enum: ["cliente", "admin"], default: "cliente" },
-  ativo: { type: Boolean, required: true, default: true },
+  status: { type: Boolean, required: true, default: true },
   criadoEm: { type: Date, default: Date.now },
+
+  endereco: {
+    rua: String,
+    numero: String,
+    cidade: String,
+    estado: String,
+    cep: String,
+    complemento: String,
+  },
+
+  cartao: {
+    titular: String,
+    finalCartao: { type: String, minLength: 4, maxLength: 4 },
+    validade: String,
+    bandeira: {type: String, enum: ["visa", "master", "elo", "amex", "hipercard", "diners"]},
+    cvv: Number,
+    tokenGateway: { type: String, required: true, select: false },
+    status: { type: Boolean, required: true, default: true },
+    criadoEm: { type: Date, default: Date.now },
+  },
 });
 
 const Usuario = mongoose.model("Usuario", usuarioSchema);
