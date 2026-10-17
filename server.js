@@ -11,16 +11,19 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// alterar Modelo e modeloSchema 
-
-const modeloSchema = new mongoose.Schema({
+const usuarioSchema = new mongoose.Schema({
   nome: { type: String, required: true, trim: true },
-  sobrenome: { type: String, required: true, trim: true },
+  cpf: { type: String, required: true, unique: true },
+  numero: { type: String, required: true, trim: true },
+  nascimento: { type: Date, required: true },
   email: { type: String, required: true, unique: true },
   senhaHash: { type: String, required: true, select: false },
+  perfil: { type: String, enum: ["cliente", "admin"], default: "cliente" },
+  ativo: { type: Boolean, required: true, default: true },
+  criadoEm: { type: Date, default: Date.now },
 });
 
-const MOdelo = mongoose.model("MOdelo", modeloSchema);
+const Usuario = mongoose.model("Usuario", usuarioSchema);
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -32,7 +35,7 @@ async function iniciar() {
 
     console.log("MongoDB conectado!");
 
-    await MOdelo.init();
+    await Usuario.init();
 
     app.listen(4000, () => {
       console.log("Abra http://localhost:4000");
