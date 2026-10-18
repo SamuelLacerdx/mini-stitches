@@ -11,6 +11,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
+// Tabela Cliente
 const usuarioSchema = new mongoose.Schema({
   nome: { type: String, required: true, trim: true },
   cpf: { type: String, required: true, unique: true },
@@ -43,7 +44,23 @@ const usuarioSchema = new mongoose.Schema({
   },
 });
 
+// Planos (Ajustar para admin modificar valores)
+const planoSchema = new mongoose.Schema({
+  nome: {type: String, required: true, enum: ["mensal", "trimestral" ]},
+  valor: { type: Number, enum:[ 8990, 24000 ]},
+})
+
+// Assinatura
+const assinaturaSchema = new mongoose.Schema({
+  plano: { type: planoSchema, required: true},
+  assinadoEm: {  type: Date, required: true, default: Date.now},
+  statusCaixa: { type: String, enum: ["preparando", "enviada", "entregue"], default: "preparando"},
+  canceladoEm: {  type: Date, default: null },
+})
+
 const Usuario = mongoose.model("Usuario", usuarioSchema);
+const Plano = mongoose.model("Plano", planoSchema);
+const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -56,6 +73,8 @@ async function iniciar() {
     console.log("MongoDB conectado!");
 
     await Usuario.init();
+    await Plano.init();
+    await Assinatura.init();
 
     app.listen(4000, () => {
       console.log("Abra http://localhost:4000");
