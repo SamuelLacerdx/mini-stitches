@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const console = require("console");
 const app = express();
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -15,7 +16,7 @@ app.use(express.json());
 const usuarioSchema = new mongoose.Schema({
   nome: { type: String, required: true, trim: true },
   cpf: { type: String, required: true, unique: true },
-  numero: { type: String, required: true, trim: true },
+  telefone: { type: String, required: true, trim: true },
   nascimento: { type: Date, required: true },
   email: { type: String, required: true, unique: true },
   senhaHash: { type: String, required: true, select: false },
@@ -36,9 +37,12 @@ const usuarioSchema = new mongoose.Schema({
     titular: String,
     finalCartao: { type: String, minLength: 4, maxLength: 4 },
     validade: String,
-    bandeira: {type: String, enum: ["visa", "master", "elo", "amex", "hipercard", "diners"]},
+    bandeira: {
+      type: String,
+      enum: ["visa", "master", "elo", "amex", "hipercard", "diners"],
+    },
     cvv: Number,
-    tokenGateway: { type: String, required: true, select: false },
+    tokenGateway: { type: String, select: false },
     status: { type: Boolean, required: true, default: true },
     criadoEm: { type: Date, default: Date.now },
   },
@@ -46,17 +50,21 @@ const usuarioSchema = new mongoose.Schema({
 
 // Planos (Ajustar para admin modificar valores)
 const planoSchema = new mongoose.Schema({
-  nome: {type: String, required: true, enum: ["mensal", "trimestral" ]},
-  valor: { type: Number, enum:[ 8990, 24000 ]},
-})
+  nome: { type: String, required: true, enum: ["mensal", "trimestral"] },
+  valor: { type: Number, enum: [8990, 24000] },
+});
 
 // Assinatura
 const assinaturaSchema = new mongoose.Schema({
-  plano: { type: planoSchema, required: true},
-  assinadoEm: {  type: Date, required: true, default: Date.now},
-  statusCaixa: { type: String, enum: ["preparando", "enviada", "entregue"], default: "preparando"},
-  canceladoEm: {  type: Date, default: null },
-})
+  plano: { type: planoSchema, required: true },
+  assinadoEm: { type: Date, required: true, default: Date.now },
+  statusCaixa: {
+    type: String,
+    enum: ["preparando", "enviada", "entregue"],
+    default: "preparando",
+  },
+  canceladoEm: { type: Date, default: null },
+});
 
 const Usuario = mongoose.model("Usuario", usuarioSchema);
 const Plano = mongoose.model("Plano", planoSchema);
@@ -66,6 +74,65 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.post("/cadastrar", async (req, res) => {
+  try {
+    const { nome, cpf, telefone, nascimento, email, senha } = req.body;
+
+    if (!senha || senha.length < 8) {
+      return res
+        .status(400)
+        .json({ erro: "A senha deve ter ao menos 8 caracteres." });
+    }
+
+    const emailNormalizado = email.trim().toLowerCase();
+    const senhaHash = await bcrypt.hash(senha, 10);
+
+    await Usuario.create({
+      nome,
+      cpf,
+      telefone,
+      nascimento,
+      email: emailNormalizado,
+      senhaHash,
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ erro: "Este e-mail já está cadastrado." });
+    }
+
+    console.error(err);
+    res.status(500).json({ erro: "Erro interno do servidor." });
+  }
+});
+
+app.post("/login", async (req, res) => {
+  try {
+    const { email, senha } = req.body;
+
+    const usuario = await Usuario.findOne({
+      email: email.trim().toLowerCase(),
+    }).select("+senhaHash");
+
+    if (!usuario) {
+      return res.status(401).json({ erro: "Usuário não encontrado." });
+    }
+
+    const senhaCorreta = await bcrypt.compare(senha, usuario.senhaHash);
+
+    if (!email) {
+      return res.status(401).json({ erro: "Email incorreto." });
+    }
+    if (!senhaCorreta) {
+      return res.status(401).json({ erro: "Senha incorreta." });
+    }
+
+    res.json({ mensagem: "Login realizado com sucesso." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: "Erro interno do servidor." });
+  }
+});
+
 async function iniciar() {
   try {
     await mongoose.connect(process.env.MONGO_URI);
@@ -73,8 +140,6 @@ async function iniciar() {
     console.log("MongoDB conectado!");
 
     await Usuario.init();
-    await Plano.init();
-    await Assinatura.init();
 
     app.listen(4000, () => {
       console.log("Abra http://localhost:4000");
