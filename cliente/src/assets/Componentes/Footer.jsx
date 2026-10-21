@@ -6,7 +6,7 @@ export default function Footer() {
   return (
     <footer className="w-full font-['Work_Sans',sans-serif]">
       <div className="w-full bg-[#FDE7B2] px-6 py-12 text-[#3E1B0E] md:px-12 lg:px-16">
-        <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto grid max-w-full grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-4">
           
           <div className="flex flex-col items-start gap-4">
             <Link to="/">

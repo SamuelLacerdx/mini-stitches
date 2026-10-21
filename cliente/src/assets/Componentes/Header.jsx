@@ -9,9 +9,9 @@ export default function Header() {
       <div className="h-7 w-full bg-[#4E2206]" />
 
       <div className="w-full border-b border-amber-100/50 bg-[#FAF5EF] px-4 py-3 md:px-8">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-full items-center justify-between gap-4">
           
-          <div className="flex flex-shrink-0 items-center">
+          <div className="flex shrink-0 items-center">
             <Link to="/" className="flex items-center gap-2">
               <img
                 src={logoMarca}
