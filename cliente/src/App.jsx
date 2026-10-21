@@ -1,9 +1,14 @@
+import { useState } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Header from './assets/Componentes/Header';
+
 export default function App() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100">
-      <h1 className="text-3xl font-bold text-red-500 underline">
-        React + Tailwind CSS funcionando!
-      </h1>
-    </div>
+    <BrowserRouter>
+    <Header/>
+    <Routes>
+      <Route/>
+    </Routes>
+    </BrowserRouter>
   )
 }
