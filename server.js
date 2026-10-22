@@ -6,7 +6,28 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
+const jwt = require("jsonwebtoken");
 const app = express();
+
+const session = require("express-session");
+
+const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
+
+app.use(
+  session({
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, maxAge: 2 * 60 * 60 * 1000 }, // 2h
+  }),
+);
+
+function autenticar(req, res, next) {
+  if (!req.session.usuarioId) {
+    return res.status(401).json({ erro: "Faça login para continuar." });
+  }
+  next();
+}
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -128,13 +149,17 @@ app.post("/login", async (req, res) => {
     if (!senhaCorreta) {
       return res.status(401).json({ erro: "Senha incorreta." });
     }
+
+    req.session.usuarioId = usuario._id;
+    req.session.perfil = usuario.perfil;
+
     if (usuario.perfil === "admin") {
       return res.json({
         mensagem: "Login de admin realizado com sucesso.",
       });
     }
 
-    res.json({ mensagem: "Login realizado com sucesso." });
+    res.redirect("/perfil-pagina");
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro interno do servidor." });
