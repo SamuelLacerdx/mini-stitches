@@ -5,6 +5,7 @@ const path = require("path");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const console = require("console");
+const { validarCPF } = require("./backend/functions/validarCpf");
 const app = express();
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -41,10 +42,9 @@ const usuarioSchema = new mongoose.Schema({
       type: String,
       enum: ["visa", "master", "elo", "amex", "hipercard", "diners"],
     },
-    cvv: Number,
     tokenGateway: { type: String, select: false },
-    status: { type: Boolean, required: true, default: true },
-    criadoEm: { type: Date, default: Date.now },
+    status: { type: Boolean },
+    criadoEm: { type: Date },
   },
 });
 
@@ -84,17 +84,23 @@ app.post("/cadastrar", async (req, res) => {
         .json({ erro: "A senha deve ter ao menos 8 caracteres." });
     }
 
+    if (!validarCPF(cpf)) {
+      return res.status(400).json({ erro: "CPF inválido." });
+    }
+
+    const cpfLimpo = cpf.replace(/\D/g, "");
     const emailNormalizado = email.trim().toLowerCase();
     const senhaHash = await bcrypt.hash(senha, 10);
 
     await Usuario.create({
       nome,
-      cpf,
+      cpf: cpfLimpo,
       telefone,
       nascimento,
       email: emailNormalizado,
       senhaHash,
     });
+    res.status(201).json({ mensagem: "Cadastro realizado com sucesso." });
   } catch (err) {
     if (err.code === 11000) {
       return res.status(409).json({ erro: "Este e-mail já está cadastrado." });
@@ -119,11 +125,13 @@ app.post("/login", async (req, res) => {
 
     const senhaCorreta = await bcrypt.compare(senha, usuario.senhaHash);
 
-    if (!email) {
-      return res.status(401).json({ erro: "Email incorreto." });
-    }
     if (!senhaCorreta) {
       return res.status(401).json({ erro: "Senha incorreta." });
+    }
+    if (usuario.perfil === "admin") {
+      return res.json({
+        mensagem: "Login de admin realizado com sucesso.",
+      });
     }
 
     res.json({ mensagem: "Login realizado com sucesso." });
