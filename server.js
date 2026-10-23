@@ -95,18 +95,25 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.post("/cadastrar", async (req, res) => {
+app.post("/cadastro", async (req, res) => {
   try {
-    const { nome, cpf, telefone, nascimento, email, senha } = req.body;
+    const { nome, cpf, telefone, nascimento, email, senha } = req.body || {};
 
-    if (!senha || senha.length < 8) {
-      return res
-        .status(400)
-        .json({ erro: "A senha deve ter ao menos 8 caracteres." });
+    if (senha.length < 8) {
+      return res.status(400).send("A senha deve ter ao menos 8 caracteres.");
+    }
+
+    const dataNascimento = new Date(nascimento);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(nascimento) ||
+      Number.isNaN(dataNascimento.getTime()) ||
+      dataNascimento.toISOString().slice(0, 10) !== nascimento
+    ) {
+      return res.status(400).send("Data de nascimento inválida.");
     }
 
     if (!validarCPF(cpf)) {
-      return res.status(400).json({ erro: "CPF inválido." });
+      return res.status(400).send("CPF inválido.");
     }
 
     const cpfLimpo = cpf.replace(/\D/g, "");
@@ -114,21 +121,28 @@ app.post("/cadastrar", async (req, res) => {
     const senhaHash = await bcrypt.hash(senha, 10);
 
     await Usuario.create({
-      nome,
+      nome: nome.trim(),
       cpf: cpfLimpo,
-      telefone,
-      nascimento,
+      telefone: telefone.trim(),
+      nascimento: dataNascimento,
       email: emailNormalizado,
       senhaHash,
     });
-    res.status(201).json({ mensagem: "Cadastro realizado com sucesso." });
+    res
+      .status(201)
+      .send("Cadastro realizado com sucesso. Você já pode fazer login.");
   } catch (err) {
     if (err.code === 11000) {
-      return res.status(409).json({ erro: "Este e-mail já está cadastrado." });
+      const campoDuplicado = Object.keys(err.keyPattern || {})[0];
+      const mensagem =
+        campoDuplicado === "cpf"
+          ? "Este CPF já está cadastrado."
+          : "Este e-mail já está cadastrado.";
+      return res.status(409).send(mensagem);
     }
 
     console.error(err);
-    res.status(500).json({ erro: "Erro interno do servidor." });
+    res.status(500).send("Erro interno do servidor.");
   }
 });
 

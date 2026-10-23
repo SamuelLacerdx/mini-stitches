@@ -7,4 +7,16 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/cadastro': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
+      '/login': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
