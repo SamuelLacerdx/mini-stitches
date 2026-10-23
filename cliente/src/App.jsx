@@ -6,6 +6,7 @@ import Home from './Home';
 import CriarConta from './CriarConta';
 
 export default function App() {
+  
   return (
     <BrowserRouter>
     <div className="flex min-h-screen flex-col justify-between">

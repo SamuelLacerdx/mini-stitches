@@ -94,7 +94,7 @@ export default function CriarConta() {
             </label>
             <div className="relative flex items-center">
               <input
-                type="text"
+                type="date"
                 name="dataNascimento"
                 placeholder="dd/mm/aaaa"
                 value={formData.dataNascimento}
