@@ -1,41 +1,7 @@
-import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 
 export default function CriarConta() {
-  // Estado para armazenar os valores de todos os campos do formulário
-  const [formData, setFormData] = useState({
-    nomeCompleto: '',
-    cpf: '',
-    celular: '',
-    dataNascimento: '',
-    email: '',
-    senha: '',
-    repitaSenha: '',
-  });
-
-  // Função para atualizar os campos do formulário dinamicamente
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
-  // Função para lidar com o envio do formulário
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    if (formData.senha !== formData.repitaSenha) {
-      alert('As senhas digitadas não coincidem. Por favor, verifique!');
-      return;
-    }
-
-    alert(`Conta criada com sucesso para ${formData.nomeCompleto}!`);
-    console.log('Dados do formulário:', formData);
-  };
-
   return (
     <div className="min-h-screen w-full bg-[#FEF8F0] px-4 py-12 font-['Work_Sans',sans-serif] text-[#3E2417]">
       <div className="mx-auto flex w-full max-w-141.5 flex-col items-center gap-4">
@@ -50,17 +16,15 @@ export default function CriarConta() {
         </p>
 
         {/* FORMULÁRIO DE REGISTO */}
-        <form onSubmit={handleSubmit} className="mt-2 flex w-full flex-col gap-4">
+        <form action="/cadastro" method="POST" className="mt-2 flex w-full flex-col gap-4">
           
           {/* Nome Completo */}
           <div className="w-full">
             <input
               type="text"
-              name="nomeCompleto"
+              name="nome"
               required
               placeholder="Nome completo"
-              value={formData.nomeCompleto}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
             />
           </div>
@@ -72,17 +36,13 @@ export default function CriarConta() {
               name="cpf"
               required
               placeholder="CPF"
-              value={formData.cpf}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417] sm:w-1/2"
             />
             <input
               type="tel"
-              name="celular"
+              name="telefone"
               required
               placeholder="Celular"
-              value={formData.celular}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417] sm:w-1/2"
             />
           </div>
@@ -95,10 +55,9 @@ export default function CriarConta() {
             <div className="relative flex items-center">
               <input
                 type="date"
-                name="dataNascimento"
+                name="nascimento"
+                required
                 placeholder="dd/mm/aaaa"
-                value={formData.dataNascimento}
-                onChange={handleChange}
                 className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
               />
               <Calendar className="pointer-events-none absolute right-3.5 h-4 w-4 text-stone-400" />
@@ -112,8 +71,6 @@ export default function CriarConta() {
               name="email"
               required
               placeholder="Seu e-mail"
-              value={formData.email}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
             />
           </div>
@@ -124,9 +81,8 @@ export default function CriarConta() {
               type="password"
               name="senha"
               required
+              minLength={8}
               placeholder="Senha"
-              value={formData.senha}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
             />
           </div>
@@ -137,9 +93,8 @@ export default function CriarConta() {
               type="password"
               name="repitaSenha"
               required
+              minLength={8}
               placeholder="Repita a senha"
-              value={formData.repitaSenha}
-              onChange={handleChange}
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
             />
           </div>
