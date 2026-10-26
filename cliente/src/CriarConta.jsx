@@ -33,7 +33,7 @@ export default function CriarConta() {
           <div className="flex w-full flex-col gap-3 sm:flex-row">
             <input
               type="text"
-              name="cpf"
+                name="cpf"
               required
               placeholder="CPF"
               className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417] sm:w-1/2"
