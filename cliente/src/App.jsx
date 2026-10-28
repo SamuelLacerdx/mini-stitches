@@ -4,6 +4,13 @@ import Header from './assets/Componentes/Header';
 import Footer from './assets/Componentes/Footer';
 import Home from './Home';
 import CriarConta from './CriarConta';
+import Kits from './Kits';
+import Carrinho from './Carrinho';
+import Admin from './Admin';
+import Materiais from './Materiais';
+import Login from './Login';
+import Perfil from './Perfil';
+import Clube from './Clube';
 
 export default function App() {
   
@@ -14,7 +21,14 @@ export default function App() {
     <main className="flex grow">
     <Routes>
       <Route path='/' element={<Home />}/>
-      <Route path='/conta' element={<CriarConta />}/>
+      <Route path='/cadastro' element={<CriarConta />}/>
+      <Route path='/Kits' element={<Kits />}/>
+      <Route path='/Carrinho' element={<Carrinho />}/>
+      <Route path='/Admin' element={<Admin />}/>
+      <Route path='/Materiais' element={<Materiais />}/>
+      <Route path='/Login' element={<Login />}/>
+      <Route path='/Perfil' element={<Perfil />}/>
+      <Route path='/Clube' element={<Clube />}/>
     </Routes>
     </main>
     <Footer/>
