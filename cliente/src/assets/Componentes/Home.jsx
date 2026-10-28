@@ -72,22 +72,7 @@ export default function Home() {
       {/* ========================================================= */}
       {/* 1. FAIXA SUPERIOR DE BENEFÍCIOS */}
       {/* ========================================================= */}
-      <div className="bg-[#F7C6E5] px-4 py-2.5 font-['Archivo_Black',sans-serif] text-xs text-[#3E1B0E]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-4 md:justify-between">
-          <div className="flex items-center gap-2">
-            <Truck className="h-4 w-4 text-[#3E1B0E]" />
-            <span>ENVIO PARA TODO BRASIL</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Percent className="h-4 w-4 text-[#3E1B0E]" />
-            <span>5% OFF NO PIX</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Percent className="h-4 w-4 text-[#3E1B0E]" />
-            <span>Até 6x sem juros</span>
-          </div>
-        </div>
-      </div>
+      
 
       {/* ========================================================= */}
       {/* 2. HERO SECTION (APRESENTAÇÃO PRINCIPAL) */}
