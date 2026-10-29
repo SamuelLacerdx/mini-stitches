@@ -4,17 +4,7 @@ import { Link } from 'react-router-dom';
 import { Truck, Percent, Sparkles, Box, Heart } from 'lucide-react';
 
 export default function Home() {
-  // Estado para capturar o e-mail digitado na Newsletter
-  const [email, setEmail] = useState('');
 
-  // Função disparada ao enviar o formulário da Newsletter
-  const handleNewsletterSubmit = (e) => {
-    e.preventDefault();
-    alert(`Obrigado! O e-mail ${email} foi cadastrado com sucesso.`);
-    setEmail('');
-  };
-
-  // Lista de produtos em destaque (Pode ser substituída futuramente por dados de uma API)
   const featuredProducts = [
     {
       id: 1,
@@ -48,7 +38,6 @@ export default function Home() {
     },
   ];
 
-  // Lista de depoimentos de clientes
   const testimonials = [
     {
       id: 1,
@@ -290,15 +279,12 @@ export default function Home() {
           </p>
 
           <form
-            onSubmit={handleNewsletterSubmit}
-            className="mt-2 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:flex-row"
+              className="mt-2 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:flex-row"
           >
             <input
               type="email"
               required
               placeholder="seu@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-full border border-stone-300 bg-orange-50/95 px-5 py-3 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#3E1B0E] sm:w-72"
             />
             <button

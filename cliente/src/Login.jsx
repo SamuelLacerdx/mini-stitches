@@ -52,13 +52,7 @@ export default function Login() {
           
         </form>
 
-        {/* Botão Google */}
-        <button
-          type="button"
-          className="w-full h-12 px-6 py-3.5 bg-white hover:bg-orange-50 transition-colors rounded-[30px] outline outline-1 outline-[#3E2417] text-[#3E2417] font-['Archivo_Black'] text-sm cursor-pointer"
-        >
-          CONTINUAR COM GOOGLE
-        </button>
+
 
         {/* Link para Criar Conta */}
         <Link
