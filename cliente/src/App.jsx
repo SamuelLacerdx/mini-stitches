@@ -15,6 +15,7 @@ import Trocas from './Trocas';
 import DetalheProd from './DetalheProd';
 import NossaHistoria from './Nossahistoria';
 import Contato from './Contato';
+import Tutorial from './Tutorial';
 
 export default function App() {
   
@@ -37,6 +38,7 @@ export default function App() {
       <Route path='/DetalheProd' element={<DetalheProd />}/>
       <Route path='/NossaHistoria' element={<NossaHistoria />}/>
       <Route path='/Contato' element={<Contato />}/>
+      <Route path='/Tutorial' element={<Tutorial />}/>
       
     </Routes>
     </main>
