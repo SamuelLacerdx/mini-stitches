@@ -14,6 +14,7 @@ import Clube from './Clube';
 import Trocas from './Trocas';
 import DetalheProd from './DetalheProd';
 import NossaHistoria from './Nossahistoria';
+import Contato from './Contato';
 
 export default function App() {
   
@@ -35,6 +36,7 @@ export default function App() {
       <Route path='/Trocas' element={<Trocas />}/>
       <Route path='/DetalheProd' element={<DetalheProd />}/>
       <Route path='/NossaHistoria' element={<NossaHistoria />}/>
+      <Route path='/Contato' element={<Contato />}/>
       
     </Routes>
     </main>
