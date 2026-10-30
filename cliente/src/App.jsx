@@ -11,6 +11,7 @@ import Materiais from './Materiais';
 import Login from './Login';
 import Perfil from './Perfil';
 import Clube from './Clube';
+import Trocas from './Trocas';
 
 export default function App() {
   
@@ -29,6 +30,8 @@ export default function App() {
       <Route path='/Login' element={<Login />}/>
       <Route path='/perfil' element={<Perfil />}/>
       <Route path='/Clube' element={<Clube />}/>
+      <Route path='/Trocas' element={<Trocas />}/>
+
     </Routes>
     </main>
     <Footer/>
