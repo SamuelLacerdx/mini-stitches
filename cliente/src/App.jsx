@@ -27,7 +27,7 @@ export default function App() {
       <Route path='/Admin' element={<Admin />}/>
       <Route path='/Materiais' element={<Materiais />}/>
       <Route path='/Login' element={<Login />}/>
-      <Route path='/Perfil' element={<Perfil />}/>
+      <Route path='/perfil' element={<Perfil />}/>
       <Route path='/Clube' element={<Clube />}/>
     </Routes>
     </main>

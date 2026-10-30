@@ -173,10 +173,90 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    res.redirect("/perfil-pagina");
+    res.redirect("/perfil");
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro interno do servidor." });
+  }
+});
+
+app.get("/api/perfil", autenticar, async (req, res) => {
+  try {
+    const usuario = await Usuario.findById(req.session.usuarioId).lean();
+
+    if (!usuario) {
+      return res.status(404).json({ erro: "Usuário não encontrado." });
+    }
+
+    res.json({
+      usuario: {
+        _id: usuario._id,
+        nome: usuario.nome || "",
+        email: usuario.email || "",
+        telefone: usuario.telefone || "",
+        cpf: usuario.cpf || "",
+        nascimento: usuario.nascimento
+          ? usuario.nascimento.toISOString().slice(0, 10)
+          : "",
+        endereco: usuario.endereco || {},
+        cartao: usuario.cartao || {},
+      },
+    });
+  } catch (error) {}
+});
+
+app.patch("/perfil/atualizar", autenticar, async (req, res) => {
+  try {
+    const { telefone, email, nascimento } = req.body;
+    const atualizacoes = {};
+
+    atualizacoes.email = email.trim().toLowerCase();
+    atualizacoes.telefone = telefone.trim();
+
+    const dataNascimento = new Date(nascimento);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(nascimento) ||
+      Number.isNaN(dataNascimento.getTime()) ||
+      dataNascimento.toISOString().slice(0, 10) !== nascimento
+    ) {
+      return res.status(400).send("Data de nascimento inválida.");
+    }
+
+    atualizacoes.nascimento = dataNascimento;
+
+    if (Object.keys(atualizacoes).length === 0) {
+      return res.status(400).send("Nenhum dado para atualizar.");
+    }
+
+    const usuario = await Usuario.findByIdAndUpdate(
+      req.session.usuarioId,
+      { $set: atualizacoes },
+      { new: true, runValidators: true },
+    ).lean();
+
+    if (!usuario) {
+      return res.status(404).send("Usuário não encontrado.");
+    }
+
+    res.json({
+      usuario: {
+        _id: usuario._id,
+        nome: usuario.nome || "",
+        email: usuario.email || "",
+        telefone: usuario.telefone || "",
+        cpf: usuario.cpf || "",
+        nascimento: usuario.nascimento
+          ? usuario.nascimento.toISOString().slice(0, 10)
+          : "",
+      },
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).send("Este e-mail já está cadastrado.");
+    }
+
+    console.error(err);
+    res.status(500).send("Erro interno do servidor.");
   }
 });
 
