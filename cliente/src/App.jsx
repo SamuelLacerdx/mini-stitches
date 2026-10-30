@@ -12,6 +12,7 @@ import Login from './Login';
 import Perfil from './Perfil';
 import Clube from './Clube';
 import Trocas from './Trocas';
+import DetalheProd from './DetalheProd';
 
 export default function App() {
   
@@ -31,6 +32,7 @@ export default function App() {
       <Route path='/perfil' element={<Perfil />}/>
       <Route path='/Clube' element={<Clube />}/>
       <Route path='/Trocas' element={<Trocas />}/>
+      <Route path='/DetalheProd' element={<DetalheProd />}/>
 
     </Routes>
     </main>
