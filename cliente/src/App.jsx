@@ -13,6 +13,7 @@ import Perfil from './Perfil';
 import Clube from './Clube';
 import Trocas from './Trocas';
 import DetalheProd from './DetalheProd';
+import NossaHistoria from './Nossahistoria';
 
 export default function App() {
   
@@ -33,7 +34,8 @@ export default function App() {
       <Route path='/Clube' element={<Clube />}/>
       <Route path='/Trocas' element={<Trocas />}/>
       <Route path='/DetalheProd' element={<DetalheProd />}/>
-
+      <Route path='/NossaHistoria' element={<NossaHistoria />}/>
+      
     </Routes>
     </main>
     <Footer/>
