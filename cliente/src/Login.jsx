@@ -1,4 +1,3 @@
-import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function Login() {
@@ -15,7 +14,7 @@ export default function Login() {
           Com uma conta você acompanha pedidos, assiste a todos os tutoriais e assina o Clube. Para comprar, não precisa de cadastro.
         </p>
 
-        <form action="/login" method='POST' className="w-full flex flex-col gap-4">
+        <form action="/login" method="POST" className="w-full flex flex-col gap-4">
           <input
             type="email"
             placeholder="Seu e-mail"
@@ -33,7 +32,9 @@ export default function Login() {
           />
 
           <button
-          className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base cursor-pointer">
+            type="submit"
+            className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base cursor-pointer"
+          >
             ENTRAR
           </button>
           

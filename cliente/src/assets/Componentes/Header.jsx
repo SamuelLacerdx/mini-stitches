@@ -65,7 +65,7 @@ export default function Header() {
             </Link>
 
             <Link
-              to="/perfil"
+              to="/Login"
               className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <User className="h-4 w-4 stroke-[1.75]" />

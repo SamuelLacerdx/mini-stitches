@@ -128,9 +128,7 @@ app.post("/cadastro", async (req, res) => {
       email: emailNormalizado,
       senhaHash,
     });
-    res
-      .status(201)
-      .send("Cadastro realizado com sucesso. Você já pode fazer login.");
+    res.redirect("/Perfil");
   } catch (err) {
     if (err.code === 11000) {
       const campoDuplicado = Object.keys(err.keyPattern || {})[0];
@@ -168,12 +166,10 @@ app.post("/login", async (req, res) => {
     req.session.perfil = usuario.perfil;
 
     if (usuario.perfil === "admin") {
-      return res.json({
-        mensagem: "Login de admin realizado com sucesso.",
-      });
+      res.redirect("/Admin");
     }
 
-    res.redirect("/perfil");
+    res.redirect("/Perfil");
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro interno do servidor." });
