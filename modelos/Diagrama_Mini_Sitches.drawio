@@ -37,13 +37,13 @@
         <mxCell id="vJrYuYySAr-N1LS_xJGb-11" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#E9D8C8;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=1;fontSize=11;whiteSpace=nowrap;" value="enderecos: [ ]   ← embutido" vertex="1">
           <mxGeometry height="22" width="400" y="204" as="geometry" />
         </mxCell>
-        <mxCell id="vJrYuYySAr-N1LS_xJGb-12" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#FBF3EA;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=0;fontSize=11;whiteSpace=nowrap;" value="   _id: ObjectId, apelido: String, padrao: Boolean" vertex="1">
+        <mxCell id="vJrYuYySAr-N1LS_xJGb-12" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#FBF3EA;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=0;fontSize=11;whiteSpace=nowrap;" value="   _id: ObjectId, apelido: String, principal: Boolean" vertex="1">
           <mxGeometry height="22" width="400" y="226" as="geometry" />
         </mxCell>
         <mxCell id="vJrYuYySAr-N1LS_xJGb-13" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#FBF3EA;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=0;fontSize=11;whiteSpace=nowrap;" value="   cep, rua, numero, complemento: String" vertex="1">
           <mxGeometry height="22" width="400" y="248" as="geometry" />
         </mxCell>
-        <mxCell id="vJrYuYySAr-N1LS_xJGb-14" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#FBF3EA;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=0;fontSize=11;whiteSpace=nowrap;" value="   bairro, cidade: String, uf: String(2)" vertex="1">
+        <mxCell id="vJrYuYySAr-N1LS_xJGb-14" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#FBF3EA;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=0;fontSize=11;whiteSpace=nowrap;" value="   bairro, cidade: String, estado: String(2)" vertex="1">
           <mxGeometry height="22" width="400" y="270" as="geometry" />
         </mxCell>
         <mxCell id="vJrYuYySAr-N1LS_xJGb-15" parent="vJrYuYySAr-N1LS_xJGb-2" style="text;strokeColor=#422518;strokeWidth=0.5;fillColor=#E9D8C8;fontColor=#422518;align=left;verticalAlign=middle;spacingLeft=6;overflow=hidden;rotatable=0;fontStyle=1;fontSize=11;whiteSpace=nowrap;" value="cartoes: [ ]   ← embutido" vertex="1">

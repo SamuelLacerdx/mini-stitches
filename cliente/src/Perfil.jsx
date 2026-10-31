@@ -1,13 +1,35 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 
+const enderecoVazio = {
+  apelido: "",
+  cep: "",
+  rua: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  cidade: "",
+  estado: "",
+  principal: false,
+};
+
 export default function Perfil() {
-  const [usuario, setUsuario] = useState({});
+  const [usuario, setUsuario] = useState({ enderecos: [] });
+  const [enderecoForm, setEnderecoForm] = useState(enderecoVazio);
+  const [mostrarFormularioEndereco, setMostrarFormularioEndereco] =
+    useState(false);
+  const enderecos = usuario.enderecos || [];
 
   useEffect(() => {
     fetch("/api/perfil", { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => setUsuario(data.usuario));
+      .then(async (resposta) => {
+        const data = await resposta.json();
+        if (!resposta.ok) {
+          throw new Error(data.erro || "Erro ao carregar perfil.");
+        }
+        setUsuario(data.usuario);
+      })
+      .catch((error) => alert(error.message || "Erro ao carregar perfil."));
   }, []);
 
   function handleChange(e) {
@@ -33,7 +55,7 @@ export default function Perfil() {
 
     const texto = await resposta.text();
 
-    let data = {};
+    let data;
     try {
       data = JSON.parse(texto);
     } catch {
@@ -46,6 +68,79 @@ export default function Perfil() {
     }
 
     alert("Perfil atualizado!");
+  }
+
+  async function salvarEndereco(e) {
+    e.preventDefault();
+
+    try {
+      const resposta = await fetch("/perfil/enderecos", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(enderecoForm),
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(data.erro || "Erro ao salvar o endereço.");
+      }
+
+      setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
+      setEnderecoForm(enderecoVazio);
+      setMostrarFormularioEndereco(false);
+      alert("Endereço salvo!");
+    } catch (error) {
+      alert(error.message || "Erro ao salvar o endereço.");
+    }
+  }
+
+  async function definirEnderecoPrincipal(enderecoId) {
+    try {
+      const resposta = await fetch(
+        `/perfil/enderecos/${enderecoId}/principal`,
+        {
+          method: "PATCH",
+          credentials: "include",
+        },
+      );
+      const data = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(data.erro || "Erro ao definir endereço principal.");
+      }
+
+      setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
+    } catch (error) {
+      alert(error.message || "Erro ao definir endereço principal.");
+    }
+  }
+
+  async function excluirEndereco(enderecoId) {
+    if (!window.confirm("Deseja realmente excluir este endereço?")) {
+      return;
+    }
+
+    try {
+      const resposta = await fetch(`/perfil/enderecos/${enderecoId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(data.erro || "Erro ao excluir o endereço.");
+      }
+
+      setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
+    } catch (error) {
+      alert(error.message || "Erro ao excluir o endereço.");
+    }
+  }
+
+  function handleEnderecoChange(e) {
+    const { name, value } = e.target;
+    setEnderecoForm((prev) => ({
+      ...prev,
+      [name]: name === "estado" ? value.toUpperCase() : value,
+    }));
   }
 
   return (
@@ -147,121 +242,205 @@ export default function Perfil() {
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-6">
           <div className="flex justify-between items-center border-b border-stone-200 pb-3">
             <h2 className="text-lg font-['Archivo_Black']">ENDEREÇOS</h2>
-            <button className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors">
+            <button
+              type="button"
+              onClick={() => {
+                setEnderecoForm(enderecoVazio);
+                setMostrarFormularioEndereco(true);
+              }}
+              className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
+            >
               + NOVO
             </button>
           </div>
 
-          {/* Endereço Cadastrado Exemplo */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF8F0]/50 rounded-lg border border-orange-200/50">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="px-2 py-0.5 bg-orange-400 text-white rounded text-[10px] font-bold">
-                Casa
-              </span>
-              <span className="px-2 py-0.5 bg-stone-300 text-yellow-900 rounded text-[10px] font-bold">
-                Padrão
-              </span>
-              <p className="text-stone-700 font-medium">
-                Av. Paulista, 1000 — Bela Vista, São Paulo/SP - CEP 01310-100
-              </p>
-            </div>
-            <button
-              type="submit"
-              className="text-xs text-amber-800 underline font-semibold hover:opacity-80 self-start sm:self-auto"
+          {enderecos.length === 0 && (
+            <p className="text-sm text-stone-500">
+              Você ainda não cadastrou nenhum endereço.
+            </p>
+          )}
+
+          {enderecos.map((endereco) => (
+            <div
+              key={endereco._id}
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF8F0]/50 rounded-lg border border-orange-200/50"
             >
-              EXCLUIR
-            </button>
-          </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-2 py-0.5 bg-orange-400 text-white rounded text-[10px] font-bold">
+                  {endereco.apelido}
+                </span>
+                {endereco.principal && (
+                  <span className="px-2 py-0.5 bg-stone-300 text-yellow-900 rounded text-[10px] font-bold">
+                    Padrão
+                  </span>
+                )}
+                <p className="text-stone-700 font-medium">
+                  {[
+                    `${endereco.rua}, ${endereco.numero}`,
+                    endereco.complemento,
+                    endereco.bairro,
+                    `${endereco.cidade}/${endereco.estado}`,
+                    `CEP ${endereco.cep}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                </p>
+              </div>
 
-          <form className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4">
-            <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
-              ADICIONAR NOVO ENDEREÇO
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-              <div>
-                <label className="block mb-1">
-                  Apelido (Casa, Trabalho...)
-                </label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block mb-1">CEP</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block mb-1">Rua</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block mb-1">Número</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block mb-1">Complemento</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                />
-              </div>
-              <div>
-                <label className="block mb-1">Bairro</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                />
-              </div>
-              <div>
-                <label className="block mb-1">Cidade</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                />
-              </div>
-              <div>
-                <label className="block mb-1">UF</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                />
+              <div className="flex items-center gap-4 self-start sm:self-auto">
+                {!endereco.principal && (
+                  <button
+                    type="button"
+                    onClick={() => definirEnderecoPrincipal(endereco._id)}
+                    className="text-xs text-amber-800 underline font-semibold hover:opacity-80"
+                  >
+                    DEFINIR COMO PRINCIPAL
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => excluirEndereco(endereco._id)}
+                  className="text-xs text-amber-800 underline font-semibold hover:opacity-80"
+                >
+                  EXCLUIR
+                </button>
               </div>
             </div>
+          ))}
 
-            <div className="flex items-center gap-2 text-xs">
-              <input type="checkbox" id="principal" />
-              <label htmlFor="principal">Usar como endereço principal</label>
-            </div>
+          {mostrarFormularioEndereco && (
+            <form
+              onSubmit={salvarEndereco}
+              className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4"
+            >
+              <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
+                ADICIONAR NOVO ENDEREÇO
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                <div className="md:col-span-2">
+                  <label className="block mb-1">
+                    Apelido (Casa, Trabalho...)
+                  </label>
+                  <input
+                    type="text"
+                    name="apelido"
+                    value={enderecoForm.apelido}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block mb-1">CEP</label>
+                  <input
+                    type="text"
+                    name="cep"
+                    value={enderecoForm.cep}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block mb-1">Rua</label>
+                  <input
+                    type="text"
+                    name="rua"
+                    value={enderecoForm.rua}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block mb-1">Número</label>
+                  <input
+                    type="text"
+                    name="numero"
+                    value={enderecoForm.numero}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block mb-1">Complemento</label>
+                  <input
+                    type="text"
+                    name="complemento"
+                    value={enderecoForm.complemento}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block mb-1">Bairro</label>
+                  <input
+                    type="text"
+                    name="bairro"
+                    value={enderecoForm.bairro}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block mb-1">Cidade</label>
+                  <input
+                    type="text"
+                    name="cidade"
+                    value={enderecoForm.cidade}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block mb-1">UF</label>
+                  <input
+                    type="text"
+                    name="estado"
+                    value={enderecoForm.estado}
+                    onChange={handleEnderecoChange}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    maxLength={2}
+                    required
+                  />
+                </div>
+              </div>
 
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
-              >
-                SALVAR ENDEREÇO
-              </button>
-              <button
-                type="button"
-                className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
-              >
-                CANCELAR
-              </button>
-            </div>
-          </form>
+              <div className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  id="principal"
+                  checked={enderecoForm.principal}
+                  onChange={(e) =>
+                    setEnderecoForm((prev) => ({
+                      ...prev,
+                      principal: e.target.checked,
+                    }))
+                  }
+                />
+                <label htmlFor="principal">Usar como endereço principal</label>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
+                >
+                  SALVAR ENDEREÇO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarFormularioEndereco(false)}
+                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
+                >
+                  CANCELAR
+                </button>
+              </div>
+            </form>
+          )}
         </section>
 
         {/* SECÇÃO 3: CARTÕES */}
