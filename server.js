@@ -6,6 +6,8 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
+const { consultarCEP } = require("./backend/functions/validarCep");
+const { Usuario, Plano, Assinatura } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const app = express();
 
@@ -34,82 +36,29 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const enderecoSchema = new mongoose.Schema({
-  apelido: { type: String, trim: true },
-  rua: { type: String, trim: true },
-  numero: { type: String, trim: true },
-  bairro: { type: String, trim: true },
-  cidade: { type: String, trim: true },
-  estado: { type: String, uppercase: true, trim: true },
-  cep: { type: String, trim: true },
-  complemento: { type: String, trim: true, default: "" },
-  principal: { type: Boolean, default: false },
-});
-
-// Tabela Cliente
-const usuarioSchema = new mongoose.Schema({
-  nome: { type: String, required: true, trim: true },
-  cpf: { type: String, required: true, unique: true },
-  telefone: { type: String, required: true, trim: true },
-  nascimento: { type: Date, required: true },
-  email: { type: String, required: true, unique: true },
-  senhaHash: { type: String, required: true, select: false },
-  perfil: { type: String, enum: ["cliente", "admin"], default: "cliente" },
-  status: { type: Boolean, required: true, default: true },
-  criadoEm: { type: Date, default: Date.now },
-
-  enderecos: { type: [enderecoSchema], default: [] },
-
-  // Mantido para migrar endereços de registros antigos ao carregar o perfil.
-  endereco: {
-    apelido: String,
-    rua: String,
-    numero: String,
-    bairro: String,
-    cidade: String,
-    estado: String,
-    cep: String,
-    complemento: String,
-  },
-
-  cartao: {
-    titular: String,
-    finalCartao: { type: String, minLength: 4, maxLength: 4 },
-    validade: String,
-    bandeira: {
-      type: String,
-      enum: ["visa", "master", "elo", "amex", "hipercard", "diners"],
-    },
-    tokenGateway: { type: String, select: false },
-    status: { type: Boolean },
-    criadoEm: { type: Date },
-  },
-});
-
-// Planos (Ajustar para admin modificar valores)
-const planoSchema = new mongoose.Schema({
-  nome: { type: String, required: true, enum: ["mensal", "trimestral"] },
-  valor: { type: Number, enum: [8990, 24000] },
-});
-
-// Assinatura
-const assinaturaSchema = new mongoose.Schema({
-  plano: { type: planoSchema, required: true },
-  assinadoEm: { type: Date, required: true, default: Date.now },
-  statusCaixa: {
-    type: String,
-    enum: ["preparando", "enviada", "entregue"],
-    default: "preparando",
-  },
-  canceladoEm: { type: Date, default: null },
-});
-
-const Usuario = mongoose.model("Usuario", usuarioSchema);
-const Plano = mongoose.model("Plano", planoSchema);
-const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
-
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
+});
+
+app.get("/api/cep/:cep", async (req, res) => {
+  const cep = req.params.cep.replace(/\D/g, "");
+  if (!/^\d{8}$/.test(cep)) {
+    return res.status(400).json({ erro: "Informe um CEP válido." });
+  }
+
+  try {
+    const endereco = await consultarCEP(cep);
+    if (!endereco) {
+      return res.status(404).json({ erro: "CEP não encontrado." });
+    }
+
+    res.json({ endereco });
+  } catch (error) {
+    console.error(error);
+    res
+      .status(502)
+      .json({ erro: "Não foi possível consultar o CEP. Tente novamente." });
+  }
 });
 
 app.post("/cadastro", async (req, res) => {
@@ -183,10 +132,10 @@ app.post("/login", async (req, res) => {
     req.session.perfil = usuario.perfil;
 
     if (usuario.perfil === "admin") {
-      res.redirect("/Admin");
+      return res.redirect("/Admin");
     }
 
-    res.redirect("/Perfil");
+    return res.redirect("/Perfil");
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro interno do servidor." });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 const enderecoVazio = {
@@ -18,6 +18,8 @@ export default function Perfil() {
   const [enderecoForm, setEnderecoForm] = useState(enderecoVazio);
   const [mostrarFormularioEndereco, setMostrarFormularioEndereco] =
     useState(false);
+  const [cepStatus, setCepStatus] = useState("");
+  const cepConsultaAtual = useRef("");
   const enderecos = usuario.enderecos || [];
 
   useEffect(() => {
@@ -141,6 +143,43 @@ export default function Perfil() {
       ...prev,
       [name]: name === "estado" ? value.toUpperCase() : value,
     }));
+
+    if (name === "cep") {
+      const cep = value.replace(/\D/g, "");
+      cepConsultaAtual.current = cep.length === 8 ? cep : "";
+      setCepStatus("");
+
+      if (cep.length === 8) {
+        setCepStatus("Buscando endereço...");
+        fetch(`/api/cep/${cep}`)
+          .then(async (resposta) => {
+            const data = await resposta.json();
+            if (!resposta.ok) {
+              throw new Error(data.erro || "Erro ao consultar o CEP.");
+            }
+            return data.endereco;
+          })
+          .then((endereco) => {
+            if (cepConsultaAtual.current !== cep) {
+              return;
+            }
+
+            setEnderecoForm((prev) => ({
+              ...prev,
+              rua: endereco.rua,
+              bairro: endereco.bairro,
+              cidade: endereco.cidade,
+              estado: endereco.estado,
+            }));
+            setCepStatus("Endereço preenchido.");
+          })
+          .catch((error) => {
+            if (cepConsultaAtual.current === cep) {
+              setCepStatus(error.message || "Erro ao consultar o CEP.");
+            }
+          });
+      }
+    }
   }
 
   return (
@@ -338,8 +377,15 @@ export default function Perfil() {
                     value={enderecoForm.cep}
                     onChange={handleEnderecoChange}
                     className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    inputMode="numeric"
+                    maxLength={9}
                     required
                   />
+                  {cepStatus && (
+                    <p className="mt-1 text-[11px]" role="status" aria-live="polite">
+                      {cepStatus}
+                    </p>
+                  )}
                 </div>
                 <div className="md:col-span-3">
                   <label className="block mb-1">Rua</label>
