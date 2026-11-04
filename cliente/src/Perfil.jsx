@@ -191,7 +191,7 @@ export default function Perfil() {
             MINHA CONTA
           </h1>
           <Link
-            to="/conta"
+            to="/"
             className="text-amber-800 text-sm font-semibold underline hover:opacity-80"
           >
             Sair
@@ -382,7 +382,11 @@ export default function Perfil() {
                     required
                   />
                   {cepStatus && (
-                    <p className="mt-1 text-[11px]" role="status" aria-live="polite">
+                    <p
+                      className="mt-1 text-[11px]"
+                      role="status"
+                      aria-live="polite"
+                    >
                       {cepStatus}
                     </p>
                   )}

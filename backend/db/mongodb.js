@@ -38,8 +38,6 @@ const usuarioSchema = new mongoose.Schema({
 
   enderecos: { type: [enderecoSchema], default: [] },
   cartoes: { type: [cartaoSchema], default: [] },
-
-
 });
 
 const planoSchema = new mongoose.Schema({
@@ -87,6 +85,9 @@ const kitSchema = new mongoose.Schema(
     destaque: { type: Boolean, default: false },
     descricao: { type: [String], default: [] },
     caixa: { type: [String], default: [] },
+    videoTitulo: { type: String, trim: true },
+    videoUrl: { type: String, trim: true },
+    videoId: { type: mongoose.Schema.Types.ObjectId, default: null },
     tutoriais: { type: [tutorialSchema], default: [] },
   },
   { _id: false },
@@ -142,10 +143,9 @@ const produtoSchema = new mongoose.Schema({
 });
 
 // Garante que o subdocumento do outro tipo não fique salvo
-produtoSchema.pre("validate", function (next) {
+produtoSchema.pre("validate", function () {
   if (this.tipo === "kit") this.material = undefined;
   if (this.tipo === "material") this.kit = undefined;
-  next();
 });
 
 // slug já é indexado pelo unique: true
@@ -268,24 +268,21 @@ const pedidoSchema = new mongoose.Schema({
   historicoStatus: { type: [historicoStatusSchema], default: [] },
 });
 
-pedidoSchema.pre("validate", async function (next) {
+pedidoSchema.pre("validate", async function () {
   try {
-    // gera o número sequencial apenas na criação
     if (this.isNew && !this.numero) {
       this.numero = await proximoNumeroPedido();
     }
 
-    // consistência dos valores (tudo em centavos)
     const soma = this.itens.reduce((s, i) => s + i.quantidade * i.precoUnit, 0);
     if (this.subtotal !== soma) {
-      return next(new Error("subtotal não confere com a soma dos itens."));
+      throw new Error("subtotal não confere com a soma dos itens.");
     }
     if (this.total !== this.subtotal + this.frete) {
-      return next(new Error("total deve ser subtotal + frete."));
+      throw new Error("total deve ser subtotal + frete.");
     }
-    next();
   } catch (err) {
-    next(err);
+    throw err;
   }
 });
 

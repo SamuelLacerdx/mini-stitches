@@ -7,13 +7,29 @@ const bcrypt = require("bcryptjs");
 const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
-const { Usuario, Plano, Assinatura } = require("./backend/db/mongodb");
+const { Usuario, Plano, Assinatura, Produto } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const app = express();
 
 const session = require("express-session");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
+
+function autenticar(req, res, next) {
+  if (!req.session.usuarioId) {
+    return res.status(401).json({ erro: "Faça login para continuar." });
+  }
+  next();
+}
+
+function autenticarAdmin(req, res, next) {
+  if (!req.session || req.session.perfil !== "admin") {
+    return res
+      .status(403)
+      .json({ erro: "Acesso restrito ao painel administrativo." });
+  }
+  next();
+}
 
 app.use(
   session({
@@ -23,13 +39,6 @@ app.use(
     cookie: { httpOnly: true, maxAge: 2 * 60 * 60 * 1000 }, // 2h
   }),
 );
-
-function autenticar(req, res, next) {
-  if (!req.session.usuarioId) {
-    return res.status(401).json({ erro: "Faça login para continuar." });
-  }
-  next();
-}
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -94,7 +103,7 @@ app.post("/cadastro", async (req, res) => {
       email: emailNormalizado,
       senhaHash,
     });
-    res.redirect("/Perfil");
+    res.redirect("/Login");
   } catch (err) {
     if (err.code === 11000) {
       const campoDuplicado = Object.keys(err.keyPattern || {})[0];
@@ -279,7 +288,9 @@ app.post("/perfil/enderecos", autenticar, async (req, res) => {
       return res.status(400).json({ erro: "Informe um CEP válido." });
     }
     if (typeof body.principal !== "boolean") {
-      return res.status(400).json({ erro: "Informe se o endereço é principal." });
+      return res
+        .status(400)
+        .json({ erro: "Informe se o endereço é principal." });
     }
 
     const usuario = await Usuario.findById(req.session.usuarioId);
@@ -364,6 +375,464 @@ app.delete("/perfil/enderecos/:enderecoId", autenticar, async (req, res) => {
     console.error(error);
     res.status(500).json({ erro: "Erro ao excluir o endereço." });
   }
+});
+
+app.post("/admin/estoque", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const tipo = String(body.tipo || "kit").toLowerCase();
+    const slug = String(body.slug || "")
+      .trim()
+      .toLowerCase();
+    const nome = String(body.nome || "").trim();
+    const preco = Number(body.preco);
+    const estoque = Number(body.estoque);
+    const imagemUrl = String(body.imagemUrl || "").trim();
+    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
+
+    if (!["kit", "material"].includes(tipo)) {
+      return res.status(400).json({ erro: "Tipo do produto inválido." });
+    }
+    if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      return res
+        .status(400)
+        .json({ erro: "Informe um slug válido (ex.: coelhinho-amigurumi)." });
+    }
+    if (!nome) {
+      return res.status(400).json({ erro: "Informe o nome do item." });
+    }
+    if (!Number.isInteger(preco) || preco < 0) {
+      return res
+        .status(400)
+        .json({ erro: "O preço deve ser um número inteiro em centavos." });
+    }
+    if (!Number.isInteger(estoque) || estoque < 0) {
+      return res.status(400).json({
+        erro: "O estoque deve ser um número inteiro maior ou igual a zero.",
+      });
+    }
+
+    const item = {
+      slug,
+      tipo,
+      nome,
+      preco,
+      estoque,
+      imagemUrl: imagemUrl || undefined,
+      ativo,
+    };
+
+    if (tipo === "kit") {
+      const nomeChamada = String(body.nomeChamada || nome).trim();
+      const nivel = String(body.nivel || "").trim();
+      const faixaEtaria = String(body.faixaEtaria || "").trim();
+      const tempoEstimado = String(body.tempoEstimado || "").trim();
+      const descricao = Array.isArray(body.descricao)
+        ? body.descricao.map((desc) => desc.trim()).filter(Boolean)
+        : [];
+      const caixa = Array.isArray(body.caixa)
+        ? body.caixa.map((itemCaixa) => itemCaixa.trim()).filter(Boolean)
+        : [];
+
+      item.kit = {
+        nomeChamada,
+        nivel,
+        faixaEtaria,
+        tempoEstimado,
+        destaque: Boolean(body.destaque),
+        descricao,
+        caixa,
+      };
+    }
+
+    if (tipo === "material") {
+      item.material = {
+        descricao: String(body.materialDescricao || "").trim(),
+        categoria: String(body.materialCategoria || "geral").trim(),
+      };
+    }
+
+    const produtoExistente = await Produto.findOne({ slug });
+    if (produtoExistente) {
+      await Produto.updateOne({ slug }, { $set: item });
+      return res.json({ produto: { ...item, _id: produtoExistente._id } });
+    }
+
+    const novoProduto = await Produto.create(item);
+    res.status(201).json({ produto: novoProduto });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao salvar o produto." });
+  }
+});
+
+app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+
+    const body = req.body || {};
+    const tipo = String(body.tipo || "kit").toLowerCase();
+    const slug = String(body.slug || "")
+      .trim()
+      .toLowerCase();
+    const nome = String(body.nome || "").trim();
+    const preco = Number(body.preco);
+    const estoque = Number(body.estoque);
+    const imagemUrl = String(body.imagemUrl || "").trim();
+    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
+
+    if (!["kit", "material"].includes(tipo)) {
+      return res.status(400).json({ erro: "Tipo do produto inválido." });
+    }
+    if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      return res
+        .status(400)
+        .json({ erro: "Informe um slug válido (ex.: coelhinho-amigurumi)." });
+    }
+    if (!nome) {
+      return res.status(400).json({ erro: "Informe o nome do item." });
+    }
+    if (!Number.isInteger(preco) || preco < 0) {
+      return res
+        .status(400)
+        .json({ erro: "O preço deve ser um número inteiro em centavos." });
+    }
+    if (!Number.isInteger(estoque) || estoque < 0) {
+      return res.status(400).json({
+        erro: "O estoque deve ser um número inteiro maior ou igual a zero.",
+      });
+    }
+
+    const produtoExistente = await Produto.findById(id);
+    if (!produtoExistente) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
+    }
+
+    const slugEmUso = await Produto.findOne({ slug, _id: { $ne: id } }).lean();
+    if (slugEmUso) {
+      return res
+        .status(409)
+        .json({ erro: "Já existe um produto com este slug." });
+    }
+
+    const itemAtualizado = {
+      slug,
+      tipo,
+      nome,
+      preco,
+      estoque,
+      imagemUrl: imagemUrl || undefined,
+      ativo,
+    };
+
+    if (tipo === "kit") {
+      const nomeChamada = String(body.nomeChamada || nome).trim();
+      const nivel = String(body.nivel || "").trim();
+      const faixaEtaria = String(body.faixaEtaria || "").trim();
+      const tempoEstimado = String(body.tempoEstimado || "").trim();
+      const descricao = Array.isArray(body.descricao)
+        ? body.descricao.map((desc) => desc.trim()).filter(Boolean)
+        : [];
+      const caixa = Array.isArray(body.caixa)
+        ? body.caixa.map((itemCaixa) => itemCaixa.trim()).filter(Boolean)
+        : [];
+
+      itemAtualizado.kit = {
+        nomeChamada,
+        nivel,
+        faixaEtaria,
+        tempoEstimado,
+        destaque: Boolean(body.destaque),
+        descricao,
+        caixa,
+      };
+    }
+
+    if (tipo === "material") {
+      itemAtualizado.material = {
+        descricao: String(body.materialDescricao || "").trim(),
+        categoria: String(body.materialCategoria || "geral").trim(),
+      };
+    }
+
+    await Produto.updateOne({ _id: id }, { $set: itemAtualizado });
+
+    const produtoAtualizado = await Produto.findById(id).lean();
+    res.json({ produto: produtoAtualizado });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao atualizar o produto." });
+  }
+});
+
+app.get("/admin/estoque", autenticarAdmin, async (req, res) => {
+  try {
+    const produtos = await Produto.find().lean();
+
+    res.json({ produtos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar produtos." });
+  }
+});
+
+app.delete("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+
+    const produto = await Produto.findById(id);
+    if (!produto) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
+    }
+
+    await Produto.deleteOne({ _id: id });
+
+    res.json({ mensagem: "Produto excluído com sucesso." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao excluir produto." });
+  }
+});
+
+app.post("/admin/assinaturas", autenticarAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const nome = String(body.nome || "").trim();
+    const preco = Number(body.preco);
+    const duracao = Number(body.duracao);
+    const tipo = String(body.tipo || "mensal").toLowerCase();
+    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
+
+    if (!nome) {
+      return res.status(400).json({ erro: "Informe o nome da assinatura." });
+    }
+    if (!Number.isInteger(preco) || preco < 0) {
+      return res
+        .status(400)
+        .json({ erro: "O preço deve ser um número inteiro em centavos." });
+    }
+    if (!Number.isInteger(duracao) || duracao <= 0) {
+      return res
+        .status(400)
+        .json({ erro: "A duração deve ser um número inteiro positivo." });
+    }
+    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
+      return res.status(400).json({ erro: "Tipo de assinatura inválido." });
+    }
+
+    const assinaturaExistente = await Assinatura.findOne({ nome });
+    if (assinaturaExistente) {
+      await Assinatura.updateOne(
+        { nome },
+        { $set: { preco, duracao, tipo, ativo } },
+      );
+      return res.json({
+        assinatura: {
+          ...assinaturaExistente.toObject(),
+          preco,
+          duracao,
+          tipo,
+          ativo,
+        },
+      });
+    }
+
+    const novaAssinatura = await Assinatura.create({
+      nome,
+      preco,
+      duracao,
+      tipo,
+      ativo,
+    });
+    res.status(201).json({ assinatura: novaAssinatura });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao salvar a assinatura." });
+  }
+});
+
+app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
+  try {
+    const assinaturas = await Assinatura.find().lean();
+
+    res.json({ assinaturas });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar assinaturas." });
+  }
+});
+
+app.delete("/admin/assinaturas/:id", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+
+    const assinatura = await Assinatura.findById(id);
+    if (!assinatura) {
+      return res.status(404).json({ erro: "Assinatura não encontrada." });
+    }
+
+    await Assinatura.deleteOne({ _id: id });
+
+    res.json({ mensagem: "Assinatura excluída com sucesso." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao excluir assinatura." });
+  }
+});
+
+app.post("/admin/planos", autenticarAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const nome = String(body.nome || "").trim();
+    const valor = Number(body.valor);
+    const tipo = String(body.tipo || "mensal").toLowerCase();
+    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
+
+    if (!nome) {
+      return res.status(400).json({ erro: "Informe o nome do plano." });
+    }
+    if (!Number.isInteger(valor) || valor < 0) {
+      return res
+        .status(400)
+        .json({ erro: "O valor deve ser um número inteiro em centavos." });
+    }
+    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
+      return res.status(400).json({ erro: "Tipo de plano inválido." });
+    }
+
+    const planoExistente = await Plano.findOne({ nome });
+    if (planoExistente) {
+      await Plano.updateOne({ nome }, { $set: { valor, tipo, ativo } });
+      return res.json({
+        plano: { ...planoExistente.toObject(), valor, tipo, ativo },
+      });
+    }
+
+    const novoPlano = await Plano.create({ nome, valor, tipo, ativo });
+    res.status(201).json({ plano: novoPlano });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao salvar o plano." });
+  }
+});
+
+app.get("/admin/planos", autenticarAdmin, async (req, res) => {
+  try {
+    const planos = await Plano.find().lean();
+
+    res.json({ planos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar planos." });
+  }
+});
+
+app.delete("/admin/planos/:id", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+
+    const plano = await Plano.findById(id);
+    if (!plano) {
+      return res.status(404).json({ erro: "Plano não encontrado." });
+    }
+
+    await Plano.deleteOne({ _id: id });
+
+    res.json({ mensagem: "Plano excluído com sucesso." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao excluir plano." });
+  }
+});
+
+app.get("/admin", autenticarAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
+app.get("/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "login.html"));
+});
+
+app.get("/perfil", autenticar, (req, res) => {
+  res.sendFile(path.join(__dirname, "perfil.html"));
+});
+
+app.get("/cadastro", (req, res) => {
+  res.sendFile(path.join(__dirname, "cadastro.html"));
+});
+
+app.get("/produto/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const produto = await Produto.findOne({ slug }).lean();
+    if (!produto) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
+    }
+
+    res.json({ produto });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao buscar produto." });
+  }
+});
+
+app.get("/assinatura/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const assinatura = await Assinatura.findById(id).lean();
+    if (!assinatura) {
+      return res.status(404).json({ erro: "Assinatura não encontrada." });
+    }
+
+    res.json({ assinatura });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao buscar assinatura." });
+  }
+});
+
+app.get("/plano/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const plano = await Plano.findById(id).lean();
+    if (!plano) {
+      return res.status(404).json({ erro: "Plano não encontrado." });
+    }
+
+    res.json({ plano });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao buscar plano." });
+  }
+});
+
+app.get("/sair", (req, res) => {
+  req.session.destroy(() => {
+    res.redirect("/");
+  });
+});
+
+app.use((req, res) => {
+  res.status(404).send("Página não encontrada.");
 });
 
 async function iniciar() {
