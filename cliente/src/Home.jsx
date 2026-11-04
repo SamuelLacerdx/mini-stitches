@@ -1,70 +1,70 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
 // Importação de ícones para enriquecer o visual
-import { Truck, Percent, Sparkles, Box, Heart } from 'lucide-react';
+import { Truck, Percent, Sparkles, Box, Heart } from "lucide-react";
 
 export default function Home() {
-
   const featuredProducts = [
     {
       id: 1,
-      title: 'Coelhinho Amigurumi',
-      tag: 'Iniciante · 7 a 10 anos',
-      description: 'O primeiro bichinho que sai das suas mãos',
-      price: '129,60',
-      originalPrice: '159,50',
-      image: 'https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi',
-      link: '/kits',
+      title: "Coelhinho Amigurumi",
+      tag: "Iniciante · 7 a 10 anos",
+      description: "O primeiro bichinho que sai das suas mãos",
+      price: "129,60",
+      originalPrice: "159,50",
+      image:
+        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
+      link: "/kits",
     },
     {
       id: 2,
-      title: 'Coelhinho Amigurumi',
-      tag: 'Iniciante · 7 a 10 anos',
-      description: 'O primeiro bichinho que sai das suas mãos',
-      price: '129,60',
-      originalPrice: '159,50',
-      image: 'https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi',
-      link: '/kits',
+      title: "Coelhinho Amigurumi",
+      tag: "Iniciante · 7 a 10 anos",
+      description: "O primeiro bichinho que sai das suas mãos",
+      price: "129,60",
+      originalPrice: "159,50",
+      image:
+        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
+      link: "/kits",
     },
     {
       id: 3,
-      title: 'Coelhinho Amigurumi',
-      tag: 'Iniciante · 7 a 10 anos',
-      description: 'O primeiro bichinho que sai das suas mãos',
-      price: '129,60',
-      originalPrice: '159,50',
-      image: 'https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi',
-      link: '/kits',
+      title: "Coelhinho Amigurumi",
+      tag: "Iniciante · 7 a 10 anos",
+      description: "O primeiro bichinho que sai das suas mãos",
+      price: "129,60",
+      originalPrice: "159,50",
+      image:
+        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
+      link: "/kits",
     },
   ];
 
   const testimonials = [
     {
       id: 1,
-      text: '“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”',
-      author: 'Carla, mãe da Manuela (9 anos)',
+      text: "“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”",
+      author: "Carla, mãe da Manuela (9 anos)",
     },
     {
       id: 2,
-      text: '“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”',
-      author: 'Carla, mãe da Manuela (9 anos)',
+      text: "“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”",
+      author: "Carla, mãe da Manuela (9 anos)",
     },
     {
       id: 3,
-      text: '“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”',
-      author: 'Carla, mãe da Manuela (9 anos)',
+      text: "“A Manu terminou o coelhinho num sábado e dormiu abraçada com ele. Valeu cada ponto.”",
+      author: "Carla, mãe da Manuela (9 anos)",
     },
   ];
 
   return (
     <div className="w-full bg-[#FAF5EF] font-['Work_Sans',sans-serif]">
-
       {/* ========================================================= */}
       {/* 2. HERO SECTION (APRESENTAÇÃO PRINCIPAL) */}
       {/* ========================================================= */}
       <section className="bg-[#F7C6E5] px-4 py-12 text-[#3E1B0E] md:px-8 lg:py-16">
         <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-8 lg:grid-cols-12">
-          
           {/* Lado Esquerdo: Mensagem e Chamadas para Ação */}
           <div className="flex flex-col items-start gap-6 lg:col-span-7">
             {/* Tag / Selo Superior */}
@@ -74,12 +74,19 @@ export default function Home() {
 
             {/* Título Principal */}
             <h1 className="font-['Archivo_Black',sans-serif] text-4xl uppercase leading-tight text-[#3E1B0E] sm:text-5xl lg:text-6xl">
-              BORDANDO<br />MEMÓRIAS,<br />UM PONTO<br />POR VEZ.
+              BORDANDO
+              <br />
+              MEMÓRIAS,
+              <br />
+              UM PONTO
+              <br />
+              POR VEZ.
             </h1>
 
             {/* Subtítulo / Descrição */}
             <p className="max-w-xl font-['Archivo_Black',sans-serif] text-base leading-relaxed tracking-wide text-[#3E1B0E] md:text-lg">
-              Caixas completas de crochê e bordado para crianças criarem com as próprias mãos. Sem tela, sem pressa, com muito orgulho no final.
+              Caixas completas de crochê e bordado para crianças criarem com as
+              próprias mãos. Sem tela, sem pressa, com muito orgulho no final.
             </p>
 
             {/* Botões de Ação */}
@@ -107,7 +114,6 @@ export default function Home() {
               className="w-full max-w-120 rounded-[37px] object-cover lg:max-w-none"
             />
           </div>
-
         </div>
       </section>
 
@@ -140,34 +146,34 @@ export default function Home() {
                 className="h-80 w-full object-cover"
               />
               <div className="flex grow flex-col justify-between p-5 font-['Work_Sans',sans-serif]">
-  {/* BLOCO SUPERIOR: TAG, TÍTULO E DESCRIÇÃO */}
-  <div className="flex flex-col gap-1">
-    {/* Tag / Nível e Idade Recomentada */}
-    <span className="text-xs font-semibold text-yellow-950">
-      {product.tag}
-    </span>
+                {/* BLOCO SUPERIOR: TAG, TÍTULO E DESCRIÇÃO */}
+                <div className="flex flex-col gap-1">
+                  {/* Tag / Nível e Idade Recomentada */}
+                  <span className="text-xs font-semibold text-yellow-950">
+                    {product.tag}
+                  </span>
 
-    {/* Título do Produto */}
-    <h3 className="text-base font-black text-black">
-      {product.title}
-    </h3>
+                  {/* Título do Produto */}
+                  <h3 className="text-base font-black text-black">
+                    {product.title}
+                  </h3>
 
-    {/* Descrição Curta */}
-    <p className="text-xs font-normal text-yellow-900">
-      {product.description}
-    </p>
-  </div>
+                  {/* Descrição Curta */}
+                  <p className="text-xs font-normal text-yellow-900">
+                    {product.description}
+                  </p>
+                </div>
 
-  {/* BLOCO INFERIOR: PREÇO COM DESCONTO E PREÇO ORIGINAL */}
-  <div className="mt-4 flex items-baseline gap-2.5">
-    <span className="text-base font-black text-yellow-900">
-      R${product.price}
-    </span>
-    <span className="text-xs font-normal text-stone-700 line-through">
-      R${product.originalPrice}
-    </span>
-  </div>
-</div>
+                {/* BLOCO INFERIOR: PREÇO COM DESCONTO E PREÇO ORIGINAL */}
+                <div className="mt-4 flex items-baseline gap-2.5">
+                  <span className="text-base font-black text-yellow-900">
+                    R${product.price}
+                  </span>
+                  <span className="text-xs font-normal text-stone-700 line-through">
+                    R${product.originalPrice}
+                  </span>
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -191,7 +197,8 @@ export default function Home() {
                 ESCOLHAM JUNTOS
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
-                Cada kit mostra a idade indicada e o tempo de brincadeira, para acertar de primeira.
+                Cada kit mostra a idade indicada e o tempo de brincadeira, para
+                acertar de primeira.
               </p>
             </div>
 
@@ -203,7 +210,8 @@ export default function Home() {
                 ABRAM A CAIXA
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
-                Fios, agulha e guia ilustrado chegam prontos. Nada de correr atrás de material.
+                Fios, agulha e guia ilustrado chegam prontos. Nada de correr
+                atrás de material.
               </p>
             </div>
 
@@ -215,7 +223,8 @@ export default function Home() {
                 DIGAM: EU QUE FIZ!
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
-                No fim aparece algo de verdade, feito por mãos pequenas, para guardar ou presentear.
+                No fim aparece algo de verdade, feito por mãos pequenas, para
+                guardar ou presentear.
               </p>
             </div>
           </div>
@@ -256,12 +265,11 @@ export default function Home() {
             RECEBA IDEIAS DE FAZER JUNTOS
           </h2>
           <p className="max-w-2xl text-base leading-relaxed text-stone-800 sm:text-lg">
-            Um e-mail por mês com um projetinho simples e novidades da caixa. E 15% off na primeira compra.
+            Um e-mail por mês com um projetinho simples e novidades da caixa. E
+            15% off na primeira compra.
           </p>
 
-          <form
-              className="mt-2 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:flex-row"
-          >
+          <form className="mt-2 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:flex-row">
             <input
               type="email"
               required

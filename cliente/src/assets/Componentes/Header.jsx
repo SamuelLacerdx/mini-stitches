@@ -1,7 +1,14 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import logoMarca from '../logo.svg';
-import { Search, ShoppingBag, User, Truck, Zap, CreditCard } from 'lucide-react';
+import React from "react";
+import { Link } from "react-router-dom";
+import logoMarca from "../logo.svg";
+import {
+  Search,
+  ShoppingBag,
+  User,
+  Truck,
+  Zap,
+  CreditCard,
+} from "lucide-react";
 
 export default function Header() {
   return (
@@ -12,7 +19,6 @@ export default function Header() {
       {/* 2. BARRA DE NAVEGAÇÃO PRINCIPAL */}
       <div className="w-full border-b border-amber-100/50 bg-[#FAF5EF] px-4 py-3 md:px-8">
         <div className="mx-auto flex max-w-full items-center justify-between gap-4">
-          
           {/* LOGÓTIPO */}
           <div className="flex shrink-0 items-center">
             <Link to="/" className="flex items-center gap-2">
@@ -26,22 +32,40 @@ export default function Header() {
 
           {/* MENU DE ROTAS PRINCIPAIS */}
           <nav className="hidden items-center gap-6 text-xs font-normal tracking-wide text-[#3E1B0E] lg:flex">
-            <Link to="/" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               INÍCIO
             </Link>
-            <Link to="/Kits" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/Kits"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               KITS
             </Link>
-            <Link to="/Materiais" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/Materiais"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               MATERIAIS
             </Link>
-            <Link to="/Clube" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/Clube"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               CLUBE DA CAIXINHA
             </Link>
-            <Link to="/NossaHistoria" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/NossaHistoria"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               NOSSA HISTÓRIA
             </Link>
-            <Link to="/Contato" className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800">
+            <Link
+              to="/Contato"
+              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+            >
               FALE COM A GENTE
             </Link>
           </nav>
@@ -72,7 +96,6 @@ export default function Header() {
               <span>CONTA</span>
             </Link>
           </div>
-
         </div>
       </div>
 
@@ -95,7 +118,6 @@ export default function Header() {
           </div>
         </div>
       </div>
-
     </header>
   );
 }

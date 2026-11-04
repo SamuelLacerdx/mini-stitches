@@ -76,6 +76,16 @@ const tutorialSchema = new mongoose.Schema({
   ativo: { type: Boolean, required: true, default: true },
 });
 
+const videoKitSchema = new mongoose.Schema(
+  {
+    titulo: { type: String, required: true, trim: true },
+    url: { type: String, required: true, trim: true },
+    ordem: { type: Number, min: 1, default: 1, validate: inteiro },
+    ativo: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
 const kitSchema = new mongoose.Schema(
   {
     nomeChamada: { type: String, trim: true },
@@ -85,9 +95,7 @@ const kitSchema = new mongoose.Schema(
     destaque: { type: Boolean, default: false },
     descricao: { type: [String], default: [] },
     caixa: { type: [String], default: [] },
-    videoTitulo: { type: String, trim: true },
-    videoUrl: { type: String, trim: true },
-    videoId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    videos: { type: [videoKitSchema], default: [] },
     tutoriais: { type: [tutorialSchema], default: [] },
   },
   { _id: false },

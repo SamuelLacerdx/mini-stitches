@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 
+const criarVideoPadrao = () => ({
+  titulo: "",
+  url: "",
+  ordem: 1,
+  ativo: true,
+});
+
 const estadoInicial = {
   tipo: "kit",
   nome: "",
@@ -17,6 +24,39 @@ const estadoInicial = {
   materialCategoria: "geral",
   destaque: false,
   ativo: true,
+  videos: [criarVideoPadrao(), criarVideoPadrao()],
+};
+
+const normalizarVideosDoKit = (videos) => {
+  const lista = Array.isArray(videos) ? videos : [];
+
+  return lista.map((video, index) => ({
+    titulo: String(video?.titulo || video?.videoTitulo || "").trim(),
+    url: String(video?.url || video?.videoUrl || "").trim(),
+    ordem: Number(video?.ordem ?? index + 1),
+    ativo: video?.ativo ?? true,
+  }));
+};
+
+const garantirVideosDoKit = (videos) => {
+  const lista = Array.isArray(videos) ? videos : [];
+
+  if (lista.length >= 2) {
+    return lista.map((video, index) => ({
+      titulo: String(video?.titulo || "").trim(),
+      url: String(video?.url || "").trim(),
+      ordem: Number(video?.ordem ?? index + 1),
+      ativo: video?.ativo ?? true,
+    }));
+  }
+
+  const preenchidos = lista.length ? lista : [];
+  const extras = Array.from({ length: 2 - preenchidos.length }, (_, index) => ({
+    ...criarVideoPadrao(),
+    ordem: preenchidos.length + index + 1,
+  }));
+
+  return [...preenchidos, ...extras];
 };
 
 export default function Admin() {
@@ -42,7 +82,9 @@ export default function Admin() {
   const carregarItens = async () => {
     try {
       setCarregando(true);
-      const resposta = await fetch("/admin/estoque");
+      const resposta = await fetch("/admin/estoque", {
+        credentials: "include",
+      });
       const dados = await resposta.json();
       if (!resposta.ok) {
         throw new Error(dados.erro || "Erro ao carregar estoque.");
@@ -57,14 +99,16 @@ export default function Admin() {
   };
 
   useEffect(() => {
-    if (abaAtiva !== "ESTOQUE") return;
+    if (!["ESTOQUE", "MATERIAIS", "TUTORIAIS"].includes(abaAtiva)) return;
 
     let cancelado = false;
 
     const carregar = async () => {
       try {
         setCarregando(true);
-        const resposta = await fetch("/admin/estoque");
+        const resposta = await fetch("/admin/estoque", {
+          credentials: "include",
+        });
         const dados = await resposta.json();
         if (!resposta.ok) {
           throw new Error(dados.erro || "Erro ao carregar estoque.");
@@ -91,28 +135,6 @@ export default function Admin() {
       cancelado = true;
     };
   }, [abaAtiva]);
-
-  const handleChange = (event) => {
-    const { name, value, type, checked } = event.target;
-    setForm((anterior) => ({
-      ...anterior,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-  };
-
-  const handleImagemChange = (event) => {
-    const arquivo = event.target.files?.[0];
-    if (!arquivo) return;
-
-    const leitor = new FileReader();
-    leitor.onload = () => {
-      setForm((anterior) => ({
-        ...anterior,
-        imagemUrl: String(leitor.result || ""),
-      }));
-    };
-    leitor.readAsDataURL(arquivo);
-  };
 
   const limparFormulario = () => {
     setForm(estadoInicial);
@@ -142,7 +164,60 @@ export default function Admin() {
       materialCategoria: item.material?.categoria || "geral",
       destaque: Boolean(item.kit?.destaque),
       ativo: Boolean(item.ativo),
+      videos: garantirVideosDoKit(
+        normalizarVideosDoKit(item.kit?.videos || item.kit?.tutoriais || []),
+      ),
     });
+  };
+
+  const handleChange = (event) => {
+    const { name, value, type, checked } = event.target;
+    setForm((anterior) => ({
+      ...anterior,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  };
+
+  const handleImagemChange = (event) => {
+    const arquivo = event.target.files?.[0];
+    if (!arquivo) return;
+
+    const leitor = new FileReader();
+    leitor.onload = () => {
+      setForm((anterior) => ({
+        ...anterior,
+        imagemUrl: String(leitor.result || ""),
+      }));
+    };
+    leitor.readAsDataURL(arquivo);
+  };
+
+  const handleVideoChange = (index, campo, valor) => {
+    setForm((anterior) => ({
+      ...anterior,
+      videos: (anterior.videos || []).map((video, videoIndex) =>
+        videoIndex === index ? { ...video, [campo]: valor } : video,
+      ),
+    }));
+  };
+
+  const adicionarVideo = () => {
+    setForm((anterior) => ({
+      ...anterior,
+      videos: [
+        ...(anterior.videos || []),
+        { ...criarVideoPadrao(), ordem: (anterior.videos || []).length + 1 },
+      ],
+    }));
+  };
+
+  const removerVideo = (index) => {
+    setForm((anterior) => ({
+      ...anterior,
+      videos: (anterior.videos || [])
+        .filter((_, videoIndex) => videoIndex !== index)
+        .map((video, videoIndex) => ({ ...video, ordem: videoIndex + 1 })),
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -150,6 +225,20 @@ export default function Admin() {
     setMensagem({ tipo: "", texto: "" });
 
     try {
+      const videosValidos = (form.videos || []).map((video) => ({
+        titulo: String(video.titulo || "").trim(),
+        url: String(video.url || "").trim(),
+        ordem: Number(video.ordem || 1),
+        ativo: Boolean(form.ativo),
+      }));
+
+      if (
+        form.tipo === "kit" &&
+        videosValidos.filter((video) => video.titulo && video.url).length < 2
+      ) {
+        throw new Error("O kit deve possuir pelo menos 2 vídeos cadastrados.");
+      }
+
       const payload = {
         ...form,
         preco: Number(form.preco),
@@ -165,6 +254,7 @@ export default function Admin() {
           .split("\n")
           .map((item) => item.trim())
           .filter(Boolean),
+        videos: videosValidos,
       };
 
       const metodo = editandoId ? "PATCH" : "POST";
@@ -176,6 +266,7 @@ export default function Admin() {
         method: metodo,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        credentials: "include",
       });
 
       const dados = await resposta.json();
@@ -198,16 +289,11 @@ export default function Admin() {
     }
   };
 
-  const handleEditar = (item) => {
-    setForm(item);
-    setMostrarCadastro(true);
-    setEditandoId(item._id);
-  };
-
   const handleExcluir = async (id) => {
     try {
       const resposta = await fetch(`/admin/estoque/${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
       const dados = await resposta.json();
       if (!resposta.ok) {
@@ -343,6 +429,94 @@ export default function Admin() {
                         className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-[#3E2417] file:text-white"
                       />
                     </label>
+
+                    {form.tipo === "kit" && (
+                      <div className="md:col-span-2 space-y-3 rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-bold text-[#3E2417]">
+                              Vídeos do kit
+                            </p>
+                            <p className="text-xs text-stone-500">
+                              Mínimo de 2 vídeos cadastrados.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={adicionarVideo}
+                            className="rounded-xl border border-[#3E2417] text-[#3E2417] px-3 py-2 text-xs font-bold hover:bg-[#F5E6D8]"
+                          >
+                            + Adicionar vídeo
+                          </button>
+                        </div>
+
+                        {(form.videos || []).length === 0 ? (
+                          <p className="text-sm text-stone-500">
+                            Ainda não há vídeos para este kit.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {(form.videos || []).map((video, index) => (
+                              <div
+                                key={`${video.titulo || "video"}-${index}`}
+                                className="rounded-xl border border-stone-200 bg-white p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-3">
+                                  <span className="text-xs font-bold uppercase text-[#7B5E4B]">
+                                    Vídeo {index + 1}
+                                  </span>
+                                  {index > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => removerVideo(index)}
+                                      className="text-xs font-bold text-red-600 hover:text-red-700"
+                                    >
+                                      Remover
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                                    Título do vídeo
+                                    <input
+                                      value={video.titulo}
+                                      onChange={(event) =>
+                                        handleVideoChange(
+                                          index,
+                                          "titulo",
+                                          event.target.value,
+                                        )
+                                      }
+                                      placeholder="Aula 1 - Conhecendo os pontos"
+                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                                      required={index < 2}
+                                    />
+                                  </label>
+
+                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                                    URL do vídeo
+                                    <input
+                                      value={video.url}
+                                      onChange={(event) =>
+                                        handleVideoChange(
+                                          index,
+                                          "url",
+                                          event.target.value,
+                                        )
+                                      }
+                                      placeholder="https://youtube.com/watch?..."
+                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                                      required={index < 2}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {form.tipo === "kit" ? (
                       <>
@@ -684,11 +858,133 @@ export default function Admin() {
           </div>
         )}
 
-        {["MATERIAIS", "CLUBE", "TROCAS", "TUTORIAIS"].includes(abaAtiva) && (
-          <p className="text-stone-500">
-            Gerenciamento da seção <strong>{abaAtiva}</strong> pronto para ser
-            conectado ao backend.
-          </p>
+        {abaAtiva === "MATERIAIS" && (
+          <div className="space-y-5">
+            <h2 className="text-xl font-bold text-[#3E2417]">
+              Materiais cadastrados
+            </h2>
+
+            {carregando ? (
+              <p className="text-stone-500">Carregando materiais...</p>
+            ) : !itens.some((item) => item.tipo === "material") ? (
+              <p className="text-stone-500">
+                Nenhum material cadastrado ainda.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {itens
+                  .filter((item) => item.tipo === "material")
+                  .map((item) => (
+                    <div
+                      key={item._id}
+                      className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-[#7B5E4B]">
+                          Material
+                        </span>
+                        <span className="text-[10px] font-bold uppercase text-stone-500">
+                          {item.estoque} em estoque
+                        </span>
+                      </div>
+
+                      <h3 className="mt-2 text-lg font-black text-[#3E2417]">
+                        {item.nome}
+                      </h3>
+
+                      <p className="mt-3 text-sm text-stone-700">
+                        <span className="font-semibold">Descrição:</span>{" "}
+                        {item.material?.descricao || "—"}
+                      </p>
+
+                      <p className="mt-2 text-sm text-stone-700">
+                        <span className="font-semibold">Categoria:</span>{" "}
+                        {item.material?.categoria || "geral"}
+                      </p>
+
+                      <p className="mt-3 text-lg font-black text-[#3E2417]">
+                        {item.preco
+                          ? `R$ ${(item.preco / 100).toFixed(2).replace(".", ",")}`
+                          : "R$ 0,00"}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {abaAtiva === "TUTORIAIS" && (
+          <div className="space-y-5">
+            <h2 className="text-xl font-bold text-[#3E2417]">
+              Tutoriais dos kits
+            </h2>
+
+            {carregando ? (
+              <p className="text-stone-500">Carregando tutoriais...</p>
+            ) : !itens.some(
+                (item) =>
+                  item.tipo === "kit" &&
+                  Array.isArray(item.kit?.videos) &&
+                  item.kit.videos.length > 0,
+              ) ? (
+              <p className="text-stone-500">
+                Nenhum tutorial cadastrado ainda.
+              </p>
+            ) : (
+              <div className="space-y-5">
+                {itens
+                  .filter((item) => item.tipo === "kit")
+                  .map((item) => (
+                    <div
+                      key={item._id}
+                      className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-[#7B5E4B]">
+                            Kit
+                          </p>
+                          <h3 className="mt-1 text-lg font-black text-[#3E2417]">
+                            {item.nome}
+                          </h3>
+                        </div>
+                        <span className="rounded-full bg-[#3E2417] text-white px-3 py-1 text-[10px] font-bold uppercase">
+                          {item.kit?.videos?.length || 0} vídeos
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {(item.kit?.videos || []).map((video, index) => (
+                          <div
+                            key={`${item._id}-${video.titulo || index}`}
+                            className="rounded-xl border border-stone-200 bg-white p-3"
+                          >
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <p className="font-bold text-[#3E2417]">
+                                {index + 1}.{" "}
+                                {video.titulo || "Vídeo sem título"}
+                              </p>
+                              <span className="text-[10px] font-bold uppercase text-stone-500">
+                                {video.ativo ? "Ativo" : "Inativo"}
+                              </span>
+                            </div>
+                            <a
+                              href={video.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-2 inline-block text-sm text-[#602D15] underline break-all"
+                            >
+                              {video.url || "URL não informada"}
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

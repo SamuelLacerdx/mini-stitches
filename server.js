@@ -433,6 +433,16 @@ app.post("/admin/estoque", async (req, res) => {
       const caixa = Array.isArray(body.caixa)
         ? body.caixa.map((itemCaixa) => itemCaixa.trim()).filter(Boolean)
         : [];
+      const videos = normalizarVideosDoKit(body.videos).map((video) => ({
+        ...video,
+        ativo: body.ativo !== undefined ? Boolean(body.ativo) : video.ativo,
+      }));
+
+      if (videos.length < 2) {
+        return res.status(400).json({
+          erro: "O kit deve possuir pelo menos 2 vídeos cadastrados.",
+        });
+      }
 
       item.kit = {
         nomeChamada,
@@ -442,6 +452,7 @@ app.post("/admin/estoque", async (req, res) => {
         destaque: Boolean(body.destaque),
         descricao,
         caixa,
+        videos,
       };
     }
 
@@ -540,6 +551,19 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
       const caixa = Array.isArray(body.caixa)
         ? body.caixa.map((itemCaixa) => itemCaixa.trim()).filter(Boolean)
         : [];
+      const videos = sincronizarVideosDoKitComStatus(
+        normalizarVideosDoKit(body.videos),
+        ativo,
+      ).map((video) => ({
+        ...video,
+        ativo: Boolean(ativo) && video.ativo !== false,
+      }));
+
+      if (videos.length < 2) {
+        return res.status(400).json({
+          erro: "O kit deve possuir pelo menos 2 vídeos cadastrados.",
+        });
+      }
 
       itemAtualizado.kit = {
         nomeChamada,
@@ -549,6 +573,7 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
         destaque: Boolean(body.destaque),
         descricao,
         caixa,
+        videos,
       };
     }
 
@@ -852,3 +877,38 @@ async function iniciar() {
 }
 
 iniciar();
+
+function normalizarVideosDoKit(videos) {
+  if (!Array.isArray(videos)) {
+    return [];
+  }
+
+  return videos
+    .map((video, index) => {
+      const titulo = String(video?.titulo || "").trim();
+      const url = String(video?.url || "").trim();
+
+      if (!titulo && !url) {
+        return null;
+      }
+
+      return {
+        titulo,
+        url,
+        ordem: Number(video?.ordem ?? index + 1),
+        ativo: video?.ativo !== undefined ? Boolean(video.ativo) : true,
+      };
+    })
+    .filter(Boolean);
+}
+
+function sincronizarVideosDoKitComStatus(videos, ativoKit) {
+  if (!Array.isArray(videos)) {
+    return [];
+  }
+
+  return videos.map((video) => ({
+    ...(video && typeof video === "object" ? video : {}),
+    ativo: Boolean(ativoKit) && video?.ativo !== false,
+  }));
+}
