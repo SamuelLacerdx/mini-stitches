@@ -605,25 +605,36 @@ app.get("/admin/estoque", autenticarAdmin, async (req, res) => {
   }
 });
 
-app.delete("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
+app.get("/api/produtos", async (req, res) => {
   try {
-    const { id } = req.params;
+    const { tipo } = req.query;
+    const filtro = { ativo: true };
 
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ erro: "ID inválido." });
+    if (tipo && ["kit", "material"].includes(String(tipo).toLowerCase())) {
+      filtro.tipo = String(tipo).toLowerCase();
     }
 
-    const produto = await Produto.findById(id);
+    const produtos = await Produto.find(filtro).sort({ nome: 1 }).lean();
+    res.json({ produtos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar produtos." });
+  }
+});
+
+app.get("/api/produto/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const produto = await Produto.findOne({ slug, ativo: true }).lean();
     if (!produto) {
       return res.status(404).json({ erro: "Produto não encontrado." });
     }
 
-    await Produto.deleteOne({ _id: id });
-
-    res.json({ mensagem: "Produto excluído com sucesso." });
+    res.json({ produto });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ erro: "Erro ao excluir produto." });
+    res.status(500).json({ erro: "Erro ao buscar produto." });
   }
 });
 

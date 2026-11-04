@@ -26,18 +26,19 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/cadastro" element={<CriarConta />} />
-            <Route path="/Kits" element={<Kits />} />
-            <Route path="/Carrinho" element={<Carrinho />} />
-            <Route path="/Admin" element={<Admin />} />
-            <Route path="/Materiais" element={<Materiais />} />
-            <Route path="/Login" element={<Login />} />
+            <Route path="/kits" element={<Kits />} />
+            <Route path="/materiais" element={<Materiais />} />
+            <Route path="/carrinho" element={<Carrinho />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/perfil" element={<Perfil />} />
-            <Route path="/Clube" element={<Clube />} />
-            <Route path="/Trocas" element={<Trocas />} />
+            <Route path="/clube" element={<Clube />} />
+            <Route path="/trocas" element={<Trocas />} />
+            <Route path="/produto/:slug" element={<DetalheProd />} />
+            <Route path="/nossa-historia" element={<NossaHistoria />} />
+            <Route path="/contato" element={<Contato />} />
+            <Route path="/tutorial" element={<Tutorial />} />
             <Route path="/DetalheProd" element={<DetalheProd />} />
-            <Route path="/NossaHistoria" element={<NossaHistoria />} />
-            <Route path="/Contato" element={<Contato />} />
-            <Route path="/Tutorial" element={<Tutorial />} />
           </Routes>
         </main>
         <Footer />
