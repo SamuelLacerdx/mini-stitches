@@ -14,8 +14,25 @@ const app = express();
 const session = require("express-session");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
+const jwtSecret = process.env.JWT_SECRET || sessionSecret;
 
 function autenticar(req, res, next) {
+  const tokenCookie = (req.headers.cookie || "")
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith("token="));
+  const token = tokenCookie?.slice("token=".length);
+
+  if (token) {
+    try {
+      const dadosToken = jwt.verify(token, jwtSecret);
+      req.session.usuarioId = dadosToken.usuarioId;
+      req.session.perfil = dadosToken.perfil;
+    } catch {
+      return res.status(401).json({ erro: "Sessão inválida. Faça login novamente." });
+    }
+  }
+
   if (!req.session.usuarioId) {
     return res.status(401).json({ erro: "Faça login para continuar." });
   }
@@ -23,12 +40,14 @@ function autenticar(req, res, next) {
 }
 
 function autenticarAdmin(req, res, next) {
-  if (!req.session || req.session.perfil !== "admin") {
-    return res
-      .status(403)
-      .json({ erro: "Acesso restrito ao painel administrativo." });
-  }
-  next();
+  autenticar(req, res, () => {
+    if (req.session.perfil !== "admin") {
+      return res
+        .status(403)
+        .json({ erro: "Acesso restrito ao painel administrativo." });
+    }
+    next();
+  });
 }
 
 app.use(
@@ -43,7 +62,7 @@ app.use(
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
@@ -140,11 +159,21 @@ app.post("/login", async (req, res) => {
     req.session.usuarioId = usuario._id;
     req.session.perfil = usuario.perfil;
 
-    if (usuario.perfil === "admin") {
-      return res.redirect("/Admin");
-    }
+    const token = jwt.sign(
+      { usuarioId: String(usuario._id), perfil: usuario.perfil },
+      jwtSecret,
+      { expiresIn: "2h" },
+    );
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 2 * 60 * 60 * 1000,
+    });
 
-    return res.redirect("/Perfil");
+    return res.json({
+      destino: usuario.perfil === "admin" ? "/admin" : "/perfil",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro interno do servidor." });
@@ -179,6 +208,7 @@ app.get("/api/perfil", autenticar, async (req, res) => {
         email: usuario.email || "",
         telefone: usuario.telefone || "",
         cpf: usuario.cpf || "",
+        perfil: usuario.perfil || "cliente",
         nascimento: usuario.nascimento
           ? usuario.nascimento.toISOString().slice(0, 10)
           : "",
@@ -861,7 +891,28 @@ app.get("/plano/:id", async (req, res) => {
   }
 });
 
+app.post("/sair", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+  req.session.destroy((error) => {
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ erro: "Não foi possível encerrar a sessão." });
+    }
+
+    res.json({ mensagem: "Sessão encerrada." });
+  });
+});
+
 app.get("/sair", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
   req.session.destroy(() => {
     res.redirect("/");
   });
@@ -869,6 +920,16 @@ app.get("/sair", (req, res) => {
 
 app.use((req, res) => {
   res.status(404).send("Página não encontrada.");
+});
+
+app.use((error, req, res, next) => {
+  if (error.type === "entity.too.large") {
+    return res.status(413).json({
+      erro: "O arquivo enviado é muito grande. Reduza a imagem e tente novamente.",
+    });
+  }
+
+  next(error);
 });
 
 async function iniciar() {

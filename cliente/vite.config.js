@@ -14,11 +14,15 @@ export default defineConfig({
         target: "http://localhost:4000",
         changeOrigin: true,
       },
+      "/sair": {
+        target: "http://localhost:4000",
+        changeOrigin: true,
+      },
       "/api": {
         target: "http://localhost:4000",
         changeOrigin: true,
       },
-      "/perfil": {
+      "/perfil/": {
         target: "http://localhost:4000",
         changeOrigin: true,
       },

@@ -1,6 +1,28 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Login() {
+  const navigate = useNavigate();
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    try {
+      const resposta = await fetch("/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(data.erro || "Não foi possível fazer login.");
+      }
+
+      navigate(data.destino || "/perfil");
+    } catch (error) {
+      window.alert(error.message || "Não foi possível fazer login.");
+    }
+  }
 
   return (
     <div className="flex-1 w-full flex items-center justify-center bg-[#FEF8F0] px-4 py-12">
@@ -14,7 +36,7 @@ export default function Login() {
           Com uma conta você acompanha pedidos, assiste a todos os tutoriais e assina o Clube. Para comprar, não precisa de cadastro.
         </p>
 
-        <form action="/login" method="POST" className="w-full flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
           <input
             type="email"
             placeholder="Seu e-mail"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const enderecoVazio = {
   apelido: "",
@@ -14,6 +14,7 @@ const enderecoVazio = {
 };
 
 export default function Perfil() {
+  const navigate = useNavigate();
   const [usuario, setUsuario] = useState({ enderecos: [] });
   const [enderecoForm, setEnderecoForm] = useState(enderecoVazio);
   const [mostrarFormularioEndereco, setMostrarFormularioEndereco] =
@@ -21,6 +22,25 @@ export default function Perfil() {
   const [cepStatus, setCepStatus] = useState("");
   const cepConsultaAtual = useRef("");
   const enderecos = usuario.enderecos || [];
+
+  async function sair(event) {
+    event.preventDefault();
+
+    try {
+      const resposta = await fetch("/sair", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(data.erro || "Não foi possível sair da conta.");
+      }
+
+      navigate("/");
+    } catch (error) {
+      alert(error.message || "Não foi possível sair da conta.");
+    }
+  }
 
   useEffect(() => {
     fetch("/api/perfil", { credentials: "include" })
@@ -192,6 +212,7 @@ export default function Perfil() {
           </h1>
           <Link
             to="/"
+            onClick={sair}
             className="text-amber-800 text-sm font-semibold underline hover:opacity-80"
           >
             Sair

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const criarVideoPadrao = () => ({
   titulo: "",
@@ -60,6 +61,7 @@ const garantirVideosDoKit = (videos) => {
 };
 
 export default function Admin() {
+  const navigate = useNavigate();
   const [abaAtiva, setAbaAtiva] = useState("VISÃO GERAL");
   const [mostrarCadastro, setMostrarCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -68,6 +70,23 @@ export default function Admin() {
   const [carregando, setCarregando] = useState(false);
   const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
   const [produtoAbertoId, setProdutoAbertoId] = useState(null);
+
+  const sair = async () => {
+    try {
+      const resposta = await fetch("/sair", {
+        method: "POST",
+        credentials: "include",
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Não foi possível sair da conta.");
+      }
+
+      navigate("/");
+    } catch (error) {
+      window.alert(error.message || "Não foi possível sair da conta.");
+    }
+  };
 
   const abas = [
     "VISÃO GERAL",
@@ -182,6 +201,16 @@ export default function Admin() {
     const arquivo = event.target.files?.[0];
     if (!arquivo) return;
 
+    if (arquivo.size > 6 * 1024 * 1024) {
+      event.target.value = "";
+      setMensagem({
+        tipo: "erro",
+        texto: "A imagem deve ter no máximo 6 MB.",
+      });
+      return;
+    }
+
+    setMensagem({ tipo: "", texto: "" });
     const leitor = new FileReader();
     leitor.onload = () => {
       setForm((anterior) => ({
@@ -269,6 +298,14 @@ export default function Admin() {
         credentials: "include",
       });
 
+      if (!resposta.headers.get("content-type")?.includes("application/json")) {
+        throw new Error(
+          resposta.status === 413
+            ? "A imagem é muito grande. Escolha uma imagem menor que 6 MB."
+            : "O servidor retornou uma resposta inválida.",
+        );
+      }
+
       const dados = await resposta.json();
       if (!resposta.ok) {
         throw new Error(dados.erro || "Erro ao salvar item.");
@@ -310,9 +347,18 @@ export default function Admin() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full">
-      <h1 className="text-4xl md:text-5xl font-['Archivo_Black'] text-[#3E2417] mb-8">
-        PAINEL DA LOJA
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        <h1 className="text-4xl md:text-5xl font-['Archivo_Black'] text-[#3E2417]">
+          PAINEL DA LOJA
+        </h1>
+        <button
+          type="button"
+          onClick={sair}
+          className="text-amber-800 text-sm font-semibold underline hover:opacity-80"
+        >
+          Sair
+        </button>
+      </div>
 
       <div className="flex flex-wrap gap-3 mb-8">
         {abas.map((aba) => (

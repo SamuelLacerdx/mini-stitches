@@ -1,5 +1,5 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import logoMarca from "../logo.svg";
 import {
   Search,
@@ -11,6 +11,41 @@ import {
 } from "lucide-react";
 
 export default function Header() {
+  const [usuario, setUsuario] = useState(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    let ativo = true;
+
+    fetch("/api/perfil", { credentials: "include" })
+      .then(async (resposta) => {
+        if (!resposta.ok) {
+          if (resposta.status !== 401) {
+            throw new Error("Não foi possível verificar a conta logada.");
+          }
+          return null;
+        }
+
+        const data = await resposta.json();
+        return data.usuario;
+      })
+      .then((dadosUsuario) => {
+        if (ativo) {
+          setUsuario(dadosUsuario);
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        if (ativo) {
+          setUsuario(null);
+        }
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [location]);
+
   return (
     <header className="w-full font-['Archivo_Black',sans-serif]">
       {/* 1. FAIXA SUPERIOR ESCURA */}
@@ -89,11 +124,17 @@ export default function Header() {
             </Link>
 
             <Link
-              to="/Login"
+              to={
+                usuario
+                  ? usuario.perfil === "admin"
+                    ? "/admin"
+                    : "/perfil"
+                  : "/Login"
+              }
               className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <User className="h-4 w-4 stroke-[1.75]" />
-              <span>CONTA</span>
+              <span>{usuario?.nome || "CONTA"}</span>
             </Link>
           </div>
         </div>
