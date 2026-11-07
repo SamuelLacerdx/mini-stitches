@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import logoMarca from "../logo.svg";
+import logoMarca from "../assets/logo.svg";
 import {
   Search,
   ShoppingBag,

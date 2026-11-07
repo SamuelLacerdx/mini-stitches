@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Header from "./assets/Componentes/Header";
-import Footer from "./assets/Componentes/Footer";
-import Home from "./Home";
-import CriarConta from "./CriarConta";
-import Kits from "./Kits";
-import Carrinho from "./Carrinho";
-import Admin from "./Admin";
-import Materiais from "./Materiais";
-import Login from "./Login";
-import Perfil from "./Perfil";
-import Clube from "./Clube";
-import Trocas from "./Trocas";
-import DetalheProd from "./DetalheProd";
-import NossaHistoria from "./Nossahistoria";
-import Contato from "./Contato";
-import Tutorial from "./Tutorial";
+import Header from "./Componentes/Header";
+import Footer from "./Componentes/Footer";
+import Home from "./Pages/Home";
+import CriarConta from "./Pages/CriarConta";
+import Kits from "./Pages/Kits";
+import Carrinho from "./Pages/Carrinho";
+import Admin from "./Pages/Admin";
+import Materiais from "./Pages/Materiais";
+import Login from "./Pages/Login";
+import Perfil from "./Pages/Perfil";
+import Clube from "./Pages/Clube";
+import Trocas from "./Pages/Trocas";
+import DetalheProd from "./Pages/DetalheProd";
+import NossaHistoria from "./Pages/Nossahistoria";
+import Contato from "./Pages/Contato";
+import Tutorial from "./Pages/Tutorial";
 
 export default function App() {
   return (
