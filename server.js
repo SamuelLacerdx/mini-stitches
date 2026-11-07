@@ -7,6 +7,12 @@ const bcrypt = require("bcryptjs");
 const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
+const { criarAutenticacao } = require("./backend/functions/autenticacao");
+const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
+const {
+  normalizarVideosDoKit,
+  sincronizarVideosDoKitComStatus,
+} = require("./backend/functions/videosKit");
 const {
   Usuario,
   Plano,
@@ -21,146 +27,13 @@ const session = require("express-session");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
 const jwtSecret = process.env.JWT_SECRET || sessionSecret;
-
-function autenticar(req, res, next) {
-  const tokenCookie = (req.headers.cookie || "")
-    .split(";")
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith("token="));
-  const token = tokenCookie?.slice("token=".length);
-
-  if (token) {
-    try {
-      const dadosToken = jwt.verify(token, jwtSecret);
-      req.session.usuarioId = dadosToken.usuarioId;
-      req.session.perfil = dadosToken.perfil;
-    } catch {
-      return res.status(401).json({ erro: "Sessão inválida. Faça login novamente." });
-    }
-  }
-
-  if (!req.session.usuarioId) {
-    return res.status(401).json({ erro: "Faça login para continuar." });
-  }
-  next();
-}
-
-function autenticarAdmin(req, res, next) {
-  autenticar(req, res, () => {
-    if (req.session.perfil !== "admin") {
-      return res
-        .status(403)
-        .json({ erro: "Acesso restrito ao painel administrativo." });
-    }
-    next();
-  });
-}
-
-function clienteIdDoCarrinho(req) {
-  if (req.session.usuarioId) {
-    return String(req.session.usuarioId);
-  }
-
-  const tokenCookie = (req.headers.cookie || "")
-    .split(";")
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith("token="));
-  const token = tokenCookie?.slice("token=".length);
-
-  if (token) {
-    try {
-      const dadosToken = jwt.verify(token, jwtSecret);
-      req.session.usuarioId = dadosToken.usuarioId;
-      req.session.perfil = dadosToken.perfil;
-      return String(dadosToken.usuarioId);
-    } catch {
-      // Sessões expiradas continuam podendo usar um carrinho de visitante.
-    }
-  }
-
-  req.session.carrinhoVisitante = true;
-  return null;
-}
-
-async function obterCarrinho(req) {
-  const clienteId = clienteIdDoCarrinho(req);
-
-  if (!clienteId) {
-    let carrinho = await Carrinho.findOne({
-      sessaoId: req.sessionID,
-      clienteId: null,
-    });
-
-    if (!carrinho) {
-      carrinho = await Carrinho.create({
-        sessaoId: req.sessionID,
-        itens: [],
-      });
-    }
-
-    return carrinho;
-  }
-
-  let carrinho = await Carrinho.findOne({ clienteId });
-  const carrinhoVisitante = await Carrinho.findOne({
-    sessaoId: req.sessionID,
-    clienteId: null,
-  });
-
-  if (carrinhoVisitante) {
-    if (!carrinho) {
-      carrinho = carrinhoVisitante;
-      carrinho.clienteId = clienteId;
-      carrinho.sessaoId = undefined;
-      await carrinho.save();
-    } else {
-      for (const itemVisitante of carrinhoVisitante.itens) {
-        const itemCliente = carrinho.itens.find(
-          (item) => String(item.produtoId) === String(itemVisitante.produtoId),
-        );
-        if (itemCliente) {
-          itemCliente.quantidade += itemVisitante.quantidade;
-        } else {
-          carrinho.itens.push(itemVisitante.toObject());
-        }
-      }
-
-      await carrinho.save();
-      await carrinhoVisitante.deleteOne();
-    }
-  }
-
-  if (!carrinho) {
-    carrinho = await Carrinho.create({ clienteId, itens: [] });
-  }
-
-  return carrinho;
-}
-
-async function respostaCarrinho(carrinho) {
-  await carrinho.populate(
-    "itens.produtoId",
-    "slug nome tipo preco imagemUrl kit.nivel kit.faixaEtaria material.categoria ativo",
-  );
-
-  const itens = carrinho.itens
-    .filter((item) => item.produtoId)
-    .map((item) => ({
-      produtoId: String(item.produtoId._id),
-      slug: item.slug,
-      nome: item.produtoId.nome,
-      tipo:
-        item.produtoId.tipo === "kit"
-          ? item.produtoId.kit?.faixaEtaria || item.produtoId.kit?.nivel || "Kit"
-          : item.produtoId.material?.categoria || "Material avulso",
-      preco: item.produtoId.preco,
-      imagemUrl: item.produtoId.imagemUrl || "",
-      quantidade: item.quantidade,
-      ativo: item.produtoId.ativo,
-    }));
-
-  return { itens };
-}
+const { autenticar, autenticarAdmin, clienteIdDoCarrinho } = criarAutenticacao({
+  jwtSecret,
+});
+const { obterCarrinho, respostaCarrinho } = criarCarrinhoHelpers({
+  Carrinho,
+  clienteIdDoCarrinho,
+});
 
 app.use(
   session({
@@ -1156,38 +1029,3 @@ async function iniciar() {
 }
 
 iniciar();
-
-function normalizarVideosDoKit(videos) {
-  if (!Array.isArray(videos)) {
-    return [];
-  }
-
-  return videos
-    .map((video, index) => {
-      const titulo = String(video?.titulo || "").trim();
-      const url = String(video?.url || "").trim();
-
-      if (!titulo && !url) {
-        return null;
-      }
-
-      return {
-        titulo,
-        url,
-        ordem: Number(video?.ordem ?? index + 1),
-        ativo: video?.ativo !== undefined ? Boolean(video.ativo) : true,
-      };
-    })
-    .filter(Boolean);
-}
-
-function sincronizarVideosDoKitComStatus(videos, ativoKit) {
-  if (!Array.isArray(videos)) {
-    return [];
-  }
-
-  return videos.map((video) => ({
-    ...(video && typeof video === "object" ? video : {}),
-    ativo: Boolean(ativoKit) && video?.ativo !== false,
-  }));
-}
