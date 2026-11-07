@@ -354,9 +354,8 @@ const carrinhoSchema = new mongoose.Schema({
   itens: { type: [itemCarrinhoSchema], default: [] },
 });
 
-carrinhoSchema.pre("save", function (next) {
+carrinhoSchema.pre("save", function () {
   this.atualizadoEm = new Date();
-  next();
 });
 
 carrinhoSchema.index({ clienteId: 1 });

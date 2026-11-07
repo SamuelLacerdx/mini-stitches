@@ -7,7 +7,13 @@ const bcrypt = require("bcryptjs");
 const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
-const { Usuario, Plano, Assinatura, Produto } = require("./backend/db/mongodb");
+const {
+  Usuario,
+  Plano,
+  Assinatura,
+  Produto,
+  Carrinho,
+} = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const app = express();
 
@@ -48,6 +54,112 @@ function autenticarAdmin(req, res, next) {
     }
     next();
   });
+}
+
+function clienteIdDoCarrinho(req) {
+  if (req.session.usuarioId) {
+    return String(req.session.usuarioId);
+  }
+
+  const tokenCookie = (req.headers.cookie || "")
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith("token="));
+  const token = tokenCookie?.slice("token=".length);
+
+  if (token) {
+    try {
+      const dadosToken = jwt.verify(token, jwtSecret);
+      req.session.usuarioId = dadosToken.usuarioId;
+      req.session.perfil = dadosToken.perfil;
+      return String(dadosToken.usuarioId);
+    } catch {
+      // Sessões expiradas continuam podendo usar um carrinho de visitante.
+    }
+  }
+
+  req.session.carrinhoVisitante = true;
+  return null;
+}
+
+async function obterCarrinho(req) {
+  const clienteId = clienteIdDoCarrinho(req);
+
+  if (!clienteId) {
+    let carrinho = await Carrinho.findOne({
+      sessaoId: req.sessionID,
+      clienteId: null,
+    });
+
+    if (!carrinho) {
+      carrinho = await Carrinho.create({
+        sessaoId: req.sessionID,
+        itens: [],
+      });
+    }
+
+    return carrinho;
+  }
+
+  let carrinho = await Carrinho.findOne({ clienteId });
+  const carrinhoVisitante = await Carrinho.findOne({
+    sessaoId: req.sessionID,
+    clienteId: null,
+  });
+
+  if (carrinhoVisitante) {
+    if (!carrinho) {
+      carrinho = carrinhoVisitante;
+      carrinho.clienteId = clienteId;
+      carrinho.sessaoId = undefined;
+      await carrinho.save();
+    } else {
+      for (const itemVisitante of carrinhoVisitante.itens) {
+        const itemCliente = carrinho.itens.find(
+          (item) => String(item.produtoId) === String(itemVisitante.produtoId),
+        );
+        if (itemCliente) {
+          itemCliente.quantidade += itemVisitante.quantidade;
+        } else {
+          carrinho.itens.push(itemVisitante.toObject());
+        }
+      }
+
+      await carrinho.save();
+      await carrinhoVisitante.deleteOne();
+    }
+  }
+
+  if (!carrinho) {
+    carrinho = await Carrinho.create({ clienteId, itens: [] });
+  }
+
+  return carrinho;
+}
+
+async function respostaCarrinho(carrinho) {
+  await carrinho.populate(
+    "itens.produtoId",
+    "slug nome tipo preco imagemUrl kit.nivel kit.faixaEtaria material.categoria ativo",
+  );
+
+  const itens = carrinho.itens
+    .filter((item) => item.produtoId)
+    .map((item) => ({
+      produtoId: String(item.produtoId._id),
+      slug: item.slug,
+      nome: item.produtoId.nome,
+      tipo:
+        item.produtoId.tipo === "kit"
+          ? item.produtoId.kit?.faixaEtaria || item.produtoId.kit?.nivel || "Kit"
+          : item.produtoId.material?.categoria || "Material avulso",
+      preco: item.produtoId.preco,
+      imagemUrl: item.produtoId.imagemUrl || "",
+      quantidade: item.quantidade,
+      ativo: item.produtoId.ativo,
+    }));
+
+  return { itens };
 }
 
 app.use(
@@ -872,6 +984,101 @@ app.get("/assinatura/:id", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao buscar assinatura." });
+  }
+});
+
+app.get("/api/carrinho", async (req, res) => {
+  try {
+    const carrinho = await obterCarrinho(req);
+    res.json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível carregar o carrinho." });
+  }
+});
+
+app.post("/api/carrinho", async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim();
+    const quantidade = Number(req.body?.quantidade ?? 1);
+
+    if (!slug || !Number.isSafeInteger(quantidade) || quantidade < 1) {
+      return res.status(400).json({ erro: "Produto ou quantidade inválida." });
+    }
+
+    const produto = await Produto.findOne({ slug, ativo: true }).lean();
+    if (!produto) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    const item = carrinho.itens.find(
+      (itemCarrinho) => String(itemCarrinho.produtoId) === String(produto._id),
+    );
+
+    if (item) {
+      item.quantidade += quantidade;
+    } else {
+      carrinho.itens.push({
+        produtoId: produto._id,
+        slug: produto.slug,
+        quantidade,
+      });
+    }
+
+    await carrinho.save();
+    res.status(200).json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
+  }
+});
+
+app.patch("/api/carrinho/:produtoId", async (req, res) => {
+  try {
+    const { produtoId } = req.params;
+    const quantidade = Number(req.body?.quantidade);
+    if (
+      !mongoose.isValidObjectId(produtoId) ||
+      !Number.isSafeInteger(quantidade) ||
+      quantidade < 1
+    ) {
+      return res.status(400).json({ erro: "Produto ou quantidade inválida." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    const item = carrinho.itens.find(
+      (itemCarrinho) => String(itemCarrinho.produtoId) === produtoId,
+    );
+    if (!item) {
+      return res.status(404).json({ erro: "Item não encontrado no carrinho." });
+    }
+
+    item.quantidade = quantidade;
+    await carrinho.save();
+    res.json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível atualizar o carrinho." });
+  }
+});
+
+app.delete("/api/carrinho/:produtoId", async (req, res) => {
+  try {
+    const { produtoId } = req.params;
+    if (!mongoose.isValidObjectId(produtoId)) {
+      return res.status(400).json({ erro: "Produto inválido." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    carrinho.itens = carrinho.itens.filter(
+      (item) => String(item.produtoId) !== produtoId,
+    );
+    await carrinho.save();
+    res.json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível remover o item." });
   }
 });
 
