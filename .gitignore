@@ -30,3 +30,4 @@ dist-ssr
 .env
 
 node_modules
+.continue/agents/new-config.yaml
