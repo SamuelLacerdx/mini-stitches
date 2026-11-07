@@ -181,9 +181,12 @@ export default function Home() {
                     </p>
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-4 flex items-baseline gap-2.5">
                     <span className="text-base font-black text-yellow-900">
                       {formatarPreco(product.preco)}
+                    </span>
+                    <span className="text-xs font-normal text-stone-700 line-through">
+                      {formatarPreco(product.preco + 3000)}
                     </span>
                   </div>
                 </div>
