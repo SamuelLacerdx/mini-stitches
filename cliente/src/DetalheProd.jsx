@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 const formatarPreco = (valor) => {
@@ -13,6 +13,41 @@ export default function DetalheProd() {
   const [quantidade, setQuantidade] = useState(1);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
+  const [usuarioAutenticado, setUsuarioAutenticado] = useState(false);
+  const [verificandoAcesso, setVerificandoAcesso] = useState(true);
+  const [erroAcesso, setErroAcesso] = useState("");
+
+  useEffect(() => {
+    let ativo = true;
+
+    fetch("/api/perfil", { credentials: "include" })
+      .then((resposta) => {
+        if (resposta.status === 401 || resposta.status === 404) {
+          return false;
+        }
+        if (!resposta.ok) {
+          throw new Error("Não foi possível verificar sua conta.");
+        }
+        return true;
+      })
+      .then((autenticado) => {
+        if (ativo) {
+          setUsuarioAutenticado(autenticado);
+          setVerificandoAcesso(false);
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+        if (ativo) {
+          setErroAcesso(error.message || "Não foi possível verificar sua conta.");
+          setVerificandoAcesso(false);
+        }
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   useEffect(() => {
     const carregarProduto = async () => {
@@ -244,28 +279,56 @@ export default function DetalheProd() {
 
             <div className="space-y-3">
               {kitInfo.aulas.length > 0 ? (
-                kitInfo.aulas.map((aula, index) => (
-                  <div
-                    key={`${aula.titulo}-${index}`}
-                    className="bg-yellow-100 p-4 rounded-2xl flex items-center justify-between gap-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl">▶</span>
-                      <span className="text-sm font-medium text-yellow-900">
-                        {aula.titulo}
-                      </span>
-                    </div>
+                kitInfo.aulas.map((aula, index) => {
+                    const bloqueado = !usuarioAutenticado && index > 0;
+                    const conteudo = (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl" aria-hidden="true">
+                            {bloqueado ? "🔒" : "▶"}
+                          </span>
+                          <span className="text-sm font-medium text-yellow-900">
+                            {aula.titulo}
+                          </span>
+                        </div>
 
-                    <div className="flex items-center gap-3 text-xs text-stone-600 font-medium">
-                      {aula.gratis && (
-                        <span className="bg-white px-2 py-0.5 rounded font-['Archivo_Black'] text-[#3E2417]">
-                          Grátis
-                        </span>
-                      )}
-                      <span>{aula.duracao}</span>
-                    </div>
-                  </div>
-                ))
+                        <div className="flex items-center gap-3 text-xs text-stone-600 font-medium">
+                          {bloqueado ? (
+                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo_Black'] text-[#3E2417]">
+                              Entre para assistir
+                            </span>
+                          ) : (
+                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo_Black'] text-[#3E2417]">
+                              {index === 0 && !usuarioAutenticado
+                                ? "Grátis"
+                                : "Assistir"}
+                            </span>
+                          )}
+                          <span>{aula.duracao}</span>
+                        </div>
+                      </>
+                    );
+
+                    return bloqueado ? (
+                      <Link
+                        key={`${aula.titulo}-${index}`}
+                        to="/login"
+                        className="bg-yellow-100 p-4 rounded-2xl flex items-center justify-between gap-4 opacity-75 hover:opacity-100 transition-opacity"
+                        aria-label={`${aula.titulo}: entre ou crie uma conta para assistir`}
+                      >
+                        {conteudo}
+                      </Link>
+                    ) : (
+                      <Link
+                        key={`${aula.titulo}-${index}`}
+                        to="/tutorial"
+                        state={{ kitNome: kitInfo.nome, videos: kitInfo.aulas }}
+                        className="bg-yellow-100 p-4 rounded-2xl flex items-center justify-between gap-4 hover:bg-yellow-200 transition-colors"
+                      >
+                        {conteudo}
+                      </Link>
+                    );
+                })
               ) : (
                 <div className="bg-yellow-100 p-4 rounded-2xl text-sm text-stone-700">
                   Ainda não há vídeos cadastrados para este kit.
@@ -273,11 +336,23 @@ export default function DetalheProd() {
               )}
             </div>
 
-            <p className="text-xs text-stone-600 font-bold underline pt-2">
-              <Link to="/login">
-                Entre ou crie uma conta para ver todos os vídeos.
-              </Link>
-            </p>
+            {!usuarioAutenticado && (
+              <p className="text-xs text-stone-600 pt-2">
+                {verificandoAcesso
+                  ? "Verificando sua conta..."
+                  : erroAcesso
+                    ? erroAcesso
+                    : "A primeira aula é grátis. Entre ou crie uma conta para assistir aos outros vídeos."}
+                {!verificandoAcesso && (
+                  <>
+                    {" "}
+                    <Link to="/login" className="font-bold underline">
+                      Entrar ou criar conta
+                    </Link>
+                  </>
+                )}
+              </p>
+            )}
           </div>
 
           <div className="bg-orange-200 p-8 rounded-[32px] space-y-4">
