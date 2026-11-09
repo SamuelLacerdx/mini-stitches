@@ -1,44 +1,55 @@
-import React, { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 // Importação de ícones para enriquecer o visual
-import { Truck, Percent, Sparkles, Box, Heart } from "lucide-react";
+import { Sparkles, Box, Heart } from "lucide-react";
+
+const formatarPreco = (valor) => {
+  const numero = Number(valor ?? 0);
+  if (!Number.isFinite(numero)) return "R$ 0,00";
+  return `R$ ${(numero / 100).toFixed(2).replace(".", ",")}`;
+};
 
 export default function Home() {
-  const featuredProducts = [
-    {
-      id: 1,
-      title: "Coelhinho Amigurumi",
-      tag: "Iniciante · 7 a 10 anos",
-      description: "O primeiro bichinho que sai das suas mãos",
-      price: "129,60",
-      originalPrice: "159,50",
-      image:
-        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
-      link: "/kits",
-    },
-    {
-      id: 2,
-      title: "Coelhinho Amigurumi",
-      tag: "Iniciante · 7 a 10 anos",
-      description: "O primeiro bichinho que sai das suas mãos",
-      price: "129,60",
-      originalPrice: "159,50",
-      image:
-        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
-      link: "/kits",
-    },
-    {
-      id: 3,
-      title: "Coelhinho Amigurumi",
-      tag: "Iniciante · 7 a 10 anos",
-      description: "O primeiro bichinho que sai das suas mãos",
-      price: "129,60",
-      originalPrice: "159,50",
-      image:
-        "https://placehold.co/400x400/f8d7da/3e1b0e?text=Coelhinho+Amigurumi",
-      link: "/kits",
-    },
-  ];
+  const [featuredProducts, setFeaturedProducts] = useState([]);
+  const [carregandoDestaques, setCarregandoDestaques] = useState(true);
+  const [erroDestaques, setErroDestaques] = useState("");
+
+  useEffect(() => {
+    let cancelado = false;
+
+    const carregarDestaques = async () => {
+      try {
+        const resposta = await fetch("/api/produtos?tipo=kit");
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+          throw new Error(dados.erro || "Erro ao carregar produtos destacados.");
+        }
+
+        if (!cancelado) {
+          setFeaturedProducts(
+            (dados.produtos || []).filter((produto) => produto.kit?.destaque),
+          );
+        }
+      } catch (error) {
+        if (!cancelado) {
+          setErroDestaques(
+            error.message || "Não foi possível carregar os produtos destacados.",
+          );
+        }
+      } finally {
+        if (!cancelado) {
+          setCarregandoDestaques(false);
+        }
+      }
+    };
+
+    carregarDestaques();
+
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
   const testimonials = [
     {
@@ -133,50 +144,56 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* Grelha de Produtos */}
-        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {featuredProducts.map((product) => (
-            <div
-              key={product.id}
-              className="flex flex-col overflow-hidden rounded-2xl border border-stone-300 bg-white transition-shadow hover:shadow-md"
-            >
-              <img
-                src={product.image}
-                alt={product.title}
-                className="h-80 w-full object-cover"
-              />
-              <div className="flex grow flex-col justify-between p-5 font-['Work_Sans',sans-serif]">
-                {/* BLOCO SUPERIOR: TAG, TÍTULO E DESCRIÇÃO */}
-                <div className="flex flex-col gap-1">
-                  {/* Tag / Nível e Idade Recomentada */}
-                  <span className="text-xs font-semibold text-yellow-950">
-                    {product.tag}
-                  </span>
+        {carregandoDestaques ? (
+          <p className="text-stone-600">Carregando produtos destacados...</p>
+        ) : erroDestaques ? (
+          <p className="text-red-600">{erroDestaques}</p>
+        ) : featuredProducts.length === 0 ? (
+          <p className="text-stone-600">
+            Em breve, novos produtos estarão em destaque.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredProducts.map((product) => (
+              <Link
+                key={product._id}
+                to={`/produto/${product.slug}`}
+                className="flex flex-col overflow-hidden rounded-2xl border border-stone-300 bg-white transition-shadow hover:shadow-md"
+              >
+                <img
+                  src={product.imagemUrl || "https://placehold.co/400x400"}
+                  alt={product.nome}
+                  className="h-80 w-full object-cover"
+                />
+                <div className="flex grow flex-col justify-between p-5 font-['Work_Sans',sans-serif]">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold text-yellow-950">
+                      {product.kit?.nivel || "Iniciante"} ·{" "}
+                      {product.kit?.faixaEtaria || "A partir de 7 anos"}
+                    </span>
+                    <h3 className="text-base font-black text-black">
+                      {product.nome}
+                    </h3>
+                    <p className="text-xs font-normal text-yellow-900">
+                      {product.kit?.descricao?.[0] ||
+                        product.kit?.nomeChamada ||
+                        "Kit Mini Stitches"}
+                    </p>
+                  </div>
 
-                  {/* Título do Produto */}
-                  <h3 className="text-base font-black text-black">
-                    {product.title}
-                  </h3>
-
-                  {/* Descrição Curta */}
-                  <p className="text-xs font-normal text-yellow-900">
-                    {product.description}
-                  </p>
+                  <div className="mt-4 flex items-baseline gap-2.5">
+                    <span className="text-base font-black text-yellow-900">
+                      {formatarPreco(product.preco)}
+                    </span>
+                    <span className="text-xs font-normal text-stone-700 line-through">
+                      {formatarPreco(product.preco + 3000)}
+                    </span>
+                  </div>
                 </div>
-
-                {/* BLOCO INFERIOR: PREÇO COM DESCONTO E PREÇO ORIGINAL */}
-                <div className="mt-4 flex items-baseline gap-2.5">
-                  <span className="text-base font-black text-yellow-900">
-                    R${product.price}
-                  </span>
-                  <span className="text-xs font-normal text-stone-700 line-through">
-                    R${product.originalPrice}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ========================================================= */}
