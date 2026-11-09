@@ -39,12 +39,12 @@ export default function Footer() {
                 {" "}
                 Materiais{" "}
               </Link>
-              <Link to="/videos" className="transition-colors hover:underline">
+              <Link to="/tutorial" className="transition-colors hover:underline">
                 {" "}
                 Vídeos passo a passo{" "}
               </Link>
               <Link
-                to="/clube-da-caixinha"
+                to="/clube"
                 className="transition-colors hover:underline"
               >
                 {" "}
@@ -58,7 +58,7 @@ export default function Footer() {
                 Nossa história{" "}
               </Link>
               <Link
-                to="/fale-com-a-gente"
+                to="/contato"
                 className="transition-colors hover:underline"
               >
                 {" "}

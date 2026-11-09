@@ -16,6 +16,7 @@ import DetalheProd from "./Pages/DetalheProd";
 import NossaHistoria from "./Pages/Nossahistoria";
 import Contato from "./Pages/Contato";
 import Tutorial from "./Pages/Tutorial";
+import Checkout from "./Pages/Checkout";
 
 export default function App() {
   return (
@@ -38,7 +39,8 @@ export default function App() {
             <Route path="/nossa-historia" element={<NossaHistoria />} />
             <Route path="/contato" element={<Contato />} />
             <Route path="/tutorial" element={<Tutorial />} />
-            <Route path="/DetalheProd" element={<DetalheProd />} />
+            <Route path="/detalhe-produto" element={<DetalheProd />} />
+            <Route path="/checkout" element={<Checkout />} />
           </Routes>
         </main>
         <Footer />

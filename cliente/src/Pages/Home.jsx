@@ -103,7 +103,7 @@ export default function Home() {
             {/* Botões de Ação */}
             <div className="flex flex-wrap gap-4 pt-2">
               <Link
-                to="/clube-da-caixinha"
+                to="/clube"
                 className="rounded-2xl bg-[#3E1B0E] px-6 py-3.5 font-['Archivo_Black',sans-serif] text-xs uppercase text-[#FAF5EF] transition-transform hover:scale-105 md:text-sm"
               >
                 VER CLUBE DA CAIXINHA

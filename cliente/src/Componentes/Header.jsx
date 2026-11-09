@@ -74,31 +74,31 @@ export default function Header() {
               INÍCIO
             </Link>
             <Link
-              to="/Kits"
+              to="/kits"
               className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               KITS
             </Link>
             <Link
-              to="/Materiais"
+              to="/materiais"
               className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               MATERIAIS
             </Link>
             <Link
-              to="/Clube"
+              to="/clube"
               className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               CLUBE DA CAIXINHA
             </Link>
             <Link
-              to="/NossaHistoria"
+              to="/nossa-historia"
               className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               NOSSA HISTÓRIA
             </Link>
             <Link
-              to="/Contato"
+              to="/contato"
               className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               FALE COM A GENTE
@@ -116,7 +116,7 @@ export default function Header() {
             </button>
 
             <Link
-              to="/Carrinho"
+              to="/carrinho"
               className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <ShoppingBag className="h-4 w-4 stroke-[1.75]" />
@@ -129,7 +129,7 @@ export default function Header() {
                   ? usuario.perfil === "admin"
                     ? "/admin"
                     : "/perfil"
-                  : "/Login"
+                  : "/login"
               }
               className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
