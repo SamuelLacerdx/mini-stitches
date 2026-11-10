@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import imgPrincipal from "../assets/imgPrincipal.jpg"
 // Importação de ícones para enriquecer o visual
 import { Sparkles, Box, Heart } from "lucide-react";
 
@@ -120,7 +121,7 @@ export default function Home() {
           {/* Lado Direito: Imagem Principal em Destaque */}
           <div className="flex justify-center lg:col-span-5">
             <img
-              src="https://placehold.co/600x600/f8d7da/3e1b0e?text=Foto+Criança+Criando"
+              src={imgPrincipal}
               alt="Criança bordando e criando artesanalmente"
               className="w-full max-w-120 rounded-[37px] object-cover lg:max-w-none"
             />
