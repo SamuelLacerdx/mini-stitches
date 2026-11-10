@@ -28,45 +28,45 @@ export default function Footer() {
               DESCOBRIR{" "}
             </h3>
             <nav className="flex flex-col gap-2 text-sm">
-              <Link to="/kits" className="transition-colors hover:underline">
+              <Link to="/kits" className="cursor-pointer transition-colors hover:underline">
                 {" "}
                 Todos os kits{" "}
               </Link>
               <Link
                 to="/materiais"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 Materiais{" "}
               </Link>
-              <Link to="/tutorial" className="transition-colors hover:underline">
+              <Link to="/tutorial" className="cursor-pointer transition-colors hover:underline">
                 {" "}
                 Vídeos passo a passo{" "}
               </Link>
               <Link
                 to="/clube"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 Clube da Caixinha{" "}
               </Link>
               <Link
                 to="/nossa-historia"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 Nossa história{" "}
               </Link>
               <Link
                 to="/contato"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 Fale com a gente{" "}
               </Link>
               <Link
                 to="/carrinho"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 Meu carrinho{" "}
@@ -94,7 +94,7 @@ export default function Footer() {
             <div className="flex flex-col gap-2 text-sm">
               <a
                 href="mailto:oi@ministitches.com.br"
-                className="transition-colors hover:underline"
+                className="cursor-pointer transition-colors hover:underline"
               >
                 {" "}
                 oi@ministitches.com.br

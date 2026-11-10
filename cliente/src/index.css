@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+a[href],
+button,
+[role='button'],
+input[type='button'],
+input[type='submit'],
+input[type='reset'] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+[aria-disabled='true'],
+[disabled] {
+  cursor: not-allowed;
+}
+
+button,
+a {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+button:hover:not(:disabled),
+a:hover {
+  cursor: pointer;
+}

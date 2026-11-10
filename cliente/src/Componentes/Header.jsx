@@ -56,7 +56,7 @@ export default function Header() {
         <div className="mx-auto flex max-w-full items-center justify-between gap-4">
           {/* LOGÓTIPO */}
           <div className="flex shrink-0 items-center">
-            <Link to="/" className="flex items-center gap-2">
+            <Link to="/" className="flex cursor-pointer items-center gap-2">
               <img
                 src={logoMarca}
                 alt="Logótipo Mini Stitches"
@@ -69,37 +69,37 @@ export default function Header() {
           <nav className="hidden items-center gap-6 text-xs font-normal tracking-wide text-[#3E1B0E] lg:flex">
             <Link
               to="/"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               INÍCIO
             </Link>
             <Link
               to="/kits"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               KITS
             </Link>
             <Link
               to="/materiais"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               MATERIAIS
             </Link>
             <Link
               to="/clube"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               CLUBE DA CAIXINHA
             </Link>
             <Link
               to="/nossa-historia"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               NOSSA HISTÓRIA
             </Link>
             <Link
               to="/contato"
-              className="whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
+              className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
             >
               FALE COM A GENTE
             </Link>
@@ -109,7 +109,7 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <Search className="h-4 w-4 stroke-[1.75]" />
               <span>PESQUISAR</span>
@@ -117,7 +117,7 @@ export default function Header() {
 
             <Link
               to="/carrinho"
-              className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <ShoppingBag className="h-4 w-4 stroke-[1.75]" />
               <span>CARRINHO</span>
@@ -131,7 +131,7 @@ export default function Header() {
                     : "/perfil"
                   : "/login"
               }
-              className="flex items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <User className="h-4 w-4 stroke-[1.75]" />
               <span>{usuario?.nome || "CONTA"}</span>
