@@ -980,7 +980,9 @@ app.post("/sair", (req, res) => {
   req.session.destroy((error) => {
     if (error) {
       console.error(error);
-      return res.status(500).json({ erro: "Não foi possível encerrar a sessão." });
+      return res
+        .status(500)
+        .json({ erro: "Não foi possível encerrar a sessão." });
     }
 
     res.json({ mensagem: "Sessão encerrada." });
