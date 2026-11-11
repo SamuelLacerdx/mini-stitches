@@ -22,6 +22,7 @@ const {
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const app = express();
+const isDirectRun = require.main === module;
 
 const session = require("express-session");
 
@@ -1022,12 +1023,16 @@ async function iniciar() {
 
     await Usuario.init();
 
-    app.listen(4000, () => {
-      console.log("Abra http://localhost:4000");
-    });
+    if (isDirectRun) {
+      app.listen(4000, () => {
+        console.log("Abra http://localhost:4000");
+      });
+    }
   } catch (erro) {
     console.error("Erro na conexão:", erro.message);
   }
 }
 
 iniciar();
+
+module.exports = app;

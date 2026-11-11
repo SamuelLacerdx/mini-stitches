@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" },
+    { "source": "/login", "destination": "/api" },
+    { "source": "/cadastro", "destination": "/api" },
+    { "source": "/sair", "destination": "/api" },
+    { "source": "/perfil/(.*)", "destination": "/api" },
+    { "source": "/admin/(.*)", "destination": "/api" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
