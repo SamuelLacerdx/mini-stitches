@@ -112,12 +112,8 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Produtos são públicos e iguais para todos: o CDN da Vercel guarda a resposta
-// por 60s e, depois disso, entrega a cópia antiga enquanto atualiza em segundo
-// plano. Alterações do admin aparecem em cerca de 1 minuto.
 const CACHE_PUBLICO = "public, s-maxage=60, stale-while-revalidate=600";
 
-// Aceita apenas "AAAA-MM-DD" que seja uma data real (rejeita 2024-02-31).
 function dataValida(texto) {
   const data = new Date(texto);
   return (
