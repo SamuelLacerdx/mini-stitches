@@ -60,6 +60,20 @@ const garantirVideosDoKit = (videos) => {
   return [...preenchidos, ...extras];
 };
 
+// ponytail: a imagem vai em base64 dentro do produto no Mongo e volta em toda
+// listagem/carrinho; reduzir para no máximo 1200px mantém essas respostas leves
+// (e abaixo do limite de 4,5 MB da Vercel). Upgrade: storage externo de arquivos.
+const reduzirImagem = async (arquivo, ladoMaximo = 1200) => {
+  const bitmap = await createImageBitmap(arquivo);
+  const escala = Math.min(1, ladoMaximo / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * escala);
+  canvas.height = Math.round(bitmap.height * escala);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/webp", 0.85);
+};
+
 export default function Admin() {
   const navigate = useNavigate();
   const [abaAtiva, setAbaAtiva] = useState("VISÃO GERAL");
@@ -211,14 +225,14 @@ export default function Admin() {
     }
 
     setMensagem({ tipo: "", texto: "" });
-    const leitor = new FileReader();
-    leitor.onload = () => {
-      setForm((anterior) => ({
-        ...anterior,
-        imagemUrl: String(leitor.result || ""),
-      }));
-    };
-    leitor.readAsDataURL(arquivo);
+    reduzirImagem(arquivo)
+      .then((imagemUrl) => {
+        setForm((anterior) => ({ ...anterior, imagemUrl }));
+      })
+      .catch(() => {
+        event.target.value = "";
+        setMensagem({ tipo: "erro", texto: "Não foi possível ler a imagem." });
+      });
   };
 
   const handleVideoChange = (index, campo, valor) => {

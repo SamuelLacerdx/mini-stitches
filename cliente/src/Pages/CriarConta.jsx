@@ -16,7 +16,7 @@ export default function CriarConta() {
         </p>
 
         {/* FORMULÁRIO DE REGISTO */}
-        <form action="/cadastro" method="POST" className="mt-2 flex w-full flex-col gap-4">
+        <form action="/api/cadastro" method="POST" className="mt-2 flex w-full flex-col gap-4">
           
           {/* Nome Completo */}
           <div className="w-full">

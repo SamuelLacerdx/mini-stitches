@@ -277,33 +277,29 @@ const pedidoSchema = new mongoose.Schema({
 });
 
 pedidoSchema.pre("validate", async function () {
-  try {
-    if (this.isNew && !this.numero) {
-      this.numero = await proximoNumeroPedido();
-    }
+  if (this.isNew && !this.numero) {
+    this.numero = await proximoNumeroPedido();
+  }
 
-    const soma = this.itens.reduce((s, i) => s + i.quantidade * i.precoUnit, 0);
-    if (this.subtotal !== soma) {
-      throw new Error("subtotal não confere com a soma dos itens.");
-    }
-    if (this.total !== this.subtotal + this.frete) {
-      throw new Error("total deve ser subtotal + frete.");
-    }
-  } catch (err) {
-    throw err;
+  const soma = this.itens.reduce((s, i) => s + i.quantidade * i.precoUnit, 0);
+  if (this.subtotal !== soma) {
+    throw new Error("subtotal não confere com a soma dos itens.");
+  }
+  if (this.total !== this.subtotal + this.frete) {
+    throw new Error("total deve ser subtotal + frete.");
   }
 });
 
 // O histórico é registrado só no save (depois de validar), então chamar
 // validate() antes de save() não duplica o status inicial.
-pedidoSchema.pre("save", function (next) {
+// Mongoose 9 não passa mais `next` para hooks "pre": basta retornar.
+pedidoSchema.pre("save", function () {
   if (this.isNew || this.isModified("status")) {
     const ultimo = this.historicoStatus[this.historicoStatus.length - 1];
     if (!ultimo || ultimo.status !== this.status) {
       this.historicoStatus.push({ status: this.status, em: new Date() });
     }
   }
-  next();
 });
 
 // numero já é indexado pelo unique: true

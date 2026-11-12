@@ -7,7 +7,7 @@ export default function Login() {
     event.preventDefault();
 
     try {
-      const resposta = await fetch("/login", {
+      const resposta = await fetch("/api/login", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

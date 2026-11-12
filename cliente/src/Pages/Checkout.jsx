@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function FinalizarCompra() {
@@ -63,7 +63,7 @@ export default function FinalizarCompra() {
     setLoading(true);
     setResultado(null);
 
-    const { email, cpf, nome, endereco, numero, bairro, cidade, estado } = formData;
+    const { email, cpf, endereco, numero, bairro, cidade, estado } = formData;
     const cpfLimpo = cpf.replace(/\D/g, '');
 
     try {

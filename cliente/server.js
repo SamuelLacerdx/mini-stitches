@@ -1,10 +1,8 @@
 require("dotenv").config();
 
 const express = require("express");
-const path = require("path");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const console = require("console");
 const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
@@ -45,14 +43,21 @@ app.use(
   }),
 );
 
-app.use(express.static(path.join(__dirname, "public")));
-
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ limit: "10mb" }));
 
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+// Aceita apenas "AAAA-MM-DD" que seja uma data real (rejeita 2024-02-31).
+function dataValida(texto) {
+  const data = new Date(texto);
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(texto) &&
+    !Number.isNaN(data.getTime()) &&
+    data.toISOString().slice(0, 10) === texto
+  );
+}
+
+const sohTextos = (...valores) =>
+  valores.every((valor) => typeof valor === "string");
 
 app.get("/api/cep/:cep", async (req, res) => {
   const cep = req.params.cep.replace(/\D/g, "");
@@ -75,22 +80,22 @@ app.get("/api/cep/:cep", async (req, res) => {
   }
 });
 
-app.post("/cadastro", async (req, res) => {
+app.post("/api/cadastro", async (req, res) => {
   try {
     const { nome, cpf, telefone, nascimento, email, senha } = req.body || {};
+
+    if (!sohTextos(nome, cpf, telefone, nascimento, email, senha)) {
+      return res.status(400).send("Preencha todos os campos.");
+    }
 
     if (senha.length < 8) {
       return res.status(400).send("A senha deve ter ao menos 8 caracteres.");
     }
 
-    const dataNascimento = new Date(nascimento);
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(nascimento) ||
-      Number.isNaN(dataNascimento.getTime()) ||
-      dataNascimento.toISOString().slice(0, 10) !== nascimento
-    ) {
+    if (!dataValida(nascimento)) {
       return res.status(400).send("Data de nascimento inválida.");
     }
+    const dataNascimento = new Date(nascimento);
 
     if (!validarCPF(cpf)) {
       return res.status(400).send("CPF inválido.");
@@ -108,7 +113,7 @@ app.post("/cadastro", async (req, res) => {
       email: emailNormalizado,
       senhaHash,
     });
-    res.redirect("/Login");
+    res.redirect("/login");
   } catch (err) {
     if (err.code === 11000) {
       const campoDuplicado = Object.keys(err.keyPattern || {})[0];
@@ -124,22 +129,21 @@ app.post("/cadastro", async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
-    const { email, senha } = req.body;
+    const { email, senha } = req.body || {};
+
+    if (!sohTextos(email, senha)) {
+      return res.status(400).json({ erro: "Informe e-mail e senha." });
+    }
 
     const usuario = await Usuario.findOne({
       email: email.trim().toLowerCase(),
     }).select("+senhaHash");
 
-    if (!usuario) {
-      return res.status(401).json({ erro: "Usuário não encontrado." });
-    }
-
-    const senhaCorreta = await bcrypt.compare(senha, usuario.senhaHash);
-
-    if (!senhaCorreta) {
-      return res.status(401).json({ erro: "Senha incorreta." });
+    // Mesma mensagem nos dois casos: não revela quais e-mails têm conta.
+    if (!usuario || !(await bcrypt.compare(senha, usuario.senhaHash))) {
+      return res.status(401).json({ erro: "E-mail ou senha incorretos." });
     }
 
     req.session.usuarioId = usuario._id;
@@ -210,26 +214,20 @@ app.get("/api/perfil", autenticar, async (req, res) => {
 
 app.patch("/perfil/atualizar", autenticar, async (req, res) => {
   try {
-    const { telefone, email, nascimento } = req.body;
-    const atualizacoes = {};
+    const { telefone, email, nascimento } = req.body || {};
 
-    atualizacoes.email = email.trim().toLowerCase();
-    atualizacoes.telefone = telefone.trim();
-
-    const dataNascimento = new Date(nascimento);
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(nascimento) ||
-      Number.isNaN(dataNascimento.getTime()) ||
-      dataNascimento.toISOString().slice(0, 10) !== nascimento
-    ) {
+    if (!sohTextos(telefone, email, nascimento)) {
+      return res.status(400).send("Preencha todos os campos.");
+    }
+    if (!dataValida(nascimento)) {
       return res.status(400).send("Data de nascimento inválida.");
     }
 
-    atualizacoes.nascimento = dataNascimento;
-
-    if (Object.keys(atualizacoes).length === 0) {
-      return res.status(400).send("Nenhum dado para atualizar.");
-    }
+    const atualizacoes = {
+      email: email.trim().toLowerCase(),
+      telefone: telefone.trim(),
+      nascimento: new Date(nascimento),
+    };
 
     const usuario = await Usuario.findByIdAndUpdate(
       req.session.usuarioId,
@@ -393,7 +391,7 @@ app.delete("/perfil/enderecos/:enderecoId", autenticar, async (req, res) => {
   }
 });
 
-app.post("/admin/estoque", async (req, res) => {
+app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
   try {
     const body = req.body || {};
     const tipo = String(body.tipo || "kit").toLowerCase();
@@ -811,22 +809,6 @@ app.delete("/admin/planos/:id", autenticarAdmin, async (req, res) => {
     console.error(error);
     res.status(500).json({ erro: "Erro ao excluir plano." });
   }
-});
-
-app.get("/admin", autenticarAdmin, (req, res) => {
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
-
-app.get("/login", (req, res) => {
-  res.sendFile(path.join(__dirname, "login.html"));
-});
-
-app.get("/perfil", autenticar, (req, res) => {
-  res.sendFile(path.join(__dirname, "perfil.html"));
-});
-
-app.get("/cadastro", (req, res) => {
-  res.sendFile(path.join(__dirname, "cadastro.html"));
 });
 
 app.get("/produto/:slug", async (req, res) => {
