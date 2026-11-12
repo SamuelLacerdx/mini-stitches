@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat("pt-BR", {
@@ -7,6 +8,7 @@ const formatarPreco = (valorEmCentavos) =>
   }).format(Number(valorEmCentavos || 0) / 100);
 
 export default function Carrinho() {
+  const navigate = useNavigate();
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -19,7 +21,9 @@ export default function Carrinho() {
       .then(async (resposta) => {
         const dados = await resposta.json();
         if (!resposta.ok) {
-          throw new Error(dados.erro || "Não foi possível carregar o carrinho.");
+          throw new Error(
+            dados.erro || "Não foi possível carregar o carrinho.",
+          );
         }
         return dados;
       })
@@ -52,7 +56,8 @@ export default function Carrinho() {
       const resposta = await fetch(`/api/carrinho/${produtoId}`, {
         method: metodo,
         credentials: "include",
-        headers: metodo === "PATCH" ? { "Content-Type": "application/json" } : {},
+        headers:
+          metodo === "PATCH" ? { "Content-Type": "application/json" } : {},
         body: metodo === "PATCH" ? JSON.stringify({ quantidade }) : undefined,
       });
       const dados = await resposta.json();
@@ -74,6 +79,17 @@ export default function Carrinho() {
   );
   const pixTotal = Math.round(subtotal * 0.95);
 
+  const irParaCheckout = () => {
+    if (itens.length === 0) {
+      setErro(
+        "Seu carrinho está vazio. Adicione algum produto antes de continuar.",
+      );
+      return;
+    }
+
+    navigate("/checkout");
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full flex flex-col lg:flex-row gap-12">
       <div className="flex-1">
@@ -83,7 +99,10 @@ export default function Carrinho() {
         <div className="border-b-2 border-orange-400/70 mb-4" />
 
         {erro && (
-          <p role="alert" className="my-4 rounded-lg bg-red-50 p-3 text-red-700">
+          <p
+            role="alert"
+            className="my-4 rounded-lg bg-red-50 p-3 text-red-700"
+          >
             {erro}
           </p>
         )}
@@ -163,9 +182,7 @@ export default function Carrinho() {
                 <button
                   type="button"
                   disabled={salvando}
-                  onClick={() =>
-                    alterarCarrinho(item.produtoId, "DELETE")
-                  }
+                  onClick={() => alterarCarrinho(item.produtoId, "DELETE")}
                   aria-label={`Remover ${item.nome} do carrinho`}
                   className="text-red-600 font-bold hover:opacity-80 disabled:opacity-40"
                 >
@@ -202,7 +219,8 @@ export default function Carrinho() {
 
         <button
           type="button"
-          disabled={itens.length === 0 || carregando}
+          disabled={itens.length === 0 || carregando || salvando}
+          onClick={irParaCheckout}
           className="w-full bg-[#3E2417] hover:bg-[#602D15] disabled:opacity-50 text-white py-4 rounded-lg font-['Archivo_Black'] text-base transition-colors mt-2"
         >
           FINALIZAR COMPRA
