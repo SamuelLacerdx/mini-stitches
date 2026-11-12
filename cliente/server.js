@@ -24,6 +24,7 @@ const app = express();
 const isDirectRun = require.main === module;
 
 const session = require("express-session");
+const MongoStore = require("connect-mongo");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
 const jwtSecret = process.env.JWT_SECRET || sessionSecret;
@@ -42,17 +43,65 @@ const { obterCarrinho, respostaCarrinho } = criarCarrinhoHelpers({
   clienteIdDoCarrinho,
 });
 
+const sessionStore = process.env.MONGO_URI
+  ? MongoStore.create({
+      mongoUrl: process.env.MONGO_URI,
+      collectionName: "sessions",
+      autoRemove: "interval",
+      autoRemoveInterval: 10,
+      ttl: 2 * 60 * 60,
+      touchAfter: 60 * 60,
+    })
+  : null;
+
 app.use(
   session({
+    store: sessionStore,
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, maxAge: 2 * 60 * 60 * 1000 }, // 2h
+    proxy: true,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 2 * 60 * 60 * 1000,
+    },
   }),
 );
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ limit: "10mb" }));
+
+app.post("/api/webhook", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const eventType = String(body?.type || body?.action || "");
+    const paymentId =
+      body?.data?.id ??
+      req.query?.["data.id"] ??
+      req.query?.id ??
+      null;
+
+    const deveProcessarPagamento =
+      paymentId &&
+      (eventType === "payment" || eventType.includes("payment"));
+
+    if (deveProcessarPagamento && paymentModule) {
+      const pagamento = await paymentModule.get({ id: paymentId });
+      console.log(
+        "[webhook] pagamento atualizado:",
+        paymentId,
+        pagamento?.status || "status-indisponivel",
+      );
+    }
+
+    return res.status(200).send("OK");
+  } catch (erro) {
+    console.error("[webhook] erro:", erro.message || erro);
+    return res.status(200).send("OK");
+  }
+});
 
 // Na Vercel a função pode ser congelada entre uma requisição e outra. Se a
 // conexão com o Mongo for iniciada "solta", ela fica pela metade e a instância
@@ -244,27 +293,41 @@ app.post("/api/pagamento/cartao", async (req, res) => {
 
 app.post("/api/assinatura/criar", async (req, res) => {
   try {
-    const { payer_email, back_url, card_token_id } = req.body || {};
+    const body = req.body || {};
+    const email = body.email || body.payer_email || "";
+    const tokenCartao = body.tokenCartao || body.card_token_id || "";
+    const valorMensal = Number(
+      body.valorMensal ?? body.amount ?? body.transaction_amount ?? 69.9,
+    );
+    const tituloAssinatura =
+      body.tituloAssinatura || body.reason || body.title || "Assinatura Mini Stitches";
+    const backUrl =
+      body.back_url ||
+      body.backUrl ||
+      process.env.MP_BACK_URL ||
+      "https://example.com/assinatura";
 
-    if (!payer_email || !back_url || !card_token_id || !mpClient || !preApprovalModule) {
+    if (!email || !tokenCartao || !mpClient || !preApprovalModule) {
       return res.status(400).json({
         sucesso: false,
         mensagem: "Dados da assinatura incompletos.",
       });
     }
 
+    const valorFinal = Number.isFinite(valorMensal) ? valorMensal : 69.9;
+
     const resposta = await preApprovalModule.create({
       body: {
-        reason: "Assinatura Mini Stitches",
+        reason: tituloAssinatura,
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
-          transaction_amount: 69.9,
+          transaction_amount: valorFinal,
           currency_id: "BRL",
         },
-        payer_email: payer_email,
-        back_url,
-        card_token_id,
+        payer_email: email,
+        back_url: backUrl,
+        card_token_id: tokenCartao,
       },
     });
 
