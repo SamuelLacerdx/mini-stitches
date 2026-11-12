@@ -24,7 +24,6 @@ const app = express();
 const isDirectRun = require.main === module;
 
 const session = require("express-session");
-const MongoStore = require("connect-mongo");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
 const jwtSecret = process.env.JWT_SECRET || sessionSecret;
@@ -43,24 +42,11 @@ const { obterCarrinho, respostaCarrinho } = criarCarrinhoHelpers({
   clienteIdDoCarrinho,
 });
 
-const sessionStore = process.env.MONGO_URI
-  ? MongoStore.create({
-      mongoUrl: process.env.MONGO_URI,
-      collectionName: "sessions",
-      autoRemove: "interval",
-      autoRemoveInterval: 10,
-      ttl: 2 * 60 * 60,
-      touchAfter: 60 * 60,
-    })
-  : null;
-
 app.use(
   session({
-    store: sessionStore,
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
-    proxy: true,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
