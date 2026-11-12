@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export default function Trocas() {
   // Estado 1: Controla se a solicitação é de 'TROCA' ou 'DEVOLUÇÃO'

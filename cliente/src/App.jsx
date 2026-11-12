@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Header from "./Componentes/Header";
 import Footer from "./Componentes/Footer";

@@ -1,12 +1,16 @@
 const jwt = require("jsonwebtoken");
 
 function criarAutenticacao({ jwtSecret }) {
-  function autenticar(req, res, next) {
+  function lerToken(req) {
     const tokenCookie = (req.headers.cookie || "")
       .split(";")
       .map((cookie) => cookie.trim())
       .find((cookie) => cookie.startsWith("token="));
-    const token = tokenCookie?.slice("token=".length);
+    return tokenCookie?.slice("token=".length);
+  }
+
+  function autenticar(req, res, next) {
+    const token = lerToken(req);
 
     if (token) {
       try {
@@ -42,11 +46,7 @@ function criarAutenticacao({ jwtSecret }) {
       return String(req.session.usuarioId);
     }
 
-    const tokenCookie = (req.headers.cookie || "")
-      .split(";")
-      .map((cookie) => cookie.trim())
-      .find((cookie) => cookie.startsWith("token="));
-    const token = tokenCookie?.slice("token=".length);
+    const token = lerToken(req);
 
     if (token) {
       try {

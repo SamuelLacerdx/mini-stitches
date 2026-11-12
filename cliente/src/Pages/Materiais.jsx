@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 const formatarPreco = (valor) => {
   const numero = Number(valor ?? 0);
