@@ -46,6 +46,34 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ limit: "10mb" }));
 
+// Na Vercel a função pode ser congelada entre uma requisição e outra. Se a
+// conexão com o Mongo for iniciada "solta", ela fica pela metade e a instância
+// passa a falhar toda consulta. Por isso a requisição aguarda a conexão, e uma
+// falha libera a próxima requisição para tentar de novo.
+let conexaoBanco = null;
+function conectarBanco() {
+  conexaoBanco ??= mongoose.connect(process.env.MONGO_URI).catch((erro) => {
+    conexaoBanco = null;
+    throw erro;
+  });
+  return conexaoBanco;
+}
+
+app.use(async (req, res, next) => {
+  try {
+    await conectarBanco();
+    next();
+  } catch (erro) {
+    console.error("Erro na conexão:", erro.message);
+    res.status(503).json({ erro: "Serviço indisponível. Tente novamente." });
+  }
+});
+
+// Produtos são públicos e iguais para todos: o CDN da Vercel guarda a resposta
+// por 60s e, depois disso, entrega a cópia antiga enquanto atualiza em segundo
+// plano. Alterações do admin aparecem em cerca de 1 minuto.
+const CACHE_PUBLICO = "public, s-maxage=60, stale-while-revalidate=600";
+
 // Aceita apenas "AAAA-MM-DD" que seja uma data real (rejeita 2024-02-31).
 function dataValida(texto) {
   const data = new Date(texto);
@@ -629,7 +657,7 @@ app.get("/api/produtos", async (req, res) => {
     }
 
     const produtos = await Produto.find(filtro).sort({ nome: 1 }).lean();
-    res.json({ produtos });
+    res.set("Cache-Control", CACHE_PUBLICO).json({ produtos });
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao listar produtos." });
@@ -645,7 +673,7 @@ app.get("/api/produto/:slug", async (req, res) => {
       return res.status(404).json({ erro: "Produto não encontrado." });
     }
 
-    res.json({ produto });
+    res.set("Cache-Control", CACHE_PUBLICO).json({ produto });
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao buscar produto." });
@@ -997,24 +1025,26 @@ app.use((error, req, res, next) => {
   next(error);
 });
 
+// Local (node server.js): conecta antes de abrir a porta. Na Vercel quem
+// conecta é o middleware acima, dentro de cada requisição.
 async function iniciar() {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    await conectarBanco();
 
     console.log("MongoDB conectado!");
 
     await Usuario.init();
 
-    if (isDirectRun) {
-      app.listen(4000, () => {
-        console.log("Abra http://localhost:4000");
-      });
-    }
+    app.listen(4000, () => {
+      console.log("Abra http://localhost:4000");
+    });
   } catch (erro) {
     console.error("Erro na conexão:", erro.message);
   }
 }
 
-iniciar();
+if (isDirectRun) {
+  iniciar();
+}
 
 module.exports = app;
