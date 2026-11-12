@@ -1,6 +1,46 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
+const formatarPreco = (valorEmCentavos) =>
+  new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number(valorEmCentavos || 0) / 100);
+
+const formatarTelefone = (valor) => {
+  const digits = String(valor || '').replace(/\D/g, '');
+  if (digits.length <= 10) {
+    return digits.replace(/(\d{2})(\d{0,4})(\d{0,4})/, (_, a, b, c) =>
+      c ? `(${a}) ${b}-${c}` : b ? `(${a}) ${b}` : `(${a})`,
+    );
+  }
+
+  return digits.replace(/(\d{2})(\d{5})(\d{0,4})/, (_, a, b, c) =>
+    c ? `(${a}) ${b}-${c}` : `(${a}) ${b}`,
+  );
+};
+
+const detectarBandeiraCartao = (numeroCartao) => {
+  const digitos = String(numeroCartao || '').replace(/\D/g, '');
+
+  if (/^4/.test(digitos)) return 'visa';
+  if (/^(5[1-5]|2[2-7])/.test(digitos)) return 'master';
+  if (/^3[47]/.test(digitos)) return 'amex';
+  if (/^(636368|438935|504175|451416|509048|509067|509069|509074|509075|627780|636297|636369|636368)/.test(digitos)) return 'elo';
+  if (/^6011|^65|^64[4-9]/.test(digitos)) return 'discover';
+  return 'master';
+};
+
+const enderecoTemDadosValidos = (endereco) => {
+  if (!endereco || typeof endereco !== 'object') return false;
+
+  return Object.entries(endereco).some(([chave, valor]) => {
+    if (['principal'].includes(chave)) return false;
+    if (typeof valor === 'string') return valor.trim().length > 0;
+    return Boolean(valor);
+  });
+};
+
 export default function FinalizarCompra() {
   // Estados de UI e Controle
   const [pagamento, setPagamento] = useState('cartao');
@@ -9,6 +49,10 @@ export default function FinalizarCompra() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null); // Armazena sucesso, QR code, Link Boleto
   const [mpInstance, setMpInstance] = useState(null);
+  const [cartItems, setCartItems] = useState([]);
+  const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
+  const [erroCarrinho, setErroCarrinho] = useState('');
+  const [salvandoEndereco, setSalvandoEndereco] = useState(false);
 
   // Estados do Formulário
   const [formData, setFormData] = useState({
@@ -30,11 +74,79 @@ export default function FinalizarCompra() {
     cvv: '',
     cpfTitular: '',
     parcelas: '1',
-    bandeira: 'master' // Adicione um select se preferir, ou deixe fixo/detectado pela API
+    bandeira: ''
   });
 
   // Inicializa o Mercado Pago ao montar o componente
   useEffect(() => {
+    const carregarPerfil = async () => {
+      try {
+        const resposta = await fetch('/api/perfil', { credentials: 'include' });
+        if (!resposta.ok) return;
+
+        const dados = await resposta.json();
+        const usuario = dados.usuario || {};
+        const enderecos = Array.isArray(usuario.enderecos) ? usuario.enderecos : [];
+        const enderecoPrincipal =
+          enderecos.find((item) => item?.principal && enderecoTemDadosValidos(item)) ||
+          enderecos.find((item) => enderecoTemDadosValidos(item)) ||
+          null;
+
+        const enderecoAtual = enderecoPrincipal && enderecoTemDadosValidos(enderecoPrincipal)
+          ? {
+              endereco: enderecoPrincipal.rua || '',
+              numero: enderecoPrincipal.numero || '',
+              complemento: enderecoPrincipal.complemento || '',
+              bairro: enderecoPrincipal.bairro || '',
+              cidade: enderecoPrincipal.cidade || '',
+              estado: enderecoPrincipal.estado || '',
+              cep: enderecoPrincipal.cep || '',
+            }
+          : {
+              endereco: '',
+              numero: '',
+              complemento: '',
+              bairro: '',
+              cidade: '',
+              estado: '',
+              cep: '',
+            };
+
+        setFormData((prev) => ({
+          ...prev,
+          nome: usuario.nome || prev.nome,
+          cpf: usuario.cpf || prev.cpf,
+          email: usuario.email || prev.email,
+          celular: formatarTelefone(usuario.telefone || prev.celular),
+          endereco: enderecoAtual.endereco,
+          numero: enderecoAtual.numero,
+          complemento: enderecoAtual.complemento,
+          bairro: enderecoAtual.bairro,
+          cidade: enderecoAtual.cidade,
+          estado: enderecoAtual.estado,
+        }));
+
+        setCep(enderecoAtual.cep);
+      } catch (error) {
+        console.error('Não foi possível carregar o perfil do usuário:', error);
+      }
+    };
+
+    const carregarCarrinho = async () => {
+      try {
+        const resposta = await fetch('/api/carrinho', { credentials: 'include' });
+        const dados = await resposta.json();
+        if (!resposta.ok) {
+          throw new Error(dados.erro || 'Não foi possível carregar o carrinho.');
+        }
+        setCartItems(dados.itens || []);
+      } catch (erro) {
+        setErroCarrinho(erro.message || 'Não foi possível carregar o carrinho.');
+      } finally {
+        setCarregandoCarrinho(false);
+      }
+    };
+
     const inicializarMercadoPago = async () => {
       try {
         const res = await fetch('/api/config');
@@ -48,6 +160,9 @@ export default function FinalizarCompra() {
         console.error('Erro ao carregar a Public Key do Mercado Pago:', err);
       }
     };
+
+    carregarPerfil();
+    carregarCarrinho();
     inicializarMercadoPago();
   }, []);
 
@@ -57,14 +172,87 @@ export default function FinalizarCompra() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const salvarEnderecoPrincipal = async () => {
+    const cepLimpo = cep.replace(/\D/g, '');
+    const dadosEndereco = {
+      apelido: 'Checkout',
+      rua: formData.endereco.trim(),
+      numero: formData.numero.trim(),
+      complemento: formData.complemento.trim(),
+      bairro: formData.bairro.trim(),
+      cidade: formData.cidade.trim(),
+      estado: formData.estado.trim(),
+      cep: cepLimpo,
+      principal: true,
+    };
+
+    if (!dadosEndereco.rua || !dadosEndereco.numero || !dadosEndereco.bairro || !dadosEndereco.cidade || !dadosEndereco.estado || !dadosEndereco.cep) {
+      alert('Preencha os dados do endereço antes de salvar.');
+      return;
+    }
+
+    try {
+      setSalvandoEndereco(true);
+      const resposta = await fetch('/perfil/enderecos', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dadosEndereco),
+      });
+      const dados = await resposta.json();
+
+      if (!resposta.ok) {
+        throw new Error(dados.erro || 'Não foi possível salvar o endereço.');
+      }
+
+      alert('Endereço salvo como principal.');
+    } catch (erro) {
+      alert(erro.message || 'Não foi possível salvar o endereço.');
+    } finally {
+      setSalvandoEndereco(false);
+    }
+  };
+
+  const subtotal = cartItems.reduce(
+    (total, item) => total + Number(item.preco || 0) * Number(item.quantidade || 0),
+    0,
+  );
+  const quantidadeTotalItens = cartItems.reduce(
+    (total, item) => total + Number(item.quantidade || 0),
+    0,
+  );
+  const pixTotal = Math.round(subtotal * 0.95);
+  const valorPedido = subtotal / 100;
+  const opcoesParcelamento = Array.from({ length: 6 }, (_, index) => {
+    const parcela = index + 1;
+    const valorParcela = Number((valorPedido / parcela).toFixed(2));
+
+    return {
+      parcela,
+      valorParcela,
+      label: `${parcela}x de ${formatarPreco(valorParcela * 100)} sem juros`,
+      value: String(parcela),
+    };
+  });
+
   // Processamento do Pagamento
   const handleFinalizarPedido = async (e) => {
     e.preventDefault();
     setLoading(true);
     setResultado(null);
 
-    const { email, cpf, endereco, numero, bairro, cidade, estado } = formData;
+    const { email, cpf, endereco, numero, bairro, cidade, estado, nome } = formData;
     const cpfLimpo = cpf.replace(/\D/g, '');
+    const nomeCompleto = nome.trim();
+    const partesNome = nomeCompleto.split(/\s+/).filter(Boolean);
+    const primeiroNome = partesNome[0] || 'Cliente';
+    const sobrenome = partesNome.slice(1).join(' ') || '';
+
+    if (!cartItems.length || subtotal <= 0) {
+      alert('Seu carrinho está vazio.');
+      setLoading(false);
+      return;
+    }
 
     try {
       // 1. PAGAMENTO PIX
@@ -76,9 +264,11 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            valorOriginal: 170.71, // Valor com desconto Pix
+            valorOriginal: valorPedido,
             email,
             cpf: cpfLimpo,
+            nome: primeiroNome,
+            sobrenome,
           }),
         });
         const json = await resposta.json();
@@ -99,7 +289,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            valorTotal: 179.70,
+            valorTotal: valorPedido,
             email,
             cpf: cpfLimpo,
             endereco: {
@@ -124,11 +314,12 @@ export default function FinalizarCompra() {
       // 3. PAGAMENTO CARTÃO
       else if (pagamento === 'cartao') {
         if (!mpInstance) throw new Error('Mercado Pago não inicializado.');
-        
+
         const { numeroCartao, nomeCartao, validade, cvv, parcelas, cpfTitular } = formData;
         const [month, year] = validade.split('/');
         const fullYear = year?.length === 2 ? `20${year}` : year;
         const cpfTitularLimpo = cpfTitular.replace(/\D/g, '');
+        const bandeiraDetectada = detectarBandeiraCartao(numeroCartao);
 
         // Criar Token do Cartão
         const cardToken = await mpInstance.createCardToken({
@@ -144,14 +335,13 @@ export default function FinalizarCompra() {
           throw new Error('Falha ao validar os dados do cartão.');
         }
 
-        // Enviar para o backend
         const resposta = await fetch('/api/pagamento/cartao', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             token: cardToken.id,
-            payment_method_id: formData.bandeira, // Recomendado usar o MP para detectar automaticamente no futuro
-            valorTotal: 179.70,
+            payment_method_id: formData.bandeira || bandeiraDetectada,
+            valorTotal: valorPedido,
             parcelas,
             email,
             cpf: cpfLimpo,
@@ -206,6 +396,12 @@ export default function FinalizarCompra() {
           </div>
         </div>
 
+        {erroCarrinho && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {erroCarrinho}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
           
           {/* COLUNA DA ESQUERDA: FORMULÁRIOS */}
@@ -259,6 +455,14 @@ export default function FinalizarCompra() {
                   </div>
                   <button type="button" onClick={() => setFreteCalculado(true)} className="h-12 px-6 rounded-md border-2 border-[#3E2417] text-[#3E2417] font-bold text-sm uppercase hover:bg-[#3E2417] hover:text-white transition-colors">
                     CALCULAR FRETE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={salvarEnderecoPrincipal}
+                    disabled={salvandoEndereco || !formData.endereco || !formData.numero || !formData.bairro || !formData.cidade || !formData.estado || !cep}
+                    className="h-12 px-6 rounded-md bg-[#3E2417] text-white font-bold text-xs uppercase hover:bg-[#2A180F] disabled:opacity-50 transition-colors"
+                  >
+                    {salvandoEndereco ? 'SALVANDO...' : 'SALVAR ENDEREÇO'}
                   </button>
                 </div>
 
@@ -352,11 +556,18 @@ export default function FinalizarCompra() {
                     </div>
                     <div className="space-y-1.5">
                       <label className="block text-sm font-medium text-[#3E2417]">Parcelamento *</label>
-                      <select required={pagamento === 'cartao'} name="parcelas" value={formData.parcelas} onChange={handleChange} className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm">
-                        <option value="4">4x de R$ 44,92 sem juros</option>
-                        <option value="3">3x de R$ 59,90 sem juros</option>
-                        <option value="2">2x de R$ 89,85 sem juros</option>
-                        <option value="1">1x de R$ 179,70 à vista</option>
+                      <select
+                        required={pagamento === 'cartao'}
+                        name="parcelas"
+                        value={formData.parcelas}
+                        onChange={handleChange}
+                        className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm"
+                      >
+                        {opcoesParcelamento.map((opcao) => (
+                          <option key={opcao.parcela} value={String(opcao.parcela)}>
+                            {opcao.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -371,14 +582,16 @@ export default function FinalizarCompra() {
             <div className="bg-[#FDE89C] p-6 rounded-[1.25rem] space-y-6">
               <div className="flex items-center justify-between border-b border-[#3E2417]/10 pb-4">
                 <h2 className="text-[1.1rem] font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase tracking-wide">SEU PEDIDO</h2>
-                <span className="text-xs font-medium text-[#3E2417]/80">3 itens</span>
+                <span className="text-xs font-medium text-[#3E2417]/80">
+                  {carregandoCarrinho ? '...' : `${quantidadeTotalItens} item${quantidadeTotalItens === 1 ? '' : 's'}`}
+                </span>
               </div>
               
               <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-3">
                   <span className="font-['Archivo_Black',sans-serif] text-[13px] uppercase text-[#3E2417]">TOTAL</span>
                   <span className="font-['Archivo_Black',sans-serif] text-2xl text-[#3E2417]">
-                    {pagamento === 'pix' ? 'R$ 170,71' : 'R$ 179,70'}
+                    {carregandoCarrinho ? 'Carregando...' : pagamento === 'pix' ? formatarPreco(pixTotal) : formatarPreco(subtotal)}
                   </span>
                 </div>
               </div>
@@ -414,9 +627,19 @@ export default function FinalizarCompra() {
                 </div>
               ) : (
                 <div className="space-y-4 pt-2">
-                  <button type="submit" disabled={loading} className="w-full bg-[#3E2417] hover:bg-[#2A180F] disabled:opacity-50 text-white font-['Archivo_Black',sans-serif] text-sm py-4 rounded-lg transition-colors uppercase flex items-center justify-center gap-2">
-                    <span>{loading ? 'PROCESSANDO...' : 'FINALIZAR PEDIDO'}</span>
-                    {!loading && <span>→</span>}
+                  <button
+                    type="submit"
+                    disabled={loading || carregandoCarrinho || !cartItems.length}
+                    className="w-full bg-[#3E2417] hover:bg-[#2A180F] disabled:opacity-50 text-white font-['Archivo_Black',sans-serif] text-sm py-4 rounded-lg transition-colors uppercase flex items-center justify-center gap-2"
+                  >
+                    <span>
+                      {carregandoCarrinho
+                        ? 'CARREGANDO CARRINHO...'
+                        : loading
+                          ? 'PROCESSANDO...'
+                          : 'FINALIZAR PEDIDO'}
+                    </span>
+                    {!loading && !carregandoCarrinho && cartItems.length > 0 && <span>→</span>}
                   </button>
                 </div>
               )}

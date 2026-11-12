@@ -19,6 +19,7 @@ const {
   Carrinho,
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
+const { MercadoPagoConfig, Payment, PreApproval } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
 
@@ -26,6 +27,13 @@ const session = require("express-session");
 
 const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
 const jwtSecret = process.env.JWT_SECRET || sessionSecret;
+const mpPublicKey = process.env.MP_PUBLIC_KEY || "";
+const mpAccessToken = process.env.MP_ACCESS_TOKEN || "";
+const mpClient = mpAccessToken
+  ? new MercadoPagoConfig({ accessToken: mpAccessToken })
+  : null;
+const paymentModule = mpClient ? new Payment(mpClient) : null;
+const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
 const { autenticar, autenticarAdmin, clienteIdDoCarrinho } = criarAutenticacao({
   jwtSecret,
 });
@@ -86,6 +94,194 @@ function dataValida(texto) {
 
 const sohTextos = (...valores) =>
   valores.every((valor) => typeof valor === "string");
+
+app.get("/api/config", (_req, res) => {
+  res.json({ publicKey: mpPublicKey });
+});
+
+app.post("/api/pagamento/pix", async (req, res) => {
+  try {
+    const { valorOriginal, email, nome, sobrenome, cpf } = req.body || {};
+
+    if (!valorOriginal || !email || !cpf || !mpClient || !paymentModule) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: "Configuração do Mercado Pago ausente ou dados incompletos.",
+      });
+    }
+
+    const valorComDesconto = Number((Number(valorOriginal) * 0.95).toFixed(2));
+
+    const resposta = await paymentModule.create({
+      body: {
+        transaction_amount: valorComDesconto,
+        description: "Compra via PIX (5% de desconto)",
+        payment_method_id: "pix",
+        payer: {
+          email,
+          first_name: nome || "Cliente",
+          last_name: sobrenome || "",
+          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      sucesso: true,
+      id_pagamento: resposta.id,
+      valor_original: valorOriginal,
+      valor_com_desconto: valorComDesconto,
+      qr_code_pix: resposta.point_of_interaction.transaction_data.qr_code,
+      qr_code_base64:
+        resposta.point_of_interaction.transaction_data.qr_code_base64,
+    });
+  } catch (erro) {
+    console.error("Erro na geração do PIX:", erro);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: erro.message || "Erro ao processar o Pix.",
+    });
+  }
+});
+
+app.post("/api/pagamento/boleto", async (req, res) => {
+  try {
+    const { valorTotal, email, cpf, endereco } = req.body || {};
+    if (!valorTotal || !email || !cpf || !mpClient || !paymentModule) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: "Configuração do Mercado Pago ausente ou dados incompletos.",
+      });
+    }
+
+    const resposta = await paymentModule.create({
+      body: {
+        transaction_amount: Number(valorTotal),
+        description: "Compra via boleto",
+        payment_method_id: "bolbradesco",
+        payer: {
+          email,
+          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+          address: {
+            zip_code: String(endereco?.cep || "").replace(/\D/g, ""),
+            street_name: String(endereco?.rua || ""),
+            street_number: String(endereco?.numero || ""),
+            neighborhood: String(endereco?.bairro || ""),
+            city: String(endereco?.cidade || ""),
+            federal_unit: String(endereco?.estado || ""),
+          },
+        },
+      },
+    });
+
+    const pdf = resposta.transaction_details?.financial_institution || "";
+    return res.status(200).json({
+      sucesso: true,
+      id_pagamento: resposta.id,
+      codigo_de_barras: resposta.barcode || "",
+      link_boleto_pdf: resposta.transaction_details?.url || "",
+      status: resposta.status,
+      pdf,
+    });
+  } catch (erro) {
+    console.error("Erro na geração do boleto:", erro);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: erro.message || "Erro ao processar o boleto.",
+    });
+  }
+});
+
+app.post("/api/pagamento/cartao", async (req, res) => {
+  try {
+    const { token, payment_method_id, valorTotal, parcelas, email, cpf } =
+      req.body || {};
+
+    if (!token || !payment_method_id || !valorTotal || !email || !cpf) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: "Dados do cartão incompletos.",
+      });
+    }
+
+    if (!mpClient || !paymentModule) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: "Configuração do Mercado Pago ausente.",
+      });
+    }
+
+    const resposta = await paymentModule.create({
+      body: {
+        token,
+        payment_method_id,
+        transaction_amount: Number(valorTotal),
+        installments: Number(parcelas || 1),
+        payer: {
+          email,
+          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      sucesso: true,
+      id_pagamento: resposta.id,
+      status: resposta.status,
+      status_detail: resposta.status_detail,
+      parcelas: resposta.installments,
+      valor_parcela: Number(valorTotal) / Number(parcelas || 1),
+      mensagem: resposta.status === "approved" ? "Pagamento aprovado." : "Pagamento processado.",
+    });
+  } catch (erro) {
+    console.error("Erro no pagamento com cartão:", erro);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: erro.message || "Erro ao processar o cartão.",
+    });
+  }
+});
+
+app.post("/api/assinatura/criar", async (req, res) => {
+  try {
+    const { payer_email, back_url, card_token_id } = req.body || {};
+
+    if (!payer_email || !back_url || !card_token_id || !mpClient || !preApprovalModule) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: "Dados da assinatura incompletos.",
+      });
+    }
+
+    const resposta = await preApprovalModule.create({
+      body: {
+        reason: "Assinatura Mini Stitches",
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: "months",
+          transaction_amount: 69.9,
+          currency_id: "BRL",
+        },
+        payer_email: payer_email,
+        back_url,
+        card_token_id,
+      },
+    });
+
+    return res.status(200).json({
+      sucesso: true,
+      id_assinatura: resposta.id,
+      status: resposta.status,
+      init_point: resposta.init_point,
+    });
+  } catch (erro) {
+    console.error("Erro na criação da assinatura:", erro);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: erro.message || "Erro ao criar a assinatura.",
+    });
+  }
+});
 
 app.get("/api/cep/:cep", async (req, res) => {
   const cep = req.params.cep.replace(/\D/g, "");
