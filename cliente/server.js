@@ -843,6 +843,28 @@ app.get("/admin/estoque", autenticarAdmin, async (req, res) => {
   }
 });
 
+app.delete("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+
+    const produto = await Produto.findById(id);
+    if (!produto) {
+      return res.status(404).json({ erro: "Produto não encontrado." });
+    }
+
+    await Produto.deleteOne({ _id: id });
+
+    res.json({ mensagem: "Produto removido com sucesso." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao excluir o produto." });
+  }
+});
+
 app.get("/api/produtos", async (req, res) => {
   try {
     const { tipo } = req.query;

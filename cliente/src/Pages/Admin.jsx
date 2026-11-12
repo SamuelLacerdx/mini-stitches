@@ -65,7 +65,10 @@ const garantirVideosDoKit = (videos) => {
 // (e abaixo do limite de 4,5 MB da Vercel). Upgrade: storage externo de arquivos.
 const reduzirImagem = async (arquivo, ladoMaximo = 1200) => {
   const bitmap = await createImageBitmap(arquivo);
-  const escala = Math.min(1, ladoMaximo / Math.max(bitmap.width, bitmap.height));
+  const escala = Math.min(
+    1,
+    ladoMaximo / Math.max(bitmap.width, bitmap.height),
+  );
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * escala);
   canvas.height = Math.round(bitmap.height * escala);
@@ -346,10 +349,25 @@ export default function Admin() {
         method: "DELETE",
         credentials: "include",
       });
-      const dados = await resposta.json();
+
+      const contentType = resposta.headers.get("content-type") || "";
+      let dados = {};
+
+      if (contentType.includes("application/json")) {
+        dados = await resposta.json();
+      } else {
+        const texto = await resposta.text();
+        throw new Error(
+          texto && texto.length < 200
+            ? texto
+            : "Erro ao excluir item. Verifique se a rota está disponível.",
+        );
+      }
+
       if (!resposta.ok) {
         throw new Error(dados.erro || "Erro ao excluir item.");
       }
+
       setMensagem({ tipo: "sucesso", texto: "Item removido com sucesso." });
       if (produtoAbertoId === id) setProdutoAbertoId(null);
       carregarItens();
