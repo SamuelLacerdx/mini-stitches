@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ClubeAdmin,
   PedidosAdmin,
+  TrocasAdmin,
   VisaoGeral,
 } from "../Componentes/AdminPainel";
 
@@ -421,6 +422,8 @@ export default function Admin() {
         {abaAtiva === "PEDIDOS" && <PedidosAdmin />}
 
         {abaAtiva === "CLUBE" && <ClubeAdmin />}
+
+        {abaAtiva === "TROCAS" && <TrocasAdmin />}
 
         {abaAtiva === "ESTOQUE" && (
           <div className="space-y-6">

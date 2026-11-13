@@ -535,3 +535,160 @@ export function ClubeAdmin() {
     </div>
   );
 }
+
+const STATUS_TROCA = {
+  em_analise: { rotulo: "Em análise", cor: "bg-amber-100 text-amber-800" },
+  aprovada: { rotulo: "Aprovada", cor: "bg-green-100 text-green-800" },
+  recusada: { rotulo: "Recusada", cor: "bg-red-100 text-red-700" },
+};
+
+function CardTroca({ troca, onAtualizado }) {
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+  const info = STATUS_TROCA[troca.status] || STATUS_TROCA.em_analise;
+
+  const mudarStatus = async (status) => {
+    setSalvando(true);
+    setErro("");
+    try {
+      const resposta = await fetch(`/admin/trocas/${troca._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status }),
+      });
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Erro ao atualizar a solicitação.");
+      }
+      onAtualizado();
+    } catch (error) {
+      setErro(error.message);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 text-sm text-stone-700">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="rounded-full bg-[#3E2417] text-white px-3 py-1 text-[11px] font-bold uppercase">
+          {troca.tipo === "devolucao" ? "Devolução" : "Troca"}
+        </span>
+        <span className="font-black text-[#3E2417]">{troca.numeroPedido}</span>
+        <span className="flex-1 min-w-40">
+          {troca.pedido?.cliente?.nome || "—"}
+          <span className="block text-xs text-stone-500 break-all">
+            {troca.email}
+          </span>
+        </span>
+        <span className="whitespace-nowrap text-stone-600">
+          {formatarData(troca.criadoEm)}
+        </span>
+        <span
+          className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold uppercase ${info.cor}`}
+        >
+          {info.rotulo}
+        </span>
+      </div>
+
+      <p className="mt-3 whitespace-pre-line rounded-xl border border-stone-200 bg-white p-3">
+        {troca.motivo}
+      </p>
+
+      {troca.pedido && (
+        <p className="mt-2 text-xs text-stone-500">
+          Itens:{" "}
+          {troca.pedido.itens
+            .map((item) => `${item.quantidade}× ${item.nome}`)
+            .join(", ")}{" "}
+          · Total {formatarReais(troca.pedido.total)}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {troca.status !== "aprovada" && (
+          <button
+            type="button"
+            disabled={salvando}
+            onClick={() => mudarStatus("aprovada")}
+            className="rounded-xl bg-green-700 text-white font-bold px-4 py-2 hover:bg-green-800 disabled:opacity-60"
+          >
+            Aprovar
+          </button>
+        )}
+        {troca.status !== "recusada" && (
+          <button
+            type="button"
+            disabled={salvando}
+            onClick={() => mudarStatus("recusada")}
+            className="rounded-xl border border-red-200 bg-red-50 text-red-700 font-bold px-4 py-2 hover:bg-red-100 disabled:opacity-60"
+          >
+            Recusar
+          </button>
+        )}
+        {troca.status !== "em_analise" && (
+          <button
+            type="button"
+            disabled={salvando}
+            onClick={() => mudarStatus("em_analise")}
+            className="rounded-xl border border-stone-300 text-[#3E2417] font-bold px-4 py-2 hover:bg-stone-50 disabled:opacity-60"
+          >
+            Voltar para análise
+          </button>
+        )}
+      </div>
+      {erro && <p className="mt-2 text-red-700">{erro}</p>}
+    </div>
+  );
+}
+
+export function TrocasAdmin() {
+  const [filtro, setFiltro] = useState("");
+  const { dados, erro, carregando, recarregar } = useAdminFetch(
+    `/admin/trocas${filtro ? `?status=${filtro}` : ""}`,
+  );
+  const trocas = dados?.trocas || [];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold text-[#3E2417]">
+          Trocas e devoluções
+        </h2>
+        <select
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+          className="border border-stone-300 rounded-xl px-3 py-2 text-sm bg-white"
+        >
+          <option value="">Todos os status</option>
+          {Object.entries(STATUS_TROCA).map(([valor, info]) => (
+            <option key={valor} value={valor}>
+              {info.rotulo}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {carregando || erro ? (
+        <Aviso
+          erro={erro}
+          carregando={carregando}
+          textoCarregando="Carregando solicitações..."
+        />
+      ) : trocas.length === 0 ? (
+        <p className="text-stone-500">Nenhuma solicitação encontrada.</p>
+      ) : (
+        <div className="space-y-3">
+          {trocas.map((troca) => (
+            <CardTroca
+              key={troca._id}
+              troca={troca}
+              onAtualizado={recarregar}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

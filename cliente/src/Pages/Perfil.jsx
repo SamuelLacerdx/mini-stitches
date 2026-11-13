@@ -25,6 +25,12 @@ const STATUS_PEDIDO = {
   cancelado: { rotulo: "Cancelado", classe: "bg-stone-200" },
 };
 
+const STATUS_TROCA = {
+  em_analise: { rotulo: "Em análise", classe: "bg-yellow-100" },
+  aprovada: { rotulo: "Aprovada", classe: "bg-green-100" },
+  recusada: { rotulo: "Recusada", classe: "bg-red-100" },
+};
+
 const formatarPreco = (centavos) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number(centavos || 0) / 100,
@@ -41,6 +47,8 @@ export default function Perfil() {
   const enderecos = usuario.enderecos || [];
   const [pedidos, setPedidos] = useState([]);
   const [statusPedidos, setStatusPedidos] = useState("carregando");
+  const [trocas, setTrocas] = useState([]);
+  const [statusTrocas, setStatusTrocas] = useState("carregando");
 
   async function sair(event) {
     event.preventDefault();
@@ -82,6 +90,17 @@ export default function Perfil() {
         setStatusPedidos("ok");
       })
       .catch(() => setStatusPedidos("erro"));
+
+    fetch("/api/trocas", { credentials: "include" })
+      .then(async (resposta) => {
+        const data = await resposta.json();
+        if (!resposta.ok) {
+          throw new Error(data.erro || "Erro ao carregar trocas.");
+        }
+        setTrocas(data.trocas || []);
+        setStatusTrocas("ok");
+      })
+      .catch(() => setStatusTrocas("erro"));
   }, []);
 
   function handleChange(e) {
@@ -702,7 +721,47 @@ export default function Perfil() {
           <h2 className="text-lg font-['Archivo_Black'] border-b border-stone-200 pb-3">
             TROCAS
           </h2>
-          <p className="text-sm text-stone-700">Nenhuma troca em andamento.</p>
+          {statusTrocas === "carregando" && (
+            <p className="text-sm text-stone-500">Carregando trocas...</p>
+          )}
+          {statusTrocas === "erro" && (
+            <p className="text-sm text-red-700" role="alert">
+              Não foi possível carregar suas trocas.
+            </p>
+          )}
+          {statusTrocas === "ok" && trocas.length === 0 && (
+            <p className="text-sm text-stone-700">
+              Nenhuma troca ou devolução solicitada.
+            </p>
+          )}
+          {trocas.map((troca) => {
+            const status = STATUS_TROCA[troca.status] || {
+              rotulo: troca.status,
+              classe: "bg-stone-200",
+            };
+            return (
+              <div
+                key={troca._id}
+                className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <span className="font-semibold text-[#3E2417]">
+                    {troca.tipo === "devolucao" ? "Devolução" : "Troca"} ·{" "}
+                    {troca.numeroPedido} -{" "}
+                    {new Date(troca.criadoEm).toLocaleDateString("pt-BR")}
+                  </span>
+                  <span
+                    className={`px-3 py-1 text-yellow-900 font-medium rounded-full text-[11px] ${status.classe}`}
+                  >
+                    {status.rotulo}
+                  </span>
+                </div>
+                <p className="text-stone-600 whitespace-pre-line">
+                  {troca.motivo}
+                </p>
+              </div>
+            );
+          })}
           <Link
             to="/trocas"
             className="inline-block text-xs text-[#3E2417] font-medium underline hover:opacity-80"
