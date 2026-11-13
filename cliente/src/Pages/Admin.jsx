@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  ClubeAdmin,
+  PedidosAdmin,
+  VisaoGeral,
+} from "../Componentes/AdminPainel";
 
 const criarVideoPadrao = () => ({
   titulo: "",
@@ -410,25 +415,12 @@ export default function Admin() {
 
       <div className="bg-white p-6 md:p-8 rounded-2xl border border-stone-300">
         {abaAtiva === "VISÃO GERAL" && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="p-6 rounded-xl border border-stone-200 bg-[#FEF8F0]">
-              <span className="text-stone-500 font-bold text-sm">PEDIDOS</span>
-              <p className="text-4xl font-bold text-[#602D15] mt-2">1</p>
-            </div>
-            <div className="p-6 rounded-xl border border-stone-200 bg-[#FEF8F0]">
-              <span className="text-stone-500 font-bold text-sm">FATURADO</span>
-              <p className="text-4xl font-bold text-[#602D15] mt-2">
-                R$ 154,80
-              </p>
-            </div>
-            <div className="p-6 rounded-xl border border-stone-200 bg-[#FEF8F0]">
-              <span className="text-stone-500 font-bold text-sm">
-                ASSINANTES CLUBE
-              </span>
-              <p className="text-4xl font-bold text-[#602D15] mt-2">2</p>
-            </div>
-          </div>
+          <VisaoGeral onVerPedidos={() => setAbaAtiva("PEDIDOS")} />
         )}
+
+        {abaAtiva === "PEDIDOS" && <PedidosAdmin />}
+
+        {abaAtiva === "CLUBE" && <ClubeAdmin />}
 
         {abaAtiva === "ESTOQUE" && (
           <div className="space-y-6">
