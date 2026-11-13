@@ -1495,6 +1495,8 @@ app.get("/api/pedidos", autenticar, async (req, res) => {
 
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
+// Status controlados apenas pelo gateway de pagamento (webhook).
+const STATUS_SO_GATEWAY = ["aguardando_pagamento", "pago"];
 const STATUS_PEDIDO_ADMIN = [
   "aguardando_pagamento",
   ...STATUS_FATURADOS,
@@ -1590,6 +1592,22 @@ app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
     const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    // "Aguardando pagamento" e "Pago" são definidos só pelo Mercado Pago
+    // (webhook): o admin não pode atribuí-los nem tirar um pedido de
+    // "Aguardando pagamento". Um pedido "Pago" pode avançar no fluxo.
+    if (status !== pedido.status) {
+      if (STATUS_SO_GATEWAY.includes(status)) {
+        return res.status(403).json({
+          erro: "Esse status é definido automaticamente pelo pagamento.",
+        });
+      }
+      if (pedido.status === "aguardando_pagamento") {
+        return res.status(403).json({
+          erro: "Pedido aguardando pagamento só muda pela confirmação do pagamento.",
+        });
+      }
     }
 
     pedido.status = status;
