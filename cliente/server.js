@@ -8,6 +8,11 @@ const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
 const {
+  cotarFrete,
+  ErroFrete,
+  normalizarCEP,
+} = require("./backend/functions/frete");
+const {
   normalizarVideosDoKit,
   sincronizarVideosDoKitComStatus,
 } = require("./backend/functions/videosKit");
@@ -64,14 +69,10 @@ app.post("/api/webhook", async (req, res) => {
     const body = req.body || {};
     const eventType = String(body?.type || body?.action || "");
     const paymentId =
-      body?.data?.id ??
-      req.query?.["data.id"] ??
-      req.query?.id ??
-      null;
+      body?.data?.id ?? req.query?.["data.id"] ?? req.query?.id ?? null;
 
     const deveProcessarPagamento =
-      paymentId &&
-      (eventType === "payment" || eventType.includes("payment"));
+      paymentId && (eventType === "payment" || eventType.includes("payment"));
 
     if (deveProcessarPagamento && paymentModule) {
       const pagamento = await paymentModule.get({ id: paymentId });
@@ -152,7 +153,10 @@ app.post("/api/pagamento/pix", async (req, res) => {
           email,
           first_name: nome || "Cliente",
           last_name: sobrenome || "",
-          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+          identification: {
+            type: "CPF",
+            number: String(cpf).replace(/\D/g, ""),
+          },
         },
       },
     });
@@ -192,7 +196,10 @@ app.post("/api/pagamento/boleto", async (req, res) => {
         payment_method_id: "bolbradesco",
         payer: {
           email,
-          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+          identification: {
+            type: "CPF",
+            number: String(cpf).replace(/\D/g, ""),
+          },
           address: {
             zip_code: String(endereco?.cep || "").replace(/\D/g, ""),
             street_name: String(endereco?.rua || ""),
@@ -250,7 +257,10 @@ app.post("/api/pagamento/cartao", async (req, res) => {
         installments: Number(parcelas || 1),
         payer: {
           email,
-          identification: { type: "CPF", number: String(cpf).replace(/\D/g, "") },
+          identification: {
+            type: "CPF",
+            number: String(cpf).replace(/\D/g, ""),
+          },
         },
       },
     });
@@ -262,7 +272,10 @@ app.post("/api/pagamento/cartao", async (req, res) => {
       status_detail: resposta.status_detail,
       parcelas: resposta.installments,
       valor_parcela: Number(valorTotal) / Number(parcelas || 1),
-      mensagem: resposta.status === "approved" ? "Pagamento aprovado." : "Pagamento processado.",
+      mensagem:
+        resposta.status === "approved"
+          ? "Pagamento aprovado."
+          : "Pagamento processado.",
     });
   } catch (erro) {
     console.error("Erro no pagamento com cartão:", erro);
@@ -282,7 +295,10 @@ app.post("/api/assinatura/criar", async (req, res) => {
       body.valorMensal ?? body.amount ?? body.transaction_amount ?? 69.9,
     );
     const tituloAssinatura =
-      body.tituloAssinatura || body.reason || body.title || "Assinatura Mini Stitches";
+      body.tituloAssinatura ||
+      body.reason ||
+      body.title ||
+      "Assinatura Mini Stitches";
     const backUrl =
       body.back_url ||
       body.backUrl ||
@@ -1144,6 +1160,53 @@ app.get("/api/carrinho", async (req, res) => {
   }
 });
 
+app.post("/api/frete", async (req, res) => {
+  try {
+    const cep = normalizarCEP(req.body?.cep);
+    if (!cep) {
+      return res.status(400).json({ erro: "CEP inválido." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+
+    const itensValidos = (carrinho.itens || []).filter((item) => {
+      if (!item || !item.produtoId) return false;
+      return item.produtoId.ativo !== false;
+    });
+
+    if (!itensValidos.length) {
+      return res.status(400).json({ erro: "Seu carrinho está vazio." });
+    }
+
+    const opcoes = await cotarFrete({
+      cepDestino: cep,
+      itens: itensValidos,
+    });
+
+    return res.json({
+      cep,
+      opcoes: opcoes.map((opcao) => ({
+        servicoId: opcao.servicoId,
+        servico: opcao.servico,
+        transportadora: opcao.transportadora,
+        logo: opcao.logo,
+        preco: opcao.preco,
+        prazoMin: opcao.prazoMin,
+        prazoMax: opcao.prazoMax,
+      })),
+    });
+  } catch (error) {
+    console.error("[api/frete] erro:", error?.message || error);
+
+    if (error instanceof ErroFrete) {
+      return res.status(error.status).json({ erro: error.message });
+    }
+
+    return res.status(500).json({ erro: "Não foi possível calcular o frete." });
+  }
+});
+
 app.post("/api/carrinho", async (req, res) => {
   try {
     const slug = String(req.body?.slug || "").trim();
@@ -1180,134 +1243,3 @@ app.post("/api/carrinho", async (req, res) => {
     res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
   }
 });
-
-app.patch("/api/carrinho/:produtoId", async (req, res) => {
-  try {
-    const { produtoId } = req.params;
-    const quantidade = Number(req.body?.quantidade);
-    if (
-      !mongoose.isValidObjectId(produtoId) ||
-      !Number.isSafeInteger(quantidade) ||
-      quantidade < 1
-    ) {
-      return res.status(400).json({ erro: "Produto ou quantidade inválida." });
-    }
-
-    const carrinho = await obterCarrinho(req);
-    const item = carrinho.itens.find(
-      (itemCarrinho) => String(itemCarrinho.produtoId) === produtoId,
-    );
-    if (!item) {
-      return res.status(404).json({ erro: "Item não encontrado no carrinho." });
-    }
-
-    item.quantidade = quantidade;
-    await carrinho.save();
-    res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Não foi possível atualizar o carrinho." });
-  }
-});
-
-app.delete("/api/carrinho/:produtoId", async (req, res) => {
-  try {
-    const { produtoId } = req.params;
-    if (!mongoose.isValidObjectId(produtoId)) {
-      return res.status(400).json({ erro: "Produto inválido." });
-    }
-
-    const carrinho = await obterCarrinho(req);
-    carrinho.itens = carrinho.itens.filter(
-      (item) => String(item.produtoId) !== produtoId,
-    );
-    await carrinho.save();
-    res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Não foi possível remover o item." });
-  }
-});
-
-app.get("/plano/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const plano = await Plano.findById(id).lean();
-    if (!plano) {
-      return res.status(404).json({ erro: "Plano não encontrado." });
-    }
-
-    res.json({ plano });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao buscar plano." });
-  }
-});
-
-app.post("/sair", (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
-  req.session.destroy((error) => {
-    if (error) {
-      console.error(error);
-      return res
-        .status(500)
-        .json({ erro: "Não foi possível encerrar a sessão." });
-    }
-
-    res.json({ mensagem: "Sessão encerrada." });
-  });
-});
-
-app.get("/sair", (req, res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
-  req.session.destroy(() => {
-    res.redirect("/");
-  });
-});
-
-app.use((req, res) => {
-  res.status(404).send("Página não encontrada.");
-});
-
-app.use((error, req, res, next) => {
-  if (error.type === "entity.too.large") {
-    return res.status(413).json({
-      erro: "O arquivo enviado é muito grande. Reduza a imagem e tente novamente.",
-    });
-  }
-
-  next(error);
-});
-
-// Local (node server.js): conecta antes de abrir a porta. Na Vercel quem
-// conecta é o middleware acima, dentro de cada requisição.
-async function iniciar() {
-  try {
-    await conectarBanco();
-
-    console.log("MongoDB conectado!");
-
-    await Usuario.init();
-
-    app.listen(4000, () => {
-      console.log("Abra http://localhost:4000");
-    });
-  } catch (erro) {
-    console.error("Erro na conexão:", erro.message);
-  }
-}
-
-if (isDirectRun) {
-  iniciar();
-}
-
-module.exports = app;
