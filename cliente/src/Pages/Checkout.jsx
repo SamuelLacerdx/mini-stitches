@@ -465,6 +465,13 @@ export default function FinalizarCompra() {
         if (!email || !email.includes('@')) throw new Error('E-mail inválido.');
         if (cpfLimpo.length !== 11) throw new Error('CPF inválido.');
 
+        const nomeCompleto = String(formData.nome || '').trim();
+        const partesNome = nomeCompleto.split(/\s+/).filter(Boolean);
+
+        if (partesNome.length < 2) {
+          throw new Error('Informe nome e sobrenome para gerar o boleto.');
+        }
+
         const resposta = await fetch('/api/pagamento/boleto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -472,6 +479,7 @@ export default function FinalizarCompra() {
             valorTotal: valorPedido,
             email,
             cpf: cpfLimpo,
+            nomeCompleto,
             endereco: {
               cep: cep.replace(/\D/g, ''),
               rua: endereco,

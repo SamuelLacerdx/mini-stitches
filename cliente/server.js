@@ -216,13 +216,31 @@ app.post("/api/pagamento/pix", async (req, res) => {
 
 app.post("/api/pagamento/boleto", async (req, res) => {
   try {
-    const { valorTotal, email, cpf, endereco } = req.body || {};
-    if (!valorTotal || !email || !cpf || !mpClient || !paymentModule) {
+    const { valorTotal, email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
+
+    const nomeCompletoInformado = String(
+      nomeCompleto || `${nome || ""} ${sobrenome || ""}`.trim() || ""
+    ).trim();
+
+    if (!valorTotal || !email || !cpf || !nomeCompletoInformado || !mpClient || !paymentModule) {
       return res.status(400).json({
         sucesso: false,
         mensagem: "Configuração do Mercado Pago ausente ou dados incompletos.",
       });
     }
+
+    const partesNome = nomeCompletoInformado.split(/\s+/).filter(Boolean);
+    const primeiroNome = partesNome[0] || "Cliente";
+    const ultimoNome = partesNome.slice(1).join(" ") || "Cliente";
+
+    const enderecoLimpo = {
+      cep: String(endereco?.cep || "").replace(/\D/g, "") || "00000000",
+      rua: String(endereco?.rua || "").trim() || "Rua do Cliente",
+      numero: String(endereco?.numero ?? "").trim() || "S/N",
+      bairro: String(endereco?.bairro || "").trim() || "Centro",
+      cidade: String(endereco?.cidade || "").trim() || "Cidade",
+      estado: String(endereco?.estado || "").trim().toUpperCase() || "SP",
+    };
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -232,31 +250,31 @@ app.post("/api/pagamento/boleto", async (req, res) => {
         payment_method_id: "bolbradesco",
         payer: {
           email,
+          first_name: primeiroNome,
+          last_name: ultimoNome,
           identification: {
             type: "CPF",
             number: String(cpf).replace(/\D/g, ""),
           },
           address: {
-            zip_code: String(endereco?.cep || "").replace(/\D/g, ""),
-            street_name: String(endereco?.rua || ""),
-            street_number: String(endereco?.numero || ""),
-            neighborhood: String(endereco?.bairro || ""),
-            city: String(endereco?.cidade || ""),
-            federal_unit: String(endereco?.estado || ""),
+            zip_code: enderecoLimpo.cep,
+            street_name: enderecoLimpo.rua,
+            street_number: enderecoLimpo.numero,
+            neighborhood: enderecoLimpo.bairro,
+            city: enderecoLimpo.cidade,
+            federal_unit: enderecoLimpo.estado,
           },
         },
         ...(notificationUrl && { notification_url: notificationUrl }),
       },
     });
 
-    const pdf = resposta.transaction_details?.financial_institution || "";
     return res.status(200).json({
       sucesso: true,
       id_pagamento: resposta.id,
-      codigo_de_barras: resposta.barcode || "",
-      link_boleto_pdf: resposta.transaction_details?.url || "",
+      codigo_de_barras: resposta.barcode?.content || "",
+      link_boleto_pdf: resposta.transaction_details?.external_resource_url || "",
       status: resposta.status,
-      pdf,
     });
   } catch (erro) {
     console.error("Erro na geração do boleto:", erro);
