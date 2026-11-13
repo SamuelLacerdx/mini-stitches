@@ -12,6 +12,9 @@ const STATUS_PEDIDO = {
   cancelado: { rotulo: "Cancelado", cor: "bg-red-100 text-red-700" },
 };
 
+// Status definidos só pelo Mercado Pago; o admin não pode atribuí-los.
+const STATUS_SO_GATEWAY = ["aguardando_pagamento", "pago"];
+
 const PAGAMENTO = { pix: "Pix", cartao: "Cartão", boleto: "Boleto" };
 
 const formatarReais = (centavos) =>
@@ -204,6 +207,7 @@ export function VisaoGeral({ onVerPedidos }) {
 
 function DetalhePedido({ pedido, onAtualizado }) {
   const [status, setStatus] = useState(pedido.status);
+  const aguardandoPagamento = pedido.status === "aguardando_pagamento";
   const [rastreio, setRastreio] = useState(pedido.rastreio || "");
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
@@ -282,15 +286,27 @@ function DetalhePedido({ pedido, onAtualizado }) {
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="border border-stone-300 rounded-xl px-3 py-2 bg-white"
+            disabled={aguardandoPagamento}
+            className="border border-stone-300 rounded-xl px-3 py-2 bg-white disabled:bg-stone-100 disabled:text-stone-500"
           >
             {Object.entries(STATUS_PEDIDO).map(([valor, info]) => (
-              <option key={valor} value={valor}>
+              <option
+                key={valor}
+                value={valor}
+                disabled={
+                  STATUS_SO_GATEWAY.includes(valor) && valor !== pedido.status
+                }
+              >
                 {info.rotulo}
               </option>
             ))}
           </select>
         </label>
+        <p className="text-xs text-stone-500">
+          {aguardandoPagamento
+            ? "O status muda automaticamente quando o pagamento for confirmado."
+            : "“Aguardando pagamento” e “Pago” são definidos apenas pelo pagamento."}
+        </p>
         <label className="flex flex-col gap-1 font-medium">
           Código de rastreio
           <input
