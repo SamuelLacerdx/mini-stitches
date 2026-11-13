@@ -6,21 +6,14 @@ class ErroFrete extends Error {
   }
 }
 
-const PADRAO = {
-  pesoKg: 0.5,
-  alturaCm: 8,
-  larguraCm: 20,
-  comprimentoCm: 25,
-};
-
 function normalizarCEP(cep) {
   const cepLimpo = String(cep ?? "").replace(/\D/g, "");
   return /^\d{8}$/.test(cepLimpo) ? cepLimpo : null;
 }
 
-function lerNumeroEnv(chave, padrao) {
+function lerNumeroEnv(chave) {
   const valor = Number(process.env[chave]);
-  return Number.isFinite(valor) && valor > 0 ? valor : padrao;
+  return Number.isFinite(valor) && valor > 0 ? valor : null;
 }
 
 function obterConfig() {
@@ -30,7 +23,20 @@ function obterConfig() {
   const sandbox =
     String(process.env.MELHOR_ENVIO_SANDBOX || "").trim() === "true";
 
-  if (!token || !contato || !cepOrigem) {
+  const pesoKg = lerNumeroEnv("FRETE_PESO_KG");
+  const alturaCm = lerNumeroEnv("FRETE_ALTURA_CM");
+  const larguraCm = lerNumeroEnv("FRETE_LARGURA_CM");
+  const comprimentoCm = lerNumeroEnv("FRETE_COMPRIMENTO_CM");
+
+  if (
+    !token ||
+    !contato ||
+    !cepOrigem ||
+    !pesoKg ||
+    !alturaCm ||
+    !larguraCm ||
+    !comprimentoCm
+  ) {
     throw new ErroFrete(503, "Cálculo de frete indisponível no momento.");
   }
 
@@ -41,12 +47,10 @@ function obterConfig() {
     baseUrl: sandbox
       ? "https://sandbox.melhorenvio.com.br"
       : "https://melhorenvio.com.br",
-    pesoKg: lerNumeroEnv("FRETE_PESO_KG", PADRAO.pesoKg),
-    alturaCm: Math.ceil(lerNumeroEnv("FRETE_ALTURA_CM", PADRAO.alturaCm)),
-    larguraCm: Math.ceil(lerNumeroEnv("FRETE_LARGURA_CM", PADRAO.larguraCm)),
-    comprimentoCm: Math.ceil(
-      lerNumeroEnv("FRETE_COMPRIMENTO_CM", PADRAO.comprimentoCm),
-    ),
+    pesoKg,
+    alturaCm: Math.ceil(alturaCm),
+    larguraCm: Math.ceil(larguraCm),
+    comprimentoCm: Math.ceil(comprimentoCm),
   };
 }
 
@@ -66,45 +70,24 @@ function valorParaPrazo(valor) {
   return Math.max(0, Math.ceil(numero));
 }
 
-function lerRangePrazo(servico) {
-  const entrega = servico?.custom_delivery_range ?? servico?.delivery_range;
-  if (Array.isArray(entrega)) {
-    return {
-      min: Number(
-        entrega[0] ??
-          entrega[1] ??
-          servico?.custom_delivery_time ??
-          servico?.delivery_time,
-      ),
-      max: Number(
-        entrega[1] ??
-          entrega[0] ??
-          servico?.custom_delivery_time ??
-          servico?.delivery_time,
-      ),
-    };
-  }
+// O Melhor Envio devolve o prazo como número (`delivery_time`) e a faixa como
+// objeto `{ min, max }` (`delivery_range`); as versões `custom_*` já incluem os
+// dias extras configurados na conta e têm prioridade.
+function lerPrazo(servico) {
+  const prazoUnico = valorParaPrazo(
+    servico.custom_delivery_time ?? servico.delivery_time,
+  );
+  const faixa = servico.custom_delivery_range ?? servico.delivery_range;
 
-  if (entrega && typeof entrega === "object") {
-    return {
-      min: Number(
-        entrega.min ??
-          entrega.from ??
-          servico?.custom_delivery_time ??
-          servico?.delivery_time,
-      ),
-      max: Number(
-        entrega.max ??
-          entrega.to ??
-          servico?.custom_delivery_time ??
-          servico?.delivery_time,
-      ),
-    };
+  if (faixa && typeof faixa === "object") {
+    const min = valorParaPrazo(faixa.min ?? faixa[0]) ?? prazoUnico;
+    const max = valorParaPrazo(faixa.max ?? faixa[1]) ?? prazoUnico ?? min;
+    return { prazoMin: min, prazoMax: max };
   }
 
   return {
-    min: Number(servico?.custom_delivery_time ?? servico?.delivery_time),
-    max: Number(servico?.custom_delivery_range ?? servico?.delivery_range),
+    prazoMin: prazoUnico,
+    prazoMax: valorParaPrazo(faixa) ?? prazoUnico,
   };
 }
 
@@ -113,35 +96,77 @@ function normalizarOpcao(servico) {
     return null;
   }
 
-  const preco = valorParaCentavos(
-    servico.custom_price ?? servico.price ?? servico?.amount ?? 0,
-  );
-  const range = lerRangePrazo(servico);
-  const prazoMin = valorParaPrazo(
-    range.min ?? servico.custom_delivery_time ?? servico.delivery_time,
-  );
-  const prazoMax = valorParaPrazo(
-    range.max ?? servico.custom_delivery_range ?? servico.delivery_range,
-  );
+  const preco = valorParaCentavos(servico.custom_price ?? servico.price);
+  const { prazoMin, prazoMax } = lerPrazo(servico);
 
   if (preco === null || prazoMin === null) {
     return null;
   }
 
+  // Na API real `company` é um objeto `{ name, picture }`.
+  const empresa = servico.company;
+
   return {
     servicoId: Number(servico.id ?? servico.service_id ?? servico.code ?? 0),
     servico: String(servico.name || servico.service || "Serviço"),
-    transportadora: String(
-      servico.company ||
-        servico.company_name ||
-        servico.transportadora ||
-        "Transportadora",
-    ),
-    logo: String(servico.logo || servico.company_logo || ""),
+    transportadora: String(empresa?.name || empresa || "Transportadora"),
+    logo: String(empresa?.picture || ""),
     preco,
     prazoMin,
-    prazoMax: prazoMax ?? prazoMin,
+    prazoMax: Math.max(prazoMax ?? prazoMin, prazoMin),
   };
+}
+
+// Cotações iguais (mesmo CEP e mesmos itens) são reaproveitadas por alguns
+// minutos para não chamar a API externa a cada clique.
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_MAX_ENTRADAS = 200;
+const cacheCotacoes = new Map();
+
+function lerCache(chave) {
+  const entrada = cacheCotacoes.get(chave);
+  if (!entrada) return null;
+  if (entrada.expiraEm <= Date.now()) {
+    cacheCotacoes.delete(chave);
+    return null;
+  }
+  return entrada.opcoes;
+}
+
+function salvarCache(chave, opcoes) {
+  if (cacheCotacoes.size >= CACHE_MAX_ENTRADAS) {
+    cacheCotacoes.delete(cacheCotacoes.keys().next().value);
+  }
+  cacheCotacoes.set(chave, { opcoes, expiraEm: Date.now() + CACHE_TTL_MS });
+}
+
+function limparCacheFrete() {
+  cacheCotacoes.clear();
+}
+
+async function chamarMelhorEnvio(config, payload) {
+  try {
+    return await fetch(`${config.baseUrl}/api/v2/me/shipment/calculate`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.token}`,
+        "User-Agent": `MiniStitches (${config.contato})`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (erro) {
+    console.error("[frete] falha ao contatar o Melhor Envio:", erro?.message);
+    if (erro?.name === "TimeoutError" || erro?.name === "AbortError") {
+      throw new ErroFrete(
+        504,
+        "O cálculo do frete demorou demais. Tente novamente.",
+      );
+    }
+    throw new ErroFrete(502, "Não foi possível calcular o frete neste momento.");
+  }
 }
 
 async function cotarFrete({ cepDestino, itens }) {
@@ -156,13 +181,10 @@ async function cotarFrete({ cepDestino, itens }) {
 
   const config = obterConfig();
   const itensParaEnvio = itens
-    .filter((item) => item && item.produtoId && item.produtoId._id)
+    .filter((item) => item?.produtoId?._id)
     .map((item) => {
-      const quantidade = Number(item.quantidade || 0);
-      const precoOriginal = Number(item.produtoId.preco || 0);
-      const valorSeguro = Number(
-        ((precoOriginal * Math.max(quantidade, 0)) / 100).toFixed(2),
-      );
+      const quantidade = Math.floor(Number(item.quantidade));
+      const precoCentavos = Number(item.produtoId.preco);
 
       return {
         id: String(item.produtoId._id),
@@ -170,11 +192,19 @@ async function cotarFrete({ cepDestino, itens }) {
         height: config.alturaCm,
         length: config.comprimentoCm,
         weight: Number(config.pesoKg.toFixed(3)),
-        insurance_value: valorSeguro,
-        quantity: Math.max(1, Math.floor(quantidade)),
+        // Valor declarado de UMA unidade: o Melhor Envio multiplica pela
+        // quantidade ao calcular o seguro.
+        insurance_value: Number((precoCentavos / 100).toFixed(2)),
+        quantity: quantidade,
       };
     })
-    .filter((item) => Number.isFinite(item.insurance_value));
+    .filter(
+      (item) =>
+        Number.isInteger(item.quantity) &&
+        item.quantity > 0 &&
+        Number.isFinite(item.insurance_value) &&
+        item.insurance_value >= 0,
+    );
 
   if (itensParaEnvio.length === 0) {
     throw new ErroFrete(400, "Seu carrinho está vazio.");
@@ -187,37 +217,31 @@ async function cotarFrete({ cepDestino, itens }) {
     options: { receipt: false, own_hand: false },
   };
 
-  if (process.env.FRETE_SERVICOS) {
-    payload.services = String(process.env.FRETE_SERVICOS).trim();
+  const servicosPermitidos = String(process.env.FRETE_SERVICOS || "").trim();
+  if (servicosPermitidos) {
+    payload.services = servicosPermitidos;
   }
 
-  const resposta = await fetch(
-    `${config.baseUrl}/api/v2/me/shipment/calculate`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.token}`,
-        "User-Agent": `MiniStitches (${config.contato})`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
-    },
-  );
+  const chaveCache = JSON.stringify([config.baseUrl, payload]);
+  const emCache = lerCache(chaveCache);
+  if (emCache) {
+    return emCache;
+  }
+
+  const resposta = await chamarMelhorEnvio(config, payload);
 
   const texto = await resposta.text();
-  let corpo;
+  let corpo = null;
   try {
     corpo = JSON.parse(texto);
-  } catch (erro) {
-    corpo = null;
+  } catch {
+    // Resposta não-JSON (ex.: página de erro do proxy) é tratada abaixo.
   }
 
   if (!resposta.ok) {
     console.error("[frete] resposta inesperada do Melhor Envio:", {
       status: resposta.status,
-      body: corpo || texto,
+      body: corpo || texto.slice(0, 500),
     });
 
     if (resposta.status === 422) {
@@ -227,15 +251,11 @@ async function cotarFrete({ cepDestino, itens }) {
       );
     }
     if ([401, 403].includes(resposta.status)) {
-      throw new ErroFrete(
-        502,
-        "Não foi possível calcular o frete neste momento.",
+      console.error(
+        "[frete] token recusado: confira MELHOR_ENVIO_TOKEN e MELHOR_ENVIO_SANDBOX.",
       );
     }
-    throw new ErroFrete(
-      502,
-      "Não foi possível calcular o frete neste momento.",
-    );
+    throw new ErroFrete(502, "Não foi possível calcular o frete neste momento.");
   }
 
   const servicos = Array.isArray(corpo) ? corpo : [];
@@ -248,11 +268,13 @@ async function cotarFrete({ cepDestino, itens }) {
     throw new ErroFrete(404, "Nenhuma transportadora atende ao CEP informado.");
   }
 
+  salvarCache(chaveCache, opcoes);
   return opcoes;
 }
 
 module.exports = {
   ErroFrete,
   cotarFrete,
+  limparCacheFrete,
   normalizarCEP,
 };

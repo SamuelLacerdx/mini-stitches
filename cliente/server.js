@@ -1243,3 +1243,135 @@ app.post("/api/carrinho", async (req, res) => {
     res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
   }
 });
+
+
+app.patch("/api/carrinho/:produtoId", async (req, res) => {
+  try {
+    const { produtoId } = req.params;
+    const quantidade = Number(req.body?.quantidade);
+    if (
+      !mongoose.isValidObjectId(produtoId) ||
+      !Number.isSafeInteger(quantidade) ||
+      quantidade < 1
+    ) {
+      return res.status(400).json({ erro: "Produto ou quantidade inválida." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    const item = carrinho.itens.find(
+      (itemCarrinho) => String(itemCarrinho.produtoId) === produtoId,
+    );
+    if (!item) {
+      return res.status(404).json({ erro: "Item não encontrado no carrinho." });
+    }
+
+    item.quantidade = quantidade;
+    await carrinho.save();
+    res.json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível atualizar o carrinho." });
+  }
+});
+
+app.delete("/api/carrinho/:produtoId", async (req, res) => {
+  try {
+    const { produtoId } = req.params;
+    if (!mongoose.isValidObjectId(produtoId)) {
+      return res.status(400).json({ erro: "Produto inválido." });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    carrinho.itens = carrinho.itens.filter(
+      (item) => String(item.produtoId) !== produtoId,
+    );
+    await carrinho.save();
+    res.json(await respostaCarrinho(carrinho));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível remover o item." });
+  }
+});
+
+app.get("/plano/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const plano = await Plano.findById(id).lean();
+    if (!plano) {
+      return res.status(404).json({ erro: "Plano não encontrado." });
+    }
+
+    res.json({ plano });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao buscar plano." });
+  }
+});
+
+app.post("/sair", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+  req.session.destroy((error) => {
+    if (error) {
+      console.error(error);
+      return res
+        .status(500)
+        .json({ erro: "Não foi possível encerrar a sessão." });
+    }
+
+    res.json({ mensagem: "Sessão encerrada." });
+  });
+});
+
+app.get("/sair", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+  req.session.destroy(() => {
+    res.redirect("/");
+  });
+});
+
+app.use((req, res) => {
+  res.status(404).send("Página não encontrada.");
+});
+
+app.use((error, req, res, next) => {
+  if (error.type === "entity.too.large") {
+    return res.status(413).json({
+      erro: "O arquivo enviado é muito grande. Reduza a imagem e tente novamente.",
+    });
+  }
+
+  next(error);
+});
+
+// Local (node server.js): conecta antes de abrir a porta. Na Vercel quem
+// conecta é o middleware acima, dentro de cada requisição.
+async function iniciar() {
+  try {
+    await conectarBanco();
+
+    console.log("MongoDB conectado!");
+
+    await Usuario.init();
+
+    app.listen(4000, () => {
+      console.log("Abra http://localhost:4000");
+    });
+  } catch (erro) {
+    console.error("Erro na conexão:", erro.message);
+  }
+}
+
+if (isDirectRun) {
+  iniciar();
+}
+
+module.exports = app;
