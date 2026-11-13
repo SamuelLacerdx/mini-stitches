@@ -244,7 +244,12 @@ const pedidoSchema = new mongoose.Schema({
     default: 0,
     validate: inteiro,
   },
+  // ex.: 5% do Pix. total = subtotal + frete - desconto
+  desconto: { type: Number, min: 0, default: 0, validate: inteiro },
   total: { type: Number, required: true, min: 0, validate: inteiro },
+
+  // id do pagamento no Mercado Pago: liga o webhook ao pedido
+  pagamentoId: { type: String, trim: true },
 
   status: {
     type: String,
@@ -285,8 +290,8 @@ pedidoSchema.pre("validate", async function () {
   if (this.subtotal !== soma) {
     throw new Error("subtotal não confere com a soma dos itens.");
   }
-  if (this.total !== this.subtotal + this.frete) {
-    throw new Error("total deve ser subtotal + frete.");
+  if (this.total !== this.subtotal + this.frete - (this.desconto || 0)) {
+    throw new Error("total deve ser subtotal + frete - desconto.");
   }
 });
 
@@ -305,6 +310,8 @@ pedidoSchema.pre("save", function () {
 // numero já é indexado pelo unique: true
 pedidoSchema.index({ "cliente.email": 1 });
 pedidoSchema.index({ clienteId: 1, criadoEm: -1 });
+// sparse: pedidos antigos sem pagamentoId não entram no índice único
+pedidoSchema.index({ pagamentoId: 1 }, { unique: true, sparse: true });
 
 const trocaSchema = new mongoose.Schema({
   pedidoId: {

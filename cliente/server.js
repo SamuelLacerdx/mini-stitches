@@ -22,6 +22,7 @@ const {
   Assinatura,
   Produto,
   Carrinho,
+  Pedido,
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const { MercadoPagoConfig, Payment, PreApproval } = require("mercadopago");
@@ -39,6 +40,19 @@ const mpClient = mpAccessToken
   : null;
 const paymentModule = mpClient ? new Payment(mpClient) : null;
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
+
+// URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
+// boleto. APP_URL vence; VERCEL_URL e preenchido automaticamente em cada
+// deploy da Vercel.
+function obterNotificationUrl() {
+  const base = String(process.env.APP_URL || "").trim();
+  if (base) return `${base.replace(/\/$/, "")}/api/webhook`;
+  const vercel = String(process.env.VERCEL_URL || "").trim();
+  if (vercel) return `https://${vercel}/api/webhook`;
+  return null;
+}
+
+console.log("[mp] notification_url:", obterNotificationUrl() || "(nao definida)");
 const { autenticar, autenticarAdmin, clienteIdDoCarrinho } = criarAutenticacao({
   jwtSecret,
 });
@@ -71,6 +85,8 @@ app.post("/api/webhook", async (req, res) => {
     const paymentId =
       body?.data?.id ?? req.query?.["data.id"] ?? req.query?.id ?? null;
 
+    console.log("[webhook] recebido:", { eventType, paymentId });
+
     const deveProcessarPagamento =
       paymentId && (eventType === "payment" || eventType.includes("payment"));
 
@@ -81,6 +97,23 @@ app.post("/api/webhook", async (req, res) => {
         paymentId,
         pagamento?.status || "status-indisponivel",
       );
+
+      // O webhook é registrado antes do middleware que conecta ao banco.
+      await conectarBanco();
+      const pedido = await Pedido.findOne({ pagamentoId: String(paymentId) });
+      if (pedido && pedido.status === "aguardando_pagamento") {
+        if (pagamento?.status === "approved") {
+          pedido.status = "pago";
+          await pedido.save();
+        } else if (
+          ["cancelled", "rejected", "refunded", "charged_back"].includes(
+            pagamento?.status,
+          )
+        ) {
+          pedido.status = "cancelado";
+          await pedido.save();
+        }
+      }
     }
 
     return res.status(200).send("OK");
@@ -144,6 +177,7 @@ app.post("/api/pagamento/pix", async (req, res) => {
 
     const valorComDesconto = Number((Number(valorOriginal) * 0.95).toFixed(2));
 
+    const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
       body: {
         transaction_amount: valorComDesconto,
@@ -158,6 +192,7 @@ app.post("/api/pagamento/pix", async (req, res) => {
             number: String(cpf).replace(/\D/g, ""),
           },
         },
+        ...(notificationUrl && { notification_url: notificationUrl }),
       },
     });
 
@@ -189,6 +224,7 @@ app.post("/api/pagamento/boleto", async (req, res) => {
       });
     }
 
+    const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
       body: {
         transaction_amount: Number(valorTotal),
@@ -209,6 +245,7 @@ app.post("/api/pagamento/boleto", async (req, res) => {
             federal_unit: String(endereco?.estado || ""),
           },
         },
+        ...(notificationUrl && { notification_url: notificationUrl }),
       },
     });
 
@@ -249,6 +286,7 @@ app.post("/api/pagamento/cartao", async (req, res) => {
       });
     }
 
+    const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
       body: {
         token,
@@ -262,6 +300,7 @@ app.post("/api/pagamento/cartao", async (req, res) => {
             number: String(cpf).replace(/\D/g, ""),
           },
         },
+        ...(notificationUrl && { notification_url: notificationUrl }),
       },
     });
 
@@ -1167,13 +1206,33 @@ app.post("/api/frete", async (req, res) => {
       return res.status(400).json({ erro: "CEP inválido." });
     }
 
-    const carrinho = await obterCarrinho(req);
-    await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+    const pedidoNumero = String(req.body?.pedidoNumero || "").trim();
+    let itensValidos;
 
-    const itensValidos = (carrinho.itens || []).filter((item) => {
-      if (!item || !item.produtoId) return false;
-      return item.produtoId.ativo !== false;
-    });
+    if (pedidoNumero) {
+      const clienteId = req.session?.usuarioId;
+      if (!clienteId) {
+        return res.status(401).json({ erro: "Autenticação necessária." });
+      }
+      const pedido = await Pedido.findOne({
+        numero: pedidoNumero,
+        clienteId,
+      }).populate("itens.produtoId", "nome preco ativo slug");
+      if (!pedido) {
+        return res.status(404).json({ erro: "Pedido não encontrado." });
+      }
+      itensValidos = (pedido.itens || []).filter((item) => {
+        if (!item || !item.produtoId) return false;
+        return item.produtoId.ativo !== false;
+      });
+    } else {
+      const carrinho = await obterCarrinho(req);
+      await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+      itensValidos = (carrinho.itens || []).filter((item) => {
+        if (!item || !item.produtoId) return false;
+        return item.produtoId.ativo !== false;
+      });
+    }
 
     if (!itensValidos.length) {
       return res.status(400).json({ erro: "Seu carrinho está vazio." });
@@ -1204,6 +1263,230 @@ app.post("/api/frete", async (req, res) => {
     }
 
     return res.status(500).json({ erro: "Não foi possível calcular o frete." });
+  }
+});
+
+function respostaPedido(pedido) {
+  return {
+    numero: pedido.numero,
+    criadoEm: pedido.criadoEm,
+    status: pedido.status,
+    pagamento: pedido.pagamento,
+    subtotal: pedido.subtotal,
+    frete: pedido.frete,
+    desconto: pedido.desconto || 0,
+    total: pedido.total,
+    rastreio: pedido.rastreio || "",
+    itens: (pedido.itens || []).map((item) => ({
+      nome: item.nome,
+      slug: item.slug,
+      quantidade: item.quantidade,
+      precoUnit: item.precoUnit,
+    })),
+  };
+}
+
+// Registra o pedido depois que o pagamento foi criado no Mercado Pago.
+// Itens e preços vêm do carrinho no servidor; status, forma de pagamento e
+// valor pago vêm do próprio Mercado Pago, nunca do navegador.
+app.post("/api/pedidos", async (req, res) => {
+  try {
+    const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
+    const idPagamento = String(pagamentoId || "").trim();
+    const frete = Number(freteCentavos);
+    const nome = String(cliente?.nome || "").trim();
+    const email = String(cliente?.email || "")
+      .trim()
+      .toLowerCase();
+    const cep = normalizarCEP(entrega?.cep);
+    const endereco = String(entrega?.endereco || "").trim();
+    const pedidoNumero = String(req.body?.pedidoNumero || "").trim();
+
+    if (
+      !/^\d+$/.test(idPagamento) ||
+      !Number.isSafeInteger(frete) ||
+      frete < 0 ||
+      !nome ||
+      !email.includes("@") ||
+      !cep ||
+      !endereco
+    ) {
+      return res.status(400).json({ erro: "Dados do pedido incompletos." });
+    }
+
+    if (!paymentModule) {
+      return res.status(503).json({ erro: "Pagamentos indisponíveis." });
+    }
+
+    // Repetir a chamada (duplo clique, nova tentativa) devolve o mesmo pedido.
+    const existente = await Pedido.findOne({ pagamentoId: idPagamento });
+    if (existente) {
+      return res.json({ pedido: respostaPedido(existente) });
+    }
+
+    // Finalização de pedido pendente: reusa os itens do pedido existente em
+    // vez do carrinho (que já foi esvaziado na primeira tentativa).
+    let pedidoPendente = null;
+    let itens;
+    if (pedidoNumero) {
+      const clienteSessao = req.session?.usuarioId;
+      if (!clienteSessao) {
+        return res.status(401).json({ erro: "Autenticação necessária." });
+      }
+      pedidoPendente = await Pedido.findOne({
+        numero: pedidoNumero,
+        clienteId: clienteSessao,
+      });
+      if (!pedidoPendente) {
+        return res.status(404).json({ erro: "Pedido não encontrado." });
+      }
+      if (pedidoPendente.status !== "aguardando_pagamento") {
+        return res.status(400).json({ erro: "Pedido já foi pago." });
+      }
+      itens = pedidoPendente.itens.map((item) => ({
+        produtoId: item.produtoId,
+        slug: item.slug,
+        nome: item.nome,
+        quantidade: item.quantidade,
+        precoUnit: item.precoUnit,
+      }));
+    } else {
+      const carrinho = await obterCarrinho(req);
+      await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+      itens = carrinho.itens
+        .filter((item) => item.produtoId && item.produtoId.ativo !== false)
+        .map((item) => ({
+          produtoId: item.produtoId._id,
+          slug: item.produtoId.slug,
+          nome: item.produtoId.nome,
+          quantidade: item.quantidade,
+          precoUnit: item.produtoId.preco,
+        }));
+    }
+
+    if (!itens.length) {
+      return res.status(400).json({ erro: "Seu carrinho está vazio." });
+    }
+
+    let pagamentoMP;
+    try {
+      pagamentoMP = await paymentModule.get({ id: idPagamento });
+    } catch (erro) {
+      console.error("[api/pedidos] pagamento não encontrado:", erro?.message);
+      return res.status(400).json({ erro: "Pagamento não encontrado." });
+    }
+
+    const statusPorPagamento = {
+      approved: "pago",
+      pending: "aguardando_pagamento",
+      in_process: "aguardando_pagamento",
+      authorized: "aguardando_pagamento",
+    };
+    const status = statusPorPagamento[pagamentoMP?.status];
+    if (!status) {
+      return res.status(400).json({ erro: "Pagamento não aprovado." });
+    }
+
+    const pagamento =
+      pagamentoMP.payment_method_id === "pix"
+        ? "pix"
+        : pagamentoMP.payment_type_id === "ticket"
+          ? "boleto"
+          : "cartao";
+
+    const subtotal = itens.reduce(
+      (soma, item) => soma + item.quantidade * item.precoUnit,
+      0,
+    );
+    const valorCheio = subtotal + frete;
+    const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
+    const valorEsperado =
+      pagamento === "pix" ? Math.round(valorCheio * 0.95) : valorCheio;
+
+    // Tolerância de 1 centavo para arredondamentos do desconto.
+    if (
+      !Number.isFinite(valorPago) ||
+      Math.abs(valorPago - valorEsperado) > 1
+    ) {
+      console.error("[api/pedidos] valor pago não confere:", {
+        idPagamento,
+        valorPago,
+        valorEsperado,
+      });
+      return res
+        .status(400)
+        .json({ erro: "O valor pago não confere com o pedido." });
+    }
+
+    const total = pagamento === "pix" ? valorPago : valorCheio;
+    const clienteId = clienteIdDoCarrinho(req);
+
+    let pedido;
+    if (pedidoPendente) {
+      pedidoPendente.pagamento = pagamento;
+      pedidoPendente.pagamentoId = idPagamento;
+      pedidoPendente.subtotal = subtotal;
+      pedidoPendente.frete = frete;
+      pedidoPendente.desconto = valorCheio - total;
+      pedidoPendente.total = total;
+      pedidoPendente.status = status;
+      pedidoPendente.cliente = { nome, email };
+      pedidoPendente.entrega = { cep, endereco };
+      try {
+        pedido = await pedidoPendente.save();
+      } catch (erro) {
+        if (erro?.code !== 11000) throw erro;
+        pedido = await Pedido.findOne({ pagamentoId: idPagamento });
+        if (!pedido) throw erro;
+        return res.json({ pedido: respostaPedido(pedido) });
+      }
+      return res.json({ pedido: respostaPedido(pedido) });
+    }
+
+    try {
+      pedido = await Pedido.create({
+        clienteId: clienteId || null,
+        pagamento,
+        pagamentoId: idPagamento,
+        subtotal,
+        frete,
+        desconto: valorCheio - total,
+        total,
+        status,
+        cliente: { nome, email },
+        entrega: { cep, endereco },
+        itens,
+      });
+    } catch (erro) {
+      if (erro?.code !== 11000) throw erro;
+      pedido = await Pedido.findOne({ pagamentoId: idPagamento });
+      if (!pedido) throw erro;
+      return res.json({ pedido: respostaPedido(pedido) });
+    }
+
+    const carrinho = await obterCarrinho(req);
+    carrinho.itens = [];
+    await carrinho.save();
+
+    return res.status(201).json({ pedido: respostaPedido(pedido) });
+  } catch (error) {
+    console.error("[api/pedidos] erro:", error?.message || error);
+    return res
+      .status(500)
+      .json({ erro: "Não foi possível registrar o pedido." });
+  }
+});
+
+app.get("/api/pedidos", autenticar, async (req, res) => {
+  try {
+    const pedidos = await Pedido.find({ clienteId: req.session.usuarioId })
+      .sort({ criadoEm: -1 })
+      .limit(50)
+      .lean();
+    res.json({ pedidos: pedidos.map(respostaPedido) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Não foi possível carregar os pedidos." });
   }
 });
 
@@ -1243,7 +1526,6 @@ app.post("/api/carrinho", async (req, res) => {
     res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
   }
 });
-
 
 app.patch("/api/carrinho/:produtoId", async (req, res) => {
   try {

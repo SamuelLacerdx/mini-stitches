@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat('pt-BR', {
@@ -57,6 +57,8 @@ const enderecoTemDadosValidos = (endereco) => {
 };
 
 export default function FinalizarCompra() {
+  const location = useLocation();
+  const pedidoPendente = location.state?.pedido || null;
   // Estados de UI e Controle
   const [pagamento, setPagamento] = useState('cartao');
   const [cep, setCep] = useState('');
@@ -152,6 +154,19 @@ export default function FinalizarCompra() {
     };
 
     const carregarCarrinho = async () => {
+      if (pedidoPendente) {
+        setCartItems(
+          (pedidoPendente.itens || []).map((item) => ({
+            nome: item.nome,
+            slug: item.slug,
+            quantidade: item.quantidade,
+            preco: item.precoUnit,
+          })),
+        );
+        setCarregandoCarrinho(false);
+        return;
+      }
+
       try {
         const resposta = await fetch('/api/carrinho', { credentials: 'include' });
         const dados = await resposta.json();
@@ -183,6 +198,7 @@ export default function FinalizarCompra() {
     carregarPerfil();
     carregarCarrinho();
     inicializarMercadoPago();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Manipulador de inputs
@@ -279,7 +295,10 @@ export default function FinalizarCompra() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cep: cepLimpo }),
+        body: JSON.stringify({
+          cep: cepLimpo,
+          ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
+        }),
       });
       const dados = await resposta.json().catch(() => ({}));
       if (idCotacao !== ultimaCotacaoRef.current) return;
@@ -311,6 +330,21 @@ export default function FinalizarCompra() {
     }
   };
 
+  // Calcula o frete automaticamente quando o CEP já está preenchido ao abrir
+  // a tela (por exemplo, vindo do endereço principal do perfil).
+  const freteAutoCalculadoRef = useRef(false);
+  useEffect(() => {
+    if (freteAutoCalculadoRef.current) return;
+    if (cep.replace(/\D/g, '').length !== 8) return;
+    if (carregandoCarrinho) return;
+    if (opcoesFrete.length || calculandoFrete) return;
+
+    freteAutoCalculadoRef.current = true;
+    const id = setTimeout(() => calcularFrete(cep), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cep, carregandoCarrinho, opcoesFrete.length, calculandoFrete]);
+
   const subtotal = cartItems.reduce(
     (total, item) => total + Number(item.preco || 0) * Number(item.quantidade || 0),
     0,
@@ -336,6 +370,44 @@ export default function FinalizarCompra() {
       value: String(parcela),
     };
   });
+
+  // Registra o pedido no servidor depois que o pagamento foi criado, para ele
+  // aparecer em "Meus pedidos". O pagamento já existe neste ponto, então uma
+  // falha aqui não pode esconder o QR Code / boleto do cliente.
+  const registrarPedido = async (pagamentoId) => {
+    try {
+      const resposta = await fetch('/api/pedidos', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pagamentoId: String(pagamentoId),
+          freteCentavos: valorFrete,
+          cliente: { nome: formData.nome.trim(), email: formData.email.trim() },
+          entrega: {
+            cep: cep.replace(/\D/g, ''),
+            endereco: [
+              `${formData.endereco.trim()}, ${formData.numero.trim()}`,
+              formData.complemento.trim(),
+              formData.bairro.trim(),
+              `${formData.cidade.trim()}/${formData.estado}`,
+            ]
+              .filter(Boolean)
+              .join(' - '),
+          },
+          ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
+        }),
+      });
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(dados.erro || 'Não foi possível registrar o pedido.');
+      }
+      return { pedido: dados.pedido };
+    } catch (erro) {
+      console.error('Falha ao registrar o pedido:', erro);
+      return { erroPedido: erro.message || 'Não foi possível registrar o pedido.' };
+    }
+  };
 
   // Processamento do Pagamento
   const handleFinalizarPedido = async (e) => {
@@ -382,7 +454,7 @@ export default function FinalizarCompra() {
         const json = await resposta.json();
 
         if (json.sucesso) {
-          setResultado({ tipo: 'pix', dados: json });
+          setResultado({ tipo: 'pix', dados: json, ...(await registrarPedido(json.id_pagamento)) });
         } else {
           throw new Error(json.mensagem || 'Erro ao processar Pix');
         }
@@ -413,7 +485,7 @@ export default function FinalizarCompra() {
         const json = await resposta.json();
 
         if (json.sucesso) {
-          setResultado({ tipo: 'boleto', dados: json });
+          setResultado({ tipo: 'boleto', dados: json, ...(await registrarPedido(json.id_pagamento)) });
         } else {
           throw new Error(json.mensagem || 'Erro ao processar Boleto');
         }
@@ -458,7 +530,7 @@ export default function FinalizarCompra() {
         const json = await resposta.json();
 
         if (json.sucesso && json.status === 'approved') {
-          setResultado({ tipo: 'sucesso', dados: json });
+          setResultado({ tipo: 'sucesso', dados: json, ...(await registrarPedido(json.id_pagamento)) });
         } else {
           throw new Error(json.mensagem || 'Pagamento recusado.');
         }
@@ -807,6 +879,17 @@ export default function FinalizarCompra() {
                       <h4 className="text-green-700 font-bold text-lg">Pagamento Aprovado! 🎉</h4>
                       <p className="text-xs text-[#3E2417]">Seu pedido já está sendo processado.</p>
                     </>
+                  )}
+                  {resultado.pedido && (
+                    <p className="text-xs text-[#3E2417] border-t border-[#3E2417]/10 pt-3">
+                      Pedido <span className="font-bold">{resultado.pedido.numero}</span> registrado.{' '}
+                      <Link to="/perfil" className="font-bold underline">Ver em Meus pedidos</Link>
+                    </p>
+                  )}
+                  {resultado.erroPedido && (
+                    <p role="alert" className="text-xs text-red-700 border-t border-[#3E2417]/10 pt-3">
+                      O pagamento foi gerado, mas não conseguimos registrar o pedido ({resultado.erroPedido}). Guarde o código {resultado.dados.id_pagamento} e fale com a gente.
+                    </p>
                   )}
                 </div>
               ) : (

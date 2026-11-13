@@ -13,6 +13,23 @@ const enderecoVazio = {
   principal: false,
 };
 
+const STATUS_PEDIDO = {
+  aguardando_pagamento: {
+    rotulo: "Aguardando pagamento",
+    classe: "bg-yellow-100",
+  },
+  pago: { rotulo: "Pago", classe: "bg-green-100" },
+  em_separacao: { rotulo: "Em separação", classe: "bg-orange-100" },
+  enviado: { rotulo: "Enviado", classe: "bg-blue-100" },
+  entregue: { rotulo: "Entregue", classe: "bg-pink-200" },
+  cancelado: { rotulo: "Cancelado", classe: "bg-stone-200" },
+};
+
+const formatarPreco = (centavos) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+    Number(centavos || 0) / 100,
+  );
+
 export default function Perfil() {
   const navigate = useNavigate();
   const [usuario, setUsuario] = useState({ enderecos: [] });
@@ -22,6 +39,8 @@ export default function Perfil() {
   const [cepStatus, setCepStatus] = useState("");
   const cepConsultaAtual = useRef("");
   const enderecos = usuario.enderecos || [];
+  const [pedidos, setPedidos] = useState([]);
+  const [statusPedidos, setStatusPedidos] = useState("carregando");
 
   async function sair(event) {
     event.preventDefault();
@@ -52,6 +71,17 @@ export default function Perfil() {
         setUsuario(data.usuario);
       })
       .catch((error) => alert(error.message || "Erro ao carregar perfil."));
+
+    fetch("/api/pedidos", { credentials: "include" })
+      .then(async (resposta) => {
+        const data = await resposta.json();
+        if (!resposta.ok) {
+          throw new Error(data.erro || "Erro ao carregar pedidos.");
+        }
+        setPedidos(data.pedidos || []);
+        setStatusPedidos("ok");
+      })
+      .catch(() => setStatusPedidos("erro"));
   }, []);
 
   function handleChange(e) {
@@ -594,15 +624,77 @@ export default function Perfil() {
           <h2 className="text-lg font-['Archivo_Black'] border-b border-stone-200 pb-3">
             MEUS PEDIDOS
           </h2>
-          <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#FEF8F0]/60 rounded-lg text-xs">
-            <span className="font-semibold text-[#3E2417]">
-              MS-1001 - 12/09/2026
-            </span>
-            <span className="px-3 py-1 bg-pink-200 text-yellow-900 font-medium rounded-full text-[11px]">
-              Entregue
-            </span>
-            <span className="font-semibold text-[#3E2417]">R$ 154,80</span>
-          </div>
+          {statusPedidos === "carregando" && (
+            <p className="text-sm text-stone-500">Carregando pedidos...</p>
+          )}
+          {statusPedidos === "erro" && (
+            <p className="text-sm text-red-700" role="alert">
+              Não foi possível carregar seus pedidos.
+            </p>
+          )}
+          {statusPedidos === "ok" && pedidos.length === 0 && (
+            <p className="text-sm text-stone-500">
+              Você ainda não fez nenhum pedido.
+            </p>
+          )}
+          {pedidos.map((pedido) => {
+            const status = STATUS_PEDIDO[pedido.status] || {
+              rotulo: pedido.status,
+              classe: "bg-stone-200",
+            };
+            const aguardandoPagamento =
+              pedido.status === "aguardando_pagamento";
+            const conteudo = (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <span className="font-semibold text-[#3E2417]">
+                    {pedido.numero} -{" "}
+                    {new Date(pedido.criadoEm).toLocaleDateString("pt-BR")}
+                  </span>
+                  <span
+                    className={`px-3 py-1 text-yellow-900 font-medium rounded-full text-[11px] ${status.classe}`}
+                  >
+                    {status.rotulo}
+                  </span>
+                  <span className="font-semibold text-[#3E2417]">
+                    {formatarPreco(pedido.total)}
+                  </span>
+                </div>
+                <p className="text-stone-600">
+                  {pedido.itens
+                    .map((item) => `${item.quantidade}× ${item.nome}`)
+                    .join(", ")}
+                </p>
+                {aguardandoPagamento && (
+                  <p className="text-amber-800 font-semibold underline">
+                    Finalizar pagamento →
+                  </p>
+                )}
+              </>
+            );
+
+            if (aguardandoPagamento) {
+              return (
+                <Link
+                  key={pedido.numero}
+                  to="/checkout"
+                  state={{ pedido }}
+                  className="block p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2 hover:bg-[#FEF8F0] transition-colors"
+                >
+                  {conteudo}
+                </Link>
+              );
+            }
+
+            return (
+              <div
+                key={pedido.numero}
+                className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2"
+              >
+                {conteudo}
+              </div>
+            );
+          })}
         </section>
 
         {/* SECÇÃO 5: TROCAS */}
