@@ -1106,7 +1106,10 @@ app.post("/admin/assinaturas", autenticarAdmin, async (req, res) => {
 
 app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
   try {
-    const assinaturas = await Assinatura.find().lean();
+    const assinaturas = await Assinatura.find()
+      .sort({ assinadoEm: -1 })
+      .populate("clienteId", "nome email")
+      .lean();
 
     res.json({ assinaturas });
   } catch (error) {
@@ -1536,6 +1539,117 @@ app.get("/api/pedidos", autenticar, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Não foi possível carregar os pedidos." });
+  }
+});
+
+// Pedidos que contam como faturamento: o pagamento já foi aprovado.
+const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
+const STATUS_PEDIDO_ADMIN = [
+  "aguardando_pagamento",
+  ...STATUS_FATURADOS,
+  "cancelado",
+];
+
+function respostaPedidoAdmin(pedido) {
+  return {
+    _id: pedido._id,
+    ...respostaPedido(pedido),
+    cliente: pedido.cliente,
+    entrega: pedido.entrega,
+    historicoStatus: pedido.historicoStatus || [],
+  };
+}
+
+app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
+  try {
+    const [porStatus, assinantesAtivos, ultimosPedidos] = await Promise.all([
+      Pedido.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            quantidade: { $sum: 1 },
+            total: { $sum: "$total" },
+          },
+        },
+      ]),
+      Assinatura.countDocuments({ canceladoEm: null }),
+      Pedido.find().sort({ criadoEm: -1 }).limit(5).lean(),
+    ]);
+
+    const statusPedidos = Object.fromEntries(
+      STATUS_PEDIDO_ADMIN.map((status) => [status, 0]),
+    );
+    let totalPedidos = 0;
+    let faturado = 0;
+    let pedidosFaturados = 0;
+
+    for (const grupo of porStatus) {
+      statusPedidos[grupo._id] = grupo.quantidade;
+      totalPedidos += grupo.quantidade;
+      if (STATUS_FATURADOS.includes(grupo._id)) {
+        faturado += grupo.total;
+        pedidosFaturados += grupo.quantidade;
+      }
+    }
+
+    res.json({
+      totalPedidos,
+      faturado,
+      ticketMedio: pedidosFaturados
+        ? Math.round(faturado / pedidosFaturados)
+        : 0,
+      assinantesAtivos,
+      statusPedidos,
+      ultimosPedidos: ultimosPedidos.map(respostaPedidoAdmin),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao carregar o painel." });
+  }
+});
+
+app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
+  try {
+    const filtro = {};
+    const status = String(req.query.status || "");
+    if (STATUS_PEDIDO_ADMIN.includes(status)) filtro.status = status;
+
+    const pedidos = await Pedido.find(filtro)
+      .sort({ criadoEm: -1 })
+      .limit(200)
+      .lean();
+    res.json({ pedidos: pedidos.map(respostaPedidoAdmin) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao listar pedidos." });
+  }
+});
+
+app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const status = String(req.body?.status || "");
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ erro: "ID inválido." });
+    }
+    if (!STATUS_PEDIDO_ADMIN.includes(status)) {
+      return res.status(400).json({ erro: "Status inválido." });
+    }
+
+    const pedido = await Pedido.findById(id);
+    if (!pedido) {
+      return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    pedido.status = status;
+    if (req.body?.rastreio !== undefined) {
+      pedido.rastreio = String(req.body.rastreio || "").trim();
+    }
+    await pedido.save();
+    res.json({ pedido: respostaPedidoAdmin(pedido.toObject()) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao atualizar o pedido." });
   }
 });
 
