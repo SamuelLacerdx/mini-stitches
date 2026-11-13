@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 const formatarPreco = (valor) => {
   const numero = Number(valor ?? 0);
@@ -11,6 +12,8 @@ export default function Materiais() {
   const [quantidades, setQuantidades] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
+  const [adicionandoId, setAdicionandoId] = useState(null);
+  const [mensagens, setMensagens] = useState({});
 
   useEffect(() => {
     const carregarMateriais = async () => {
@@ -42,6 +45,44 @@ export default function Materiais() {
       const novoValor = Math.max(1, atual + delta);
       return { ...prev, [id]: novoValor };
     });
+  };
+
+  const adicionarAoCarrinho = async (item) => {
+    const quantidade = quantidades[item._id] || 1;
+
+    try {
+      setAdicionandoId(item._id);
+      setMensagens((prev) => ({ ...prev, [item._id]: null }));
+
+      const resposta = await fetch("/api/carrinho", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: item.slug, quantidade }),
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(dados.erro || "Não foi possível adicionar ao carrinho.");
+      }
+
+      setMensagens((prev) => ({
+        ...prev,
+        [item._id]: {
+          texto: `${item.nome} foi adicionado ao carrinho.`,
+          sucesso: true,
+        },
+      }));
+    } catch (error) {
+      setMensagens((prev) => ({
+        ...prev,
+        [item._id]: {
+          texto: error.message || "Não foi possível adicionar ao carrinho.",
+          sucesso: false,
+        },
+      }));
+    } finally {
+      setAdicionandoId(null);
+    }
   };
 
   return (
@@ -100,10 +141,30 @@ export default function Materiais() {
                   </button>
                 </div>
 
-                <button className="flex-1 bg-[#3E2417] text-white py-2 px-4 rounded-full text-xs font-['Archivo_Black'] hover:bg-[#602D15] transition-colors">
-                  ADICIONAR
+                <button
+                  type="button"
+                  onClick={() => adicionarAoCarrinho(item)}
+                  disabled={adicionandoId === item._id}
+                  className="flex-1 bg-[#3E2417] text-white py-2 px-4 rounded-full text-xs font-['Archivo_Black'] hover:bg-[#602D15] disabled:opacity-60 transition-colors cursor-pointer"
+                >
+                  {adicionandoId === item._id ? "ADICIONANDO..." : "ADICIONAR"}
                 </button>
               </div>
+              {mensagens[item._id] && (
+                <p
+                  role="status"
+                  className={`mt-3 text-xs ${
+                    mensagens[item._id].sucesso ? "text-[#3E2417]" : "text-red-600"
+                  }`}
+                >
+                  {mensagens[item._id].texto}{" "}
+                  {mensagens[item._id].sucesso && (
+                    <Link to="/carrinho" className="font-bold underline">
+                      Ver carrinho
+                    </Link>
+                  )}
+                </p>
+              )}
             </div>
           ))}
         </div>
