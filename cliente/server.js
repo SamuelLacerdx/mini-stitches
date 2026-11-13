@@ -166,12 +166,29 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/api/pagamento/pix", async (req, res) => {
   try {
-    const { valorOriginal, email, nome, sobrenome, cpf } = req.body || {};
+    const { valorOriginal, email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
-    if (!valorOriginal || !email || !cpf || !mpClient || !paymentModule) {
+    if (!mpClient || !paymentModule) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: "Configuração do Mercado Pago ausente ou dados incompletos.",
+        mensagem: "Erro de configuração: MP_ACCESS_TOKEN ausente no servidor.",
+      });
+    }
+
+    const nomeCompletoInformado = String(
+      nomeCompleto || `${nome || ""} ${sobrenome || ""}`.trim() || "",
+    ).trim();
+
+    const camposFaltantes = [];
+    if (!valorOriginal) camposFaltantes.push("valorOriginal");
+    if (!email) camposFaltantes.push("email");
+    if (!cpf) camposFaltantes.push("cpf");
+    if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
+
+    if (camposFaltantes.length) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: `Dados incompletos para PIX: ${camposFaltantes.join(", ")}.`,
       });
     }
 
@@ -185,8 +202,9 @@ app.post("/api/pagamento/pix", async (req, res) => {
         payment_method_id: "pix",
         payer: {
           email,
-          first_name: nome || "Cliente",
-          last_name: sobrenome || "",
+          first_name: nomeCompletoInformado.split(/\s+/).filter(Boolean)[0] || "Cliente",
+          last_name:
+            nomeCompletoInformado.split(/\s+/).filter(Boolean).slice(1).join(" ") || "Cliente",
           identification: {
             type: "CPF",
             number: String(cpf).replace(/\D/g, ""),
@@ -218,14 +236,27 @@ app.post("/api/pagamento/boleto", async (req, res) => {
   try {
     const { valorTotal, email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
-    const nomeCompletoInformado = String(
-      nomeCompleto || `${nome || ""} ${sobrenome || ""}`.trim() || ""
-    ).trim();
-
-    if (!valorTotal || !email || !cpf || !nomeCompletoInformado || !mpClient || !paymentModule) {
+    if (!mpClient || !paymentModule) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: "Configuração do Mercado Pago ausente ou dados incompletos.",
+        mensagem: "Erro de configuração: MP_ACCESS_TOKEN ausente no servidor.",
+      });
+    }
+
+    const nomeCompletoInformado = String(
+      nomeCompleto || `${nome || ""} ${sobrenome || ""}`.trim() || "",
+    ).trim();
+
+    const camposFaltantes = [];
+    if (!valorTotal) camposFaltantes.push("valorTotal");
+    if (!email) camposFaltantes.push("email");
+    if (!cpf) camposFaltantes.push("cpf");
+    if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
+
+    if (camposFaltantes.length) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: `Dados incompletos para boleto: ${camposFaltantes.join(", ")}.`,
       });
     }
 
