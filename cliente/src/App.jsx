@@ -16,6 +16,7 @@ import NossaHistoria from "./Pages/Nossahistoria";
 import Contato from "./Pages/Contato";
 import Tutorial from "./Pages/Tutorial";
 import Checkout from "./Pages/Checkout";
+import NotFound from "./Pages/NotFound";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/tutorial" element={<Tutorial />} />
             <Route path="/detalhe-produto" element={<DetalheProd />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/not-found" element={<NotFound />} />
           </Routes>
         </main>
         <Footer />

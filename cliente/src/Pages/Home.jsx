@@ -200,7 +200,7 @@ export default function Home() {
       {/* ========================================================= */}
       {/* 4. COMO FUNCIONA */}
       {/* ========================================================= */}
-      <section className="bg-[#FDE7B2] px-4 py-16 md:px-8">
+      <section className="bg-[#F7C6E5] px-4 py-16 md:px-8">
         <div className="mx-auto max-w-6xl">
           <h2 className="mb-12 font-['Archivo_Black',sans-serif] text-3xl uppercase text-[#3E1B0E] sm:text-4xl">
             COMO FUNCIONA
@@ -274,35 +274,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ========================================================= */}
-      {/* 6. NEWSLETTER (RECEBER IDEIAS) */}
-      {/* ========================================================= */}
-      <section className="bg-[#F7C6E5] px-4 py-16 md:px-8">
-        <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 text-center">
-          <h2 className="font-['Archivo_Black',sans-serif] text-3xl uppercase text-[#3E1B0E] sm:text-4xl">
-            RECEBA IDEIAS DE FAZER JUNTOS
-          </h2>
-          <p className="max-w-2xl text-base leading-relaxed text-stone-800 sm:text-lg">
-            Um e-mail por mês com um projetinho simples e novidades da caixa. E
-            15% off na primeira compra.
-          </p>
-
-          <form className="mt-2 flex w-full max-w-md flex-col items-center justify-center gap-3 sm:flex-row">
-            <input
-              type="email"
-              required
-              placeholder="seu@email.com"
-              className="w-full rounded-full border border-stone-300 bg-orange-50/95 px-5 py-3 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#3E1B0E] sm:w-72"
-            />
-            <button
-              type="submit"
-              className="w-full whitespace-nowrap rounded-full bg-[#3E1B0E] px-6 py-3 font-['Archivo_Black',sans-serif] text-sm text-white transition-colors hover:bg-amber-950 sm:w-auto"
-            >
-              QUERO RECEBER
-            </button>
-          </form>
-        </div>
-      </section>
     </div>
   );
 }
