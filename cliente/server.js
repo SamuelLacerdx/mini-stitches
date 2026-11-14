@@ -165,7 +165,7 @@ app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
 
-app.post("/api/pagamento/pix", async (req, res) => {
+app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
     const { valorOriginal, email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
@@ -233,7 +233,7 @@ app.post("/api/pagamento/pix", async (req, res) => {
   }
 });
 
-app.post("/api/pagamento/boleto", async (req, res) => {
+app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
   try {
     const { valorTotal, email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
@@ -317,7 +317,7 @@ app.post("/api/pagamento/boleto", async (req, res) => {
   }
 });
 
-app.post("/api/pagamento/cartao", async (req, res) => {
+app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   try {
     const { token, payment_method_id, valorTotal, parcelas, email, cpf } =
       req.body || {};
@@ -487,7 +487,13 @@ app.post("/api/cadastro", async (req, res) => {
       email: emailNormalizado,
       senhaHash,
     });
-    res.redirect("/login");
+    const destino = String(req.body?.redirect || "");
+    const destinoSeguro = /^\/(?![/\\])/.test(destino);
+    res.redirect(
+      destinoSeguro
+        ? `/login?redirect=${encodeURIComponent(destino)}`
+        : "/login",
+    );
   } catch (err) {
     if (err.code === 11000) {
       const campoDuplicado = Object.keys(err.keyPattern || {})[0];
@@ -1342,7 +1348,7 @@ function respostaPedido(pedido) {
 // Registra o pedido depois que o pagamento foi criado no Mercado Pago.
 // Itens e preços vêm do carrinho no servidor; status, forma de pagamento e
 // valor pago vêm do próprio Mercado Pago, nunca do navegador.
-app.post("/api/pedidos", async (req, res) => {
+app.post("/api/pedidos", autenticar, async (req, res) => {
   try {
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
     const idPagamento = String(pagamentoId || "").trim();

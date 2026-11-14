@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat('pt-BR', {
@@ -58,6 +58,7 @@ const enderecoTemDadosValidos = (endereco) => {
 
 export default function FinalizarCompra() {
   const location = useLocation();
+  const navigate = useNavigate();
   const pedidoPendente = location.state?.pedido || null;
   // Estados de UI e Controle
   const [pagamento, setPagamento] = useState('cartao');
@@ -103,6 +104,10 @@ export default function FinalizarCompra() {
     const carregarPerfil = async () => {
       try {
         const resposta = await fetch('/api/perfil', { credentials: 'include' });
+        if (resposta.status === 401) {
+          navigate(`/login?redirect=${encodeURIComponent('/checkout')}`, { replace: true });
+          return;
+        }
         if (!resposta.ok) return;
 
         const dados = await resposta.json();

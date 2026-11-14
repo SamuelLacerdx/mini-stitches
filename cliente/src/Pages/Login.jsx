@@ -1,7 +1,13 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+
+// Só aceita caminhos internos para evitar redirecionamento aberto.
+const destinoSeguro = (valor) =>
+  typeof valor === "string" && /^\/(?![/\\])/.test(valor) ? valor : null;
 
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = destinoSeguro(searchParams.get("redirect"));
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -18,7 +24,7 @@ export default function Login() {
         throw new Error(data.erro || "Não foi possível fazer login.");
       }
 
-      navigate(data.destino || "/perfil");
+      navigate(redirect || data.destino || "/perfil", { replace: true });
     } catch (error) {
       window.alert(error.message || "Não foi possível fazer login.");
     }
@@ -33,7 +39,7 @@ export default function Login() {
         </h1>
 
         <p className="text-[#3E2417] text-base font-['Work_Sans'] leading-relaxed">
-          Com uma conta você acompanha pedidos, assiste a todos os tutoriais e assina o Clube. Para comprar, não precisa de cadastro.
+          Com uma conta você finaliza suas compras, acompanha pedidos, assiste a todos os tutoriais e assina o Clube.
         </p>
 
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
@@ -63,7 +69,7 @@ export default function Login() {
         </form>
 
         <Link
-          to="/cadastro"
+          to={redirect ? `/cadastro?redirect=${encodeURIComponent(redirect)}` : "/cadastro"}
           className="text-[#3E2417] text-sm font-['Work_Sans'] underline hover:opacity-80 transition-opacity mt-2"
         >
           Ainda não tem conta? Criar agora

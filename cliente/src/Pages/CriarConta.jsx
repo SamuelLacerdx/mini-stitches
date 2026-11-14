@@ -1,7 +1,13 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+
+const destinoSeguro = (valor) =>
+  typeof valor === 'string' && /^\/(?![/\\])/.test(valor) ? valor : null;
 import { Calendar } from 'lucide-react';
 
 export default function CriarConta() {
+  const [searchParams] = useSearchParams();
+  const redirect = destinoSeguro(searchParams.get('redirect'));
+
   return (
     <div className="min-h-screen w-full bg-[#FEF8F0] px-4 py-12 font-['Work_Sans',sans-serif] text-[#3E2417]">
       <div className="mx-auto flex w-full max-w-141.5 flex-col items-center gap-4">
@@ -12,11 +18,12 @@ export default function CriarConta() {
         </h1>
         
         <p className="max-w-md text-center text-sm leading-relaxed text-[#3E2417]">
-          Com uma conta você acompanha pedidos, assiste a todos os tutoriais e assina o Clube. Para comprar, não precisa de cadastro.
+          Com uma conta você finaliza suas compras, acompanha pedidos, assiste a todos os tutoriais e assina o Clube.
         </p>
 
         {/* FORMULÁRIO DE REGISTO */}
         <form action="/api/cadastro" method="POST" className="mt-2 flex w-full flex-col gap-4">
+          {redirect && <input type="hidden" name="redirect" value={redirect} />}
           
           {/* Nome Completo */}
           <div className="w-full">
@@ -115,7 +122,7 @@ export default function CriarConta() {
           {/* LINK PARA LOGIN */}
           <div className="mt-2 text-center">
             <Link
-              to="/login"
+              to={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login"}
               className="text-sm font-normal text-[#3E2417] underline transition-colors hover:text-amber-900"
             >
               Já tem conta? Entrar

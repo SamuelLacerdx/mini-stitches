@@ -79,12 +79,22 @@ export default function Carrinho() {
   );
   const pixTotal = Math.round(subtotal * 0.95);
 
-  const irParaCheckout = () => {
+  const irParaCheckout = async () => {
     if (itens.length === 0) {
       setErro(
         "Seu carrinho está vazio. Adicione algum produto antes de continuar.",
       );
       return;
+    }
+
+    try {
+      const resposta = await fetch("/api/perfil", { credentials: "include" });
+      if (resposta.status === 401) {
+        navigate(`/login?redirect=${encodeURIComponent("/checkout")}`);
+        return;
+      }
+    } catch {
+      // Falha de rede: o checkout e o servidor revalidam a autenticação.
     }
 
     navigate("/checkout");
