@@ -583,7 +583,14 @@ app.get("/api/perfil", autenticar, async (req, res) => {
           ? usuario.nascimento.toISOString().slice(0, 10)
           : "",
         enderecos: usuario.enderecos,
-        cartao: usuario.cartao || {},
+        cartoes: (usuario.cartoes || []).map((c) => ({
+          _id: c._id,
+          titular: c.titular,
+          finalCartao: c.finalCartao,
+          validade: c.validade,
+          bandeira: c.bandeira,
+          status: c.status,
+        })),
       },
     });
   } catch (error) {
@@ -768,6 +775,111 @@ app.delete("/perfil/enderecos/:enderecoId", autenticar, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao excluir o endereço." });
+  }
+});
+
+// ── Cartões ──────────────────────────────────────────────────────────
+
+const BANDEIRAS = {
+  4: "visa",
+  5: "master",
+  6: "elo",
+  3: "amex",
+};
+
+function detectarBandeira(numero) {
+  if (/^606282|^3841/.test(numero)) return "hipercard";
+  if (/^36|^38|^30[0-5]/.test(numero)) return "diners";
+  if (/^4/.test(numero)) return "visa";
+  if (/^5[1-5]/.test(numero)) return "master";
+  if (/^3[47]/.test(numero)) return "amex";
+  return "elo";
+}
+
+app.post("/perfil/cartoes", autenticar, async (req, res) => {
+  try {
+    const { titular, numero, validade } = req.body || {};
+
+    if (
+      typeof titular !== "string" || !titular.trim() ||
+      typeof numero !== "string" || !numero.trim() ||
+      typeof validade !== "string" || !validade.trim()
+    ) {
+      return res.status(400).json({ erro: "Preencha todos os campos." });
+    }
+
+    const soDigitos = numero.replace(/\D/g, "");
+    if (soDigitos.length < 13 || soDigitos.length > 19) {
+      return res.status(400).json({ erro: "Número do cartão inválido." });
+    }
+
+    if (!/^\d{2}\/\d{2}$/.test(validade.trim())) {
+      return res.status(400).json({ erro: "Validade deve ser MM/AA." });
+    }
+
+    const usuario = await Usuario.findById(req.session.usuarioId);
+    if (!usuario) {
+      return res.status(404).json({ erro: "Usuário não encontrado." });
+    }
+
+    usuario.cartoes.push({
+      titular: titular.trim(),
+      finalCartao: soDigitos.slice(-4),
+      validade: validade.trim(),
+      bandeira: detectarBandeira(soDigitos),
+      status: true,
+      criadoEm: new Date(),
+    });
+    await usuario.save();
+
+    res.status(201).json({
+      cartoes: usuario.cartoes.map((c) => ({
+        _id: c._id,
+        titular: c.titular,
+        finalCartao: c.finalCartao,
+        validade: c.validade,
+        bandeira: c.bandeira,
+        status: c.status,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao salvar o cartão." });
+  }
+});
+
+app.delete("/perfil/cartoes/:cartaoId", autenticar, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.cartaoId)) {
+      return res.status(400).json({ erro: "Cartão inválido." });
+    }
+
+    const usuario = await Usuario.findById(req.session.usuarioId);
+    if (!usuario) {
+      return res.status(404).json({ erro: "Usuário não encontrado." });
+    }
+
+    const cartao = usuario.cartoes.id(req.params.cartaoId);
+    if (!cartao) {
+      return res.status(404).json({ erro: "Cartão não encontrado." });
+    }
+
+    cartao.deleteOne();
+    await usuario.save();
+
+    res.json({
+      cartoes: usuario.cartoes.map((c) => ({
+        _id: c._id,
+        titular: c.titular,
+        finalCartao: c.finalCartao,
+        validade: c.validade,
+        bandeira: c.bandeira,
+        status: c.status,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ erro: "Erro ao excluir o cartão." });
   }
 });
 

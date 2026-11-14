@@ -49,6 +49,9 @@ export default function Perfil() {
   const [statusPedidos, setStatusPedidos] = useState("carregando");
   const [trocas, setTrocas] = useState([]);
   const [statusTrocas, setStatusTrocas] = useState("carregando");
+  const [cartoes, setCartoes] = useState([]);
+  const [mostrarFormularioCartao, setMostrarFormularioCartao] = useState(false);
+  const [cartaoForm, setCartaoForm] = useState({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
 
   async function sair(event) {
     event.preventDefault();
@@ -77,6 +80,7 @@ export default function Perfil() {
           throw new Error(data.erro || "Erro ao carregar perfil.");
         }
         setUsuario(data.usuario);
+        setCartoes(data.usuario.cartoes || []);
       })
       .catch((error) => alert(error.message || "Erro ao carregar perfil."));
 
@@ -248,6 +252,41 @@ export default function Perfil() {
             }
           });
       }
+    }
+  }
+
+  async function salvarCartao(e) {
+    e.preventDefault();
+    try {
+      const resposta = await fetch("/perfil/cartoes", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cartaoForm),
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) throw new Error(data.erro || "Erro ao salvar cartão.");
+      setCartoes(data.cartoes);
+      setCartaoForm({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
+      setMostrarFormularioCartao(false);
+      alert("Cartão salvo!");
+    } catch (error) {
+      alert(error.message || "Erro ao salvar cartão.");
+    }
+  }
+
+  async function excluirCartao(cartaoId) {
+    if (!window.confirm("Deseja realmente excluir este cartão?")) return;
+    try {
+      const resposta = await fetch(`/perfil/cartoes/${cartaoId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await resposta.json();
+      if (!resposta.ok) throw new Error(data.erro || "Erro ao excluir cartão.");
+      setCartoes(data.cartoes);
+    } catch (error) {
+      alert(error.message || "Erro ao excluir cartão.");
     }
   }
 
@@ -567,75 +606,139 @@ export default function Perfil() {
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-6">
           <div className="flex justify-between items-center border-b border-stone-200 pb-3">
             <h2 className="text-lg font-['Archivo_Black']">CARTÕES</h2>
-            <button className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors">
+            <button
+              type="button"
+              onClick={() => {
+                setCartaoForm({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
+                setMostrarFormularioCartao(true);
+              }}
+              className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
+            >
               + NOVO
             </button>
           </div>
 
-          <p className="text-sm font-semibold text-[#3E2417]">
-            Nenhum cartão salvo.
-          </p>
-          <p className="text-xs text-stone-500 leading-relaxed max-w-3xl">
-            Por segurança, guardamos só a bandeira e os 4 últimos números. O
-            bilhete completo é o código iniciado (hash seguro — quando o Mercado
-            Pago faz o ajuste, ele é enviado com segurança.)
-          </p>
+          {cartoes.length === 0 && (
+            <p className="text-sm text-stone-500">
+              Nenhum cartão salvo.
+            </p>
+          )}
 
-          {/* Formulário Novo Cartão */}
-          <form className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4">
-            <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
-              ADICIONAR CARTÃO
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="md:col-span-2">
-                <label className="block mb-1">Número do cartão</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
+          {cartoes.map((cartao) => (
+            <div
+              key={cartao._id}
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF8F0]/50 rounded-lg border border-orange-200/50"
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-2 py-0.5 bg-orange-400 text-white rounded text-[10px] font-bold uppercase">
+                  {cartao.bandeira}
+                </span>
+                <p className="text-stone-700 font-medium">
+                  •••• {cartao.finalCartao} — {cartao.titular} — {cartao.validade}
+                </p>
               </div>
-              <div>
-                <label className="block mb-1">Nome impresso no cartão</label>
-                <input
-                  type="text"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block mb-1">Validade (MM/AA)</label>
-                <input
-                  type="text"
-                  placeholder="MM/AA"
-                  className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <input type="checkbox" id="cartaoPrincipal" />
-              <label htmlFor="cartaoPrincipal">
-                Usar como cartão principal
-              </label>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
-              >
-                SALVAR CARTÃO
-              </button>
               <button
                 type="button"
-                className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
+                onClick={() => excluirCartao(cartao._id)}
+                className="text-xs text-amber-800 underline font-semibold hover:opacity-80 self-start sm:self-auto"
               >
-                CANCELAR
+                EXCLUIR
               </button>
             </div>
-          </form>
+          ))}
+
+          <p className="text-xs text-stone-500 leading-relaxed max-w-3xl">
+            Por segurança, guardamos só a bandeira e os 4 últimos números.
+          </p>
+
+          {mostrarFormularioCartao && (
+            <form
+              onSubmit={salvarCartao}
+              className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4"
+            >
+              <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
+                ADICIONAR CARTÃO
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block mb-1">Número do cartão *</label>
+                  <input
+                    type="text"
+                    value={cartaoForm.numero}
+                    onChange={(e) => setCartaoForm((prev) => ({ ...prev, numero: e.target.value }))}
+                    placeholder="0000 0000 0000 0000"
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    inputMode="numeric"
+                    maxLength={19}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1">Nome impresso no cartão *</label>
+                  <input
+                    type="text"
+                    value={cartaoForm.titular}
+                    onChange={(e) => setCartaoForm((prev) => ({ ...prev, titular: e.target.value }))}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="block mb-1">Validade *</label>
+                  <input
+                    type="text"
+                    placeholder="MM/AA"
+                    value={cartaoForm.validade}
+                    onChange={(e) => setCartaoForm((prev) => ({ ...prev, validade: e.target.value }))}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    maxLength={5}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1">CVV *</label>
+                  <input
+                    type="text"
+                    value={cartaoForm.cvv}
+                    onChange={(e) => setCartaoForm((prev) => ({ ...prev, cvv: e.target.value }))}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1">CPF do titular *</label>
+                  <input
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={cartaoForm.cpfTitular}
+                    onChange={(e) => setCartaoForm((prev) => ({ ...prev, cpfTitular: e.target.value }))}
+                    className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
+                >
+                  SALVAR CARTÃO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarFormularioCartao(false)}
+                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
+                >
+                  CANCELAR
+                </button>
+              </div>
+            </form>
+          )}
         </section>
 
         {/* SECÇÃO 4: MEUS PEDIDOS */}
