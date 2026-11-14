@@ -1549,6 +1549,30 @@ app.get("/api/pedidos", autenticar, async (req, res) => {
   }
 });
 
+app.get("/api/pedidos/:id/status", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    const filtro = mongoose.isValidObjectId(id)
+      ? { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] }
+      : { $or: [{ numero: id }, { pagamentoId: id }] };
+    const pedido = await Pedido.findOne(filtro)
+      .select("status -_id")
+      .lean();
+    if (!pedido) {
+      return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    return res.json({ status: pedido.status });
+  } catch (error) {
+    console.error("[api/pedidos/:id/status] erro:", error?.message || error);
+    return res.status(500).json({ erro: "Não foi possível carregar o status do pedido." });
+  }
+});
+
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
 // Status controlados apenas pelo gateway de pagamento (webhook).

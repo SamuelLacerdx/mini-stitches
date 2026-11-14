@@ -152,22 +152,27 @@ const normalizarPedido = (pedidoApi) => {
 export default function PedidoStatus() {
   const { id } = useParams();
   const [pedido, setPedido] = useState(null);
+  const [statusPedido, setStatusPedido] = useState({ id: null, status: null });
   const [telaAtual, setTelaAtual] = useState('confirmacao'); // 'confirmacao' | 'acompanhamento' | 'pagamento'
   const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
+    const pedidoId = id || 'MS10248';
     const carregarPedido = async () => {
       try {
-        const pedidoId = id || 'MS10248';
         const res = await fetch(`/api/pedidos/${pedidoId}`);
         if (res.ok) {
           const dados = await res.json();
-          const pedidoNormalizado = normalizarPedido(dados.pedido || dados);
+          const pedidoApi = dados.pedido || dados;
+          const pedidoNormalizado = normalizarPedido(pedidoApi);
+          setStatusPedido({ id: pedidoId, status: pedidoApi.status || null });
           setPedido(pedidoNormalizado);
         } else {
+          setStatusPedido({ id: pedidoId, status: null });
           setPedido(null);
         }
-      } catch (err) {
+      } catch {
+        setStatusPedido({ id: pedidoId, status: null });
         setPedido(null);
       }
     };
@@ -176,6 +181,51 @@ export default function PedidoStatus() {
     const intervalo = setInterval(carregarPedido, 30000);
     return () => clearInterval(intervalo);
   }, [id]);
+
+  useEffect(() => {
+    const pedidoId = id || 'MS10248';
+    if (
+      statusPedido.id !== pedidoId ||
+      statusPedido.status !== 'aguardando_pagamento'
+    ) {
+      return undefined;
+    }
+
+    let consultando = false;
+    const intervalo = setInterval(async () => {
+      if (consultando) return;
+      consultando = true;
+
+      try {
+        const res = await fetch(`/api/pedidos/${pedidoId}/status`);
+        if (!res.ok) return;
+
+        const dados = await res.json();
+        if (dados.status === 'pago') {
+          setStatusPedido({ id: pedidoId, status: dados.status });
+          setPedido((pedidoAtual) =>
+            pedidoAtual
+              ? {
+                  ...pedidoAtual,
+                  status: statusVisualParaTela[dados.status] || pedidoAtual.status,
+                  pagamento: {
+                    ...pedidoAtual.pagamento,
+                    statusTexto: 'Pagamento aprovado',
+                  },
+                }
+              : pedidoAtual,
+          );
+          clearInterval(intervalo);
+        }
+      } catch (err) {
+        console.error('Erro ao consultar o status do pedido:', err);
+      } finally {
+        consultando = false;
+      }
+    }, 5000);
+
+    return () => clearInterval(intervalo);
+  }, [id, statusPedido]);
 
   const copiarCodigoRastreio = () => {
     navigator.clipboard.writeText(pedido.entrega.codigoRastreio);
