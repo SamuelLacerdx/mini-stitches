@@ -266,7 +266,7 @@ export default function Tutorial() {
                   >
                     {/* Miniatura do Card com Ícone Play */}
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-12 h-12 rounded-xl bg-[#E2B79A]/40 border border-[#3E2417]/20 flex-shrink-0 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-xl bg-[#E2B79A]/40 border border-[#3E2417]/20 shrink-0 flex items-center justify-center">
                         {bloqueado ? (
                           <svg
                             className="h-5 w-5 text-[#3E2417]"

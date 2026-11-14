@@ -32,7 +32,7 @@ export default function NossaHistoria() {
         {/* TRÊS CARTÕES AMARELOS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
           
-          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-[180px]">
+          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-45">
             <h2 className="text-base md:text-lg font-['Archivo_Black'] text-[#3E2417] uppercase">
               LONGE DAS TELAS
             </h2>
@@ -41,7 +41,7 @@ export default function NossaHistoria() {
             </p>
           </div>
 
-          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-[180px]">
+          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-45">
             <h2 className="text-base md:text-lg font-['Archivo_Black'] text-[#3E2417] uppercase">
               FEITO JUNTOS
             </h2>
@@ -50,7 +50,7 @@ export default function NossaHistoria() {
             </p>
           </div>
 
-          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-[180px]">
+          <div className="bg-[#FDE89C] p-8 rounded-2xl flex flex-col items-center justify-center space-y-3 min-h-45">
             <h2 className="text-base md:text-lg font-['Archivo_Black'] text-[#3E2417] uppercase">
               ERRAR FAZ PARTE
             </h2>

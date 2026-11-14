@@ -43,7 +43,7 @@ export default function App() {
             <Route path="/detalhe-produto" element={<DetalheProd />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/not-found" element={<NotFound />} />
-            <Route path="/pedido-status" element={<PedidoStatus />} />
+            <Route path="/pedido-status/:id?" element={<PedidoStatus />} />
           </Routes>
         </main>
         <Footer />

@@ -896,7 +896,12 @@ export default function FinalizarCompra() {
                   {resultado.pedido && (
                     <p className="text-xs text-[#3E2417] border-t border-[#3E2417]/10 pt-3">
                       Pedido <span className="font-bold">{resultado.pedido.numero}</span> registrado.{' '}
-                      <Link to="/perfil" className="font-bold underline">Ver em Meus pedidos</Link>
+                      <Link
+                        to={resultado.pedido.numero ? `/pedido-status/${encodeURIComponent(resultado.pedido.numero)}` : '/pedido-status'}
+                        className="font-bold underline"
+                      >
+                        Acompanhar pedido
+                      </Link>
                     </p>
                   )}
                   {resultado.erroPedido && (
