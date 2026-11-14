@@ -1563,6 +1563,65 @@ function respostaPedidoAdmin(pedido) {
   };
 }
 
+app.get("/api/pedidos/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      return res.status(400).json({ erro: "Pedido não informado." });
+    }
+
+    let filtro = { $or: [{ numero: id }, { pagamentoId: id }] };
+    if (mongoose.isValidObjectId(id)) {
+      filtro = { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] };
+    }
+
+    const pedido = await Pedido.findOne(filtro).lean();
+    if (!pedido) {
+      return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    if (
+      req.session?.usuarioId &&
+      pedido.clienteId &&
+      String(pedido.clienteId) !== String(req.session.usuarioId)
+    ) {
+      return res.status(403).json({
+        erro: "Pedido não pertence ao usuário autenticado.",
+      });
+    }
+
+    res.json({
+      pedido: {
+        ...pedido,
+        id: pedido.numero || String(pedido._id),
+        numero: pedido.numero || String(pedido._id),
+        status: pedido.status,
+        cliente: {
+          nome: pedido.cliente?.nome || "",
+          email: pedido.cliente?.email || "",
+        },
+        entrega: {
+          cep: pedido.entrega?.cep || "",
+          endereco: pedido.entrega?.endereco || "",
+          rastreio: pedido.rastreio || "",
+        },
+        itens: (pedido.itens || []).map((item) => ({
+          ...item,
+          precoUnit: Number(item.precoUnit || 0),
+          quantidade: Number(item.quantidade || 0),
+        })),
+        subtotal: Number(pedido.subtotal || 0),
+        total: Number(pedido.total || 0),
+        frete: Number(pedido.frete || 0),
+        desconto: Number(pedido.desconto || 0),
+      },
+    });
+  } catch (error) {
+    console.error("[api/pedidos/:id] erro:", error?.message || error);
+    return res.status(500).json({ erro: "Não foi possível carregar o pedido." });
+  }
+});
+
 app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
   try {
     const [porStatus, assinantesAtivos, ultimosPedidos] = await Promise.all([
