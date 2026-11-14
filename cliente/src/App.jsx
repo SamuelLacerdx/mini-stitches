@@ -17,6 +17,7 @@ import Contato from "./Pages/Contato";
 import Tutorial from "./Pages/Tutorial";
 import Checkout from "./Pages/Checkout";
 import NotFound from "./Pages/NotFound";
+import Busca from "./Pages/Busca";
 import PedidoStatus from "./Pages/Pedido-status";
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/tutorial" element={<Tutorial />} />
             <Route path="/detalhe-produto" element={<DetalheProd />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/busca" element={<Busca />} />
             <Route path="/not-found" element={<NotFound />} />
             <Route path="/pedido-status/:id?" element={<PedidoStatus />} />
           </Routes>
