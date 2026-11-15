@@ -382,8 +382,7 @@ export default function DetalheProd() {
                     ) : (
                       <Link
                         key={`${aula.titulo}-${index}`}
-                        to="/tutorial"
-                        state={{ kitNome: kitInfo.nome, videos: kitInfo.aulas }}
+                        to={`/tutorial/${slug}`}
                         className="bg-yellow-100 p-4 rounded-2xl flex items-center justify-between gap-4 hover:bg-yellow-200 transition-colors"
                       >
                         {conteudo}

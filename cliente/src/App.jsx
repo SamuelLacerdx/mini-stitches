@@ -44,7 +44,7 @@ export default function App() {
             <Route path="/produto/:slug" element={<DetalheProd />} />
             <Route path="/nossa-historia" element={<NossaHistoria />} />
             <Route path="/contato" element={<Contato />} />
-            <Route path="/tutorial" element={<Tutorial />} />
+            <Route path="/tutorial/:slug" element={<Tutorial />} />
             <Route path="/detalhe-produto" element={<DetalheProd />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/busca" element={<Busca />} />

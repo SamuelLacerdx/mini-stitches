@@ -38,7 +38,7 @@ export default function Footer() {
                 {" "}
                 Materiais{" "}
               </Link>
-              <Link to="/tutorial" className="cursor-pointer transition-colors hover:underline">
+              <Link to="/kits" className="cursor-pointer transition-colors hover:underline">
                 {" "}
                 Vídeos passo a passo{" "}
               </Link>
