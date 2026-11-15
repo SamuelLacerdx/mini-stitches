@@ -52,6 +52,7 @@ export default function Perfil() {
   const [cartoes, setCartoes] = useState([]);
   const [mostrarFormularioCartao, setMostrarFormularioCartao] = useState(false);
   const [cartaoForm, setCartaoForm] = useState({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
+  const [senhaStatus, setSenhaStatus] = useState("");
 
   async function sair(event) {
     event.preventDefault();
@@ -143,6 +144,23 @@ export default function Perfil() {
     }
 
     alert("Perfil atualizado!");
+  }
+
+  async function enviarLinkSenha() {
+    if (!usuario.email) return;
+    setSenhaStatus("enviando");
+    try {
+      const resposta = await fetch("/api/esqueci-senha", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: usuario.email }),
+      });
+      const data = await resposta.json();
+      setSenhaStatus(data.mensagem || "Link enviado!");
+    } catch {
+      setSenhaStatus("Erro ao enviar. Tente novamente.");
+    }
   }
 
   async function salvarEndereco(e) {
@@ -377,12 +395,25 @@ export default function Perfil() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="px-6 py-3 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-md text-white font-['Archivo_Black'] text-xs uppercase"
-            >
-              SALVAR DADOS
-            </button>
+            <div className="flex flex-wrap items-center gap-4">
+              <button
+                type="submit"
+                className="px-6 py-3 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-md text-white font-['Archivo_Black'] text-xs uppercase"
+              >
+                SALVAR DADOS
+              </button>
+              <button
+                type="button"
+                onClick={enviarLinkSenha}
+                disabled={senhaStatus === "enviando"}
+                className="px-6 py-3 bg-white border border-orange-400/50 hover:bg-orange-100 transition-colors rounded-md text-yellow-900 font-['Archivo_Black'] text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {senhaStatus === "enviando" ? "ENVIANDO..." : "ATUALIZAR SENHA"}
+              </button>
+              {senhaStatus && senhaStatus !== "enviando" && (
+                <span className="text-xs text-stone-600">{senhaStatus}</span>
+              )}
+            </div>
           </form>
         </section>
 
