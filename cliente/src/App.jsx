@@ -19,6 +19,8 @@ import Checkout from "./Pages/Checkout";
 import NotFound from "./Pages/NotFound";
 import Busca from "./Pages/Busca";
 import PedidoStatus from "./Pages/Pedido-status";
+import EsqueciSenha from "./Pages/EsqueciSenha";
+import NovaSenha from "./Pages/NovaSenha";
 
 export default function App() {
   return (
@@ -34,6 +36,8 @@ export default function App() {
             <Route path="/carrinho" element={<Carrinho />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/esqueci-senha" element={<EsqueciSenha />} />
+            <Route path="/nova-senha" element={<NovaSenha />} />
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/clube" element={<Clube />} />
             <Route path="/trocas" element={<Trocas />} />

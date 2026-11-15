@@ -65,7 +65,14 @@ export default function Login() {
           >
             ENTRAR
           </button>
-          
+
+          <Link
+            to="/esqueci-senha"
+            className="text-[#3E2417] text-sm font-['Work_Sans'] underline hover:opacity-80 transition-opacity self-end"
+          >
+            Esqueci minha senha
+          </Link>
+
         </form>
 
         <Link
