@@ -1380,6 +1380,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     // Repetir a chamada (duplo clique, nova tentativa) devolve o mesmo pedido.
     const existente = await Pedido.findOne({ pagamentoId: idPagamento });
     if (existente) {
+      if (String(existente.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
       return res.json({ pedido: respostaPedido(existente) });
     }
 
@@ -1497,6 +1498,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         if (erro?.code !== 11000) throw erro;
         pedido = await Pedido.findOne({ pagamentoId: idPagamento });
         if (!pedido) throw erro;
+      if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
         return res.json({ pedido: respostaPedido(pedido) });
       }
       return res.json({ pedido: respostaPedido(pedido) });
@@ -1520,6 +1522,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       if (erro?.code !== 11000) throw erro;
       pedido = await Pedido.findOne({ pagamentoId: idPagamento });
       if (!pedido) throw erro;
+      if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
       return res.json({ pedido: respostaPedido(pedido) });
     }
 
@@ -1549,7 +1552,7 @@ app.get("/api/pedidos", autenticar, async (req, res) => {
   }
 });
 
-app.get("/api/pedidos/:id/status", async (req, res) => {
+app.get("/api/pedidos/:id/status", autenticar, async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
@@ -1559,7 +1562,7 @@ app.get("/api/pedidos/:id/status", async (req, res) => {
     const filtro = mongoose.isValidObjectId(id)
       ? { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] }
       : { $or: [{ numero: id }, { pagamentoId: id }] };
-    const pedido = await Pedido.findOne(filtro)
+    const pedido = await Pedido.findOne({ ...filtro, clienteId: req.session.usuarioId })
       .select("status -_id")
       .lean();
     if (!pedido) {
@@ -1593,7 +1596,7 @@ function respostaPedidoAdmin(pedido) {
   };
 }
 
-app.get("/api/pedidos/:id", async (req, res) => {
+app.get("/api/pedidos/:id", autenticar, async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
@@ -1605,7 +1608,7 @@ app.get("/api/pedidos/:id", async (req, res) => {
       filtro = { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] };
     }
 
-    const pedido = await Pedido.findOne(filtro).lean();
+    const pedido = await Pedido.findOne({ ...filtro, clienteId: req.session.usuarioId }).lean();
     if (!pedido) {
       return res.status(404).json({ erro: "Pedido não encontrado." });
     }

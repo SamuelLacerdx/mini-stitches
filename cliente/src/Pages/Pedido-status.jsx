@@ -48,7 +48,9 @@ const formatarMoeda = (valor) =>
 const statusVisualParaTela = {
   pago: 'aprovado',
   aprovado: 'aprovado',
-  aguardando_pagamento: 'aprovado',
+  aguardando_pagamento: 'aguardando_pagamento',
+  cancelado: 'cancelado',
+  em_separacao: 'preparacao',
   preparacao: 'preparacao',
   preparando: 'preparacao',
   enviado: 'enviado',
@@ -75,7 +77,7 @@ const formatarData = (valor) => {
 const normalizarPedido = (pedidoApi) => {
   if (!pedidoApi) return null;
 
-  const statusTela = statusVisualParaTela[pedidoApi.status] || 'aprovado';
+  const statusTela = statusVisualParaTela[pedidoApi.status] || 'desconhecido';
   const endereco = String(pedidoApi.entrega?.endereco || '').trim();
   const partesEndereco = endereco ? endereco.split(' - ') : [];
   const rua = partesEndereco[0] || '';
@@ -97,7 +99,7 @@ const normalizarPedido = (pedidoApi) => {
 
   const historicoStatus = Array.isArray(pedidoApi.historicoStatus)
     ? pedidoApi.historicoStatus.map((item) => ({
-        statusMinimo: statusVisualParaTela[item?.status] || 'aprovado',
+        statusMinimo: statusVisualParaTela[item?.status] || 'desconhecido',
         data: formatarData(item?.em),
         titulo: item?.status === 'pago' ? 'Pagamento aprovado' : 'Atualização do pedido',
         descricao: `Status atualizado para ${item?.status || 'indisponível'}.`,
@@ -122,7 +124,7 @@ const normalizarPedido = (pedidoApi) => {
       cidade: cidade.trim() || '',
       estado: estado.trim() || '',
       cep: pedidoApi.entrega?.cep || '',
-      metodo: pedidoApi.frete ? 'PAC' : '',
+      metodo: 'Frete',
       valorFrete: Number((pedidoApi.frete || 0) / 100),
       codigoRastreio: pedidoApi.rastreio || '',
       rastreioHistorico: [],
@@ -131,19 +133,18 @@ const normalizarPedido = (pedidoApi) => {
       ...PEDIDO_VAZIO.pagamento,
       metodo: metodoPagamento[pedidoApi.pagamento] || '',
       detalhe: metodoPagamento[pedidoApi.pagamento] || '',
-      statusTexto: statusTela === 'aprovado' ? 'Pagamento aprovado' : 'Pagamento em análise',
-      parcelasTexto: totalPago ? '1x de ' + formatarMoeda(totalPago) : '',
-      dataConfirmacao: formatarData(pedidoApi.criadoEm),
-      dataAprovacaoCurta: formatarData(pedidoApi.criadoEm),
-      historico: [
-        {
-          dataHora: formatarData(pedidoApi.criadoEm) ? `${formatarData(pedidoApi.criadoEm)} • 00:00` : '',
-          atualizacao: statusTela === 'aprovado' ? 'Pagamento aprovado' : 'Pedido registrado',
-          detalhes: pedidoApi.numero || pedidoApi.id ? `Pedido ${pedidoApi.numero || pedidoApi.id} atualizado no sistema.` : 'Pedido atualizado no sistema.',
-        },
-      ],
+      statusTexto: ['aprovado', 'preparacao', 'enviado', 'entregue'].includes(statusTela) ? 'Pagamento aprovado' : statusTela === 'cancelado' ? 'Pedido cancelado' : statusTela === 'aguardando_pagamento' ? 'Aguardando pagamento' : 'Status indisponível',
+      parcelasTexto: '',
+      dataConfirmacao: formatarData(pedidoApi.historicoStatus?.find((item) => item.status === 'pago')?.em),
+      dataAprovacaoCurta: formatarData(pedidoApi.historicoStatus?.find((item) => item.status === 'pago')?.em),
+      historico: (pedidoApi.historicoStatus || []).slice().reverse().map((item) => ({
+        dataHora: new Date(item.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+        atualizacao: ({ aguardando_pagamento: 'Aguardando pagamento', pago: 'Pagamento aprovado', em_separacao: 'Em preparação', enviado: 'Pedido enviado', entregue: 'Pedido entregue', cancelado: 'Pedido cancelado' })[item.status] || 'Status indisponível',
+        detalhes: 'Atualização registrada no pedido.',
+      })),
     },
     itens: itens.length ? itens : [],
+    subtotal,
     totalPago,
     atualizacoesStatus: historicoStatus,
   };
@@ -151,10 +152,10 @@ const normalizarPedido = (pedidoApi) => {
 
 export default function PedidoStatus() {
   const { id } = useParams();
-  const pedidoIdAtual = id || 'MS10248';
+  const pedidoIdAtual = id || '';
   const [resultadoPedido, setResultadoPedido] = useState(null);
-  const [statusPedido, setStatusPedido] = useState({ id: null, status: null });
-  const [telaAtual, setTelaAtual] = useState('confirmacao'); // 'confirmacao' | 'acompanhamento' | 'pagamento'
+
+  const [telaAtual, setTelaAtual] = useState('acompanhamento'); // 'confirmacao' | 'acompanhamento' | 'pagamento'
   const [copiado, setCopiado] = useState(false);
   const resultadoAtual = resultadoPedido?.id === pedidoIdAtual ? resultadoPedido : null;
   const pedido = resultadoAtual?.pedido || null;
@@ -162,12 +163,17 @@ export default function PedidoStatus() {
   const erro = resultadoAtual?.erro || null;
 
   useEffect(() => {
-    const pedidoId = id || 'MS10248';
+    const pedidoId = id || '';
     let ativo = true;
+    let consultando = false;
+    const controller = new AbortController();
 
     const carregarPedido = async () => {
+      if (consultando) return;
+      consultando = true;
       try {
-        const res = await fetch(`/api/pedidos/${pedidoId}`);
+        if (!pedidoId) throw new Error('Selecione um pedido no seu perfil.');
+        const res = await fetch(`/api/pedidos/${encodeURIComponent(pedidoId)}`, { credentials: 'include', signal: controller.signal });
         if (!res.ok) {
           const mensagem = res.status === 401
             ? 'Sua sessão não autorizou o acesso ao pedido. Faça login novamente ou fale com o suporte.'
@@ -183,10 +189,9 @@ export default function PedidoStatus() {
         }
 
         if (!ativo) return;
-        setStatusPedido({ id: pedidoId, status: pedidoApi?.status || null });
         setResultadoPedido({ id: pedidoId, pedido: pedidoNormalizado, erro: null });
       } catch (error) {
-        if (!ativo) return;
+        if (!ativo || error.name === 'AbortError') return;
         console.error('Erro ao carregar o pedido:', error);
         const mensagemErro =
           error instanceof TypeError
@@ -199,6 +204,8 @@ export default function PedidoStatus() {
           pedido: resultadoAnterior?.id === pedidoId ? resultadoAnterior.pedido : null,
           erro: mensagemErro,
         }));
+      } finally {
+        consultando = false;
       }
     };
 
@@ -206,73 +213,11 @@ export default function PedidoStatus() {
     const intervalo = setInterval(carregarPedido, 30000);
     return () => {
       ativo = false;
+      controller.abort();
       clearInterval(intervalo);
     };
   }, [id]);
 
-  useEffect(() => {
-    const pedidoId = id || 'MS10248';
-    if (
-      statusPedido.id !== pedidoId ||
-      statusPedido.status !== 'aguardando_pagamento'
-    ) {
-      return undefined;
-    }
-
-    let consultando = false;
-    const intervalo = setInterval(async () => {
-      if (consultando) return;
-      consultando = true;
-
-      try {
-        const res = await fetch(`/api/pedidos/${pedidoId}/status`);
-        if (!res.ok) {
-          const mensagem = res.status === 401
-            ? 'Sua sessão expirou ou não tem autorização para consultar o status do pedido.'
-            : `Não foi possível consultar o status do pedido (HTTP ${res.status}).`;
-          throw new Error(mensagem);
-        }
-
-        const dados = await res.json();
-        if (dados?.status === 'pago') {
-          setStatusPedido({ id: pedidoId, status: dados.status });
-          setResultadoPedido((resultado) =>
-            resultado?.id === pedidoId && resultado.pedido
-              ? {
-                  ...resultado,
-                  pedido: {
-                    ...resultado.pedido,
-                    status: statusVisualParaTela[dados.status] || resultado.pedido.status,
-                    pagamento: {
-                      ...resultado.pedido.pagamento,
-                      statusTexto: 'Pagamento aprovado',
-                    },
-                  },
-                }
-              : resultado,
-          );
-          clearInterval(intervalo);
-        }
-      } catch (err) {
-        console.error('Erro ao consultar o status do pedido:', err);
-        const mensagemErro =
-          err instanceof TypeError
-            ? 'Não foi possível conectar ao servidor para consultar o status do pedido.'
-            : err instanceof Error
-              ? err.message
-              : 'Ocorreu um erro ao consultar o status do pedido.';
-        setResultadoPedido((resultado) =>
-          resultado?.id === pedidoId
-            ? { ...resultado, erro: mensagemErro }
-            : resultado,
-        );
-      } finally {
-        consultando = false;
-      }
-    }, 5000);
-
-    return () => clearInterval(intervalo);
-  }, [id, statusPedido]);
 
   if (carregando && !pedido) {
     return (
@@ -288,9 +233,8 @@ export default function PedidoStatus() {
         <p role="alert" className="mx-auto max-w-xl rounded-lg bg-[#FBEDD9] p-5">
           {erro || 'Não foi possível carregar seu pedido. Tente novamente.'}
         </p>
-        <Link to="/" className="mt-5 inline-block underline hover:text-[#602D15]">
-          Voltar à loja
-        </Link>
+        <Link to="/perfil" className="mt-5 inline-block underline hover:text-[#602D15]">Meus pedidos</Link>
+        <Link to={`/login?redirect=${encodeURIComponent('/pedido-status/' + pedidoIdAtual)}`} className="ml-5 inline-block underline">Fazer login</Link>
       </div>
     );
   }
@@ -303,6 +247,9 @@ export default function PedidoStatus() {
 
   // Configuração visual dinâmica de acordo com o status definido pelo Admin
   const configEtapas = {
+    aguardando_pagamento: { indice: 0, titulo: 'AGUARDANDO PAGAMENTO', subtitulo: 'Seu pedido aguarda a confirmação do pagamento.', badge: 'Aguardando pagamento' },
+    cancelado: { indice: 0, titulo: 'PEDIDO CANCELADO', subtitulo: 'Este pedido foi cancelado. Fale com a gente se precisar de ajuda.', badge: 'Cancelado' },
+    desconhecido: { indice: 0, titulo: 'STATUS INDISPONÍVEL', subtitulo: 'Não foi possível identificar a etapa do pedido.', badge: 'Status indisponível' },
     aprovado: {
       indice: 1,
       titulo: 'ACOMPANHE SEU PEDIDO',
@@ -329,7 +276,7 @@ export default function PedidoStatus() {
     },
   };
 
-  const etapaInfo = configEtapas[pedido.status] || configEtapas.aprovado;
+  const etapaInfo = configEtapas[pedido.status] || configEtapas.desconhecido;
 
   const passosStepper = [
     { num: '01', titulo: 'Pagamento aprovado', etapaIdx: 1 },
@@ -386,7 +333,7 @@ export default function PedidoStatus() {
             <div className="flex items-center gap-2 text-[#80695B]">
               <Link to="/conta" className="hover:underline">Minha conta</Link>
               <span>/</span>
-              <Link to="/conta/pedidos" className="hover:underline">Meus pedidos</Link>
+              <Link to="/perfil" className="hover:underline">Meus pedidos</Link>
               <span>/</span>
               <span className="text-[#3E2417] font-semibold">#{pedido.id}</span>
             </div>
@@ -405,7 +352,7 @@ export default function PedidoStatus() {
             <div className="flex items-center gap-2 text-[#80695B]">
               <Link to="/conta" className="hover:underline">Minha conta</Link>
               <span>/</span>
-              <Link to="/conta/pedidos" className="hover:underline">Pedidos</Link>
+              <Link to="/perfil" className="hover:underline">Pedidos</Link>
               <span>/</span>
               <span className="text-[#3E2417] font-semibold">Pagamento</span>
             </div>
@@ -425,7 +372,7 @@ export default function PedidoStatus() {
               </div>
               <div className="space-y-1.5">
                 <h1 className="text-3xl md:text-5xl font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase tracking-tight">
-                  PEDIDO CONFIRMADO!
+                  {etapaInfo.badge.toUpperCase()}
                 </h1>
                 <p className="text-sm md:text-base text-[#3E2417]/90">
                   Obrigada, {pedido.cliente.nome}! Seu próximo momento de criar já está a caminho de acontecer.
@@ -495,16 +442,21 @@ export default function PedidoStatus() {
           </div>
         </div>
 
+        <nav aria-label="Informações do pedido" className="flex flex-wrap gap-4">
+          <button type="button" onClick={() => setTelaAtual('acompanhamento')} className="underline">Acompanhar pedido</button>
+          <button type="button" onClick={() => setTelaAtual('pagamento')} className="underline">Ver pagamento</button>
+          <Link to="/perfil" className="underline">Meus pedidos</Link>
+        </nav>
         <hr className="border-[#C58752]/30" />
 
         {/* ============================================================== */}
         {/* CONTEÚDO PRINCIPAL EM DUAS COLUNAS                             */}
         {/* ============================================================== */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-          
+
           {/* COLUNA DA ESQUERDA (7 COLUNAS) */}
           <div className="lg:col-span-7 xl:col-span-8 space-y-8">
-            
+
             {/* ---------------------------------------------------------- */}
             {/* TELA 1: CONFIRMAÇÃO DO PEDIDO                              */}
             {/* ---------------------------------------------------------- */}
@@ -654,7 +606,7 @@ export default function PedidoStatus() {
                       <p className="font-semibold text-base">{pedido.pagamento.detalhe}</p>
                       <p>{pedido.pagamento.statusTexto}</p>
                       <p>{pedido.pagamento.parcelasTexto}</p>
-                      <p>Total pago: {formatarMoeda(pedido.totalPago)}, incluindo o frete.</p>
+                      <p>Total do pedido: {formatarMoeda(pedido.totalPago)}, incluindo o frete.</p>
                     </div>
 
                     <div className="flex items-center gap-2 text-xs md:text-sm text-[#80695B] pt-2">
@@ -934,7 +886,7 @@ export default function PedidoStatus() {
                       {pedido.pagamento.statusTexto.toUpperCase()}
                     </h2>
                     <p className="text-xs md:text-sm text-[#3E2417]/90">
-                      Tudo certo! Recebemos a confirmação e seu pedido pode seguir para preparação.
+                      {pedido.pagamento.statusTexto}
                     </p>
                   </div>
 
@@ -947,7 +899,7 @@ export default function PedidoStatus() {
                     </div>
                     <div className="space-y-1 text-xs md:text-sm text-[#3E2417]">
                       <p className="font-bold">{pedido.pagamento.detalhe}</p>
-                      <p>Confirmado em {pedido.pagamento.dataConfirmacao}</p>
+                      <p>{['aprovado', 'preparacao', 'enviado', 'entregue'].includes(pedido.status) ? `Confirmado em ${pedido.pagamento.dataConfirmacao}` : pedido.pagamento.statusTexto}</p>
                       <p>
                         Subtotal {formatarMoeda(pedido.subtotal)} + frete {pedido.entrega.metodo}{' '}
                         {formatarMoeda(pedido.entrega.valorFrete)}
@@ -998,7 +950,7 @@ export default function PedidoStatus() {
                     Enviamos as mudanças de status para {pedido.cliente.email}. Se não encontrar a mensagem, confira também a caixa de spam.
                   </p>
                   <p className="text-xs md:text-sm text-[#3E2417]/90 leading-relaxed">
-                    Sua compra foi aprovada integralmente. As parcelas serão lançadas pela administradora do cartão, conforme o fechamento da sua fatura.
+                    Consulte acima a situação atual do seu pedido.
                   </p>
                 </div>
               </>
@@ -1059,7 +1011,7 @@ export default function PedidoStatus() {
           {/* ============================================================== */}
           <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-8">
             <div className="bg-[#FDE89C] p-6 md:p-7 rounded-2xl space-y-5">
-              
+
               {/* Cabeçalho */}
               <div className="flex items-center justify-between border-b border-[#C58752]/30 pb-4">
                 <h2 className="text-lg font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase">
@@ -1112,7 +1064,7 @@ export default function PedidoStatus() {
               <div className="space-y-1.5">
                 <div className="flex items-baseline justify-between">
                   <span className="font-['Archivo_Black',sans-serif] text-sm md:text-base text-[#3E2417] uppercase">
-                    TOTAL PAGO
+                    {['aprovado', 'preparacao', 'enviado', 'entregue'].includes(pedido.status) ? 'TOTAL PAGO' : 'TOTAL DO PEDIDO'}
                   </span>
                   <span className="font-['Archivo_Black',sans-serif] text-2xl md:text-3xl text-[#3E2417]">
                     {formatarMoeda(pedido.totalPago)}

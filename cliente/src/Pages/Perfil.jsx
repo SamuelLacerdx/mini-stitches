@@ -684,33 +684,19 @@ export default function Perfil() {
                     .map((item) => `${item.quantidade}× ${item.nome}`)
                     .join(", ")}
                 </p>
-                {aguardandoPagamento && (
-                  <p className="text-amber-800 font-semibold underline">
-                    Finalizar pagamento →
-                  </p>
-                )}
+
               </>
             );
 
-            if (aguardandoPagamento) {
-              return (
-                <Link
-                  key={pedido.numero}
-                  to="/checkout"
-                  state={{ pedido }}
-                  className="block p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2 hover:bg-[#FEF8F0] transition-colors"
-                >
-                  {conteudo}
-                </Link>
-              );
-            }
-
             return (
-              <div
-                key={pedido.numero}
-                className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2"
-              >
-                {conteudo}
+              <div key={pedido.numero} className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2">
+                <Link to={`/pedido-status/${encodeURIComponent(pedido.numero)}`} className="block space-y-2 hover:underline">
+                  {conteudo}
+                  <p className="font-semibold">Acompanhar pedido →</p>
+                </Link>
+                {aguardandoPagamento && (
+                  <Link to="/checkout" state={{ pedido }} className="inline-block text-amber-800 font-semibold underline">Finalizar pagamento →</Link>
+                )}
               </div>
             );
           })}
