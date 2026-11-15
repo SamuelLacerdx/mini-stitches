@@ -97,10 +97,10 @@ const normalizarPedido = (pedidoApi) => {
 
   const historicoStatus = Array.isArray(pedidoApi.historicoStatus)
     ? pedidoApi.historicoStatus.map((item) => ({
-        statusMinimo: statusVisualParaTela[item.status] || 'aprovado',
-        data: formatarData(item.em),
-        titulo: item.status === 'pago' ? 'Pagamento aprovado' : 'Atualização do pedido',
-        descricao: `Status atualizado para ${item.status}.`,
+        statusMinimo: statusVisualParaTela[item?.status] || 'aprovado',
+        data: formatarData(item?.em),
+        titulo: item?.status === 'pago' ? 'Pagamento aprovado' : 'Atualização do pedido',
+        descricao: `Status atualizado para ${item?.status || 'indisponível'}.`,
       }))
     : [];
 
@@ -151,35 +151,63 @@ const normalizarPedido = (pedidoApi) => {
 
 export default function PedidoStatus() {
   const { id } = useParams();
-  const [pedido, setPedido] = useState(null);
+  const pedidoIdAtual = id || 'MS10248';
+  const [resultadoPedido, setResultadoPedido] = useState(null);
   const [statusPedido, setStatusPedido] = useState({ id: null, status: null });
   const [telaAtual, setTelaAtual] = useState('confirmacao'); // 'confirmacao' | 'acompanhamento' | 'pagamento'
   const [copiado, setCopiado] = useState(false);
+  const resultadoAtual = resultadoPedido?.id === pedidoIdAtual ? resultadoPedido : null;
+  const pedido = resultadoAtual?.pedido || null;
+  const carregando = !resultadoAtual;
+  const erro = resultadoAtual?.erro || null;
 
   useEffect(() => {
     const pedidoId = id || 'MS10248';
+    let ativo = true;
+
     const carregarPedido = async () => {
       try {
         const res = await fetch(`/api/pedidos/${pedidoId}`);
-        if (res.ok) {
-          const dados = await res.json();
-          const pedidoApi = dados.pedido || dados;
-          const pedidoNormalizado = normalizarPedido(pedidoApi);
-          setStatusPedido({ id: pedidoId, status: pedidoApi.status || null });
-          setPedido(pedidoNormalizado);
-        } else {
-          setStatusPedido({ id: pedidoId, status: null });
-          setPedido(null);
+        if (!res.ok) {
+          const mensagem = res.status === 401
+            ? 'Sua sessão não autorizou o acesso ao pedido. Faça login novamente ou fale com o suporte.'
+            : `Não foi possível carregar seu pedido (HTTP ${res.status}). Tente novamente.`;
+          throw new Error(mensagem);
         }
-      } catch {
-        setStatusPedido({ id: pedidoId, status: null });
-        setPedido(null);
+
+        const dados = await res.json();
+        const pedidoApi = dados?.pedido ?? dados;
+        const pedidoNormalizado = normalizarPedido(pedidoApi);
+        if (!pedidoNormalizado) {
+          throw new Error('Os dados do pedido não foram encontrados. Verifique o link ou tente novamente.');
+        }
+
+        if (!ativo) return;
+        setStatusPedido({ id: pedidoId, status: pedidoApi?.status || null });
+        setResultadoPedido({ id: pedidoId, pedido: pedidoNormalizado, erro: null });
+      } catch (error) {
+        if (!ativo) return;
+        console.error('Erro ao carregar o pedido:', error);
+        const mensagemErro =
+          error instanceof TypeError
+            ? 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.'
+            : error instanceof Error
+              ? error.message
+              : 'Ocorreu um erro ao carregar seu pedido. Tente novamente.';
+        setResultadoPedido((resultadoAnterior) => ({
+          id: pedidoId,
+          pedido: resultadoAnterior?.id === pedidoId ? resultadoAnterior.pedido : null,
+          erro: mensagemErro,
+        }));
       }
     };
 
     carregarPedido();
     const intervalo = setInterval(carregarPedido, 30000);
-    return () => clearInterval(intervalo);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
   }, [id]);
 
   useEffect(() => {
@@ -198,27 +226,46 @@ export default function PedidoStatus() {
 
       try {
         const res = await fetch(`/api/pedidos/${pedidoId}/status`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          const mensagem = res.status === 401
+            ? 'Sua sessão expirou ou não tem autorização para consultar o status do pedido.'
+            : `Não foi possível consultar o status do pedido (HTTP ${res.status}).`;
+          throw new Error(mensagem);
+        }
 
         const dados = await res.json();
-        if (dados.status === 'pago') {
+        if (dados?.status === 'pago') {
           setStatusPedido({ id: pedidoId, status: dados.status });
-          setPedido((pedidoAtual) =>
-            pedidoAtual
+          setResultadoPedido((resultado) =>
+            resultado?.id === pedidoId && resultado.pedido
               ? {
-                  ...pedidoAtual,
-                  status: statusVisualParaTela[dados.status] || pedidoAtual.status,
-                  pagamento: {
-                    ...pedidoAtual.pagamento,
-                    statusTexto: 'Pagamento aprovado',
+                  ...resultado,
+                  pedido: {
+                    ...resultado.pedido,
+                    status: statusVisualParaTela[dados.status] || resultado.pedido.status,
+                    pagamento: {
+                      ...resultado.pedido.pagamento,
+                      statusTexto: 'Pagamento aprovado',
+                    },
                   },
                 }
-              : pedidoAtual,
+              : resultado,
           );
           clearInterval(intervalo);
         }
       } catch (err) {
         console.error('Erro ao consultar o status do pedido:', err);
+        const mensagemErro =
+          err instanceof TypeError
+            ? 'Não foi possível conectar ao servidor para consultar o status do pedido.'
+            : err instanceof Error
+              ? err.message
+              : 'Ocorreu um erro ao consultar o status do pedido.';
+        setResultadoPedido((resultado) =>
+          resultado?.id === pedidoId
+            ? { ...resultado, erro: mensagemErro }
+            : resultado,
+        );
       } finally {
         consultando = false;
       }
@@ -226,6 +273,27 @@ export default function PedidoStatus() {
 
     return () => clearInterval(intervalo);
   }, [id, statusPedido]);
+
+  if (carregando && !pedido) {
+    return (
+      <div className="min-h-screen bg-[#FEF8F0] px-4 py-12 text-center text-[#3E2417]" role="status">
+        Carregando pedido...
+      </div>
+    );
+  }
+
+  if (!pedido) {
+    return (
+      <div className="min-h-screen bg-[#FEF8F0] px-4 py-12 text-center text-[#3E2417]">
+        <p role="alert" className="mx-auto max-w-xl rounded-lg bg-[#FBEDD9] p-5">
+          {erro || 'Não foi possível carregar seu pedido. Tente novamente.'}
+        </p>
+        <Link to="/" className="mt-5 inline-block underline hover:text-[#602D15]">
+          Voltar à loja
+        </Link>
+      </div>
+    );
+  }
 
   const copiarCodigoRastreio = () => {
     navigator.clipboard.writeText(pedido.entrega.codigoRastreio);
@@ -279,6 +347,12 @@ export default function PedidoStatus() {
   return (
     <div className="w-full bg-[#FEF8F0] min-h-screen font-['Work_Sans',sans-serif] text-[#3E2417] py-8 px-4 md:px-12 lg:px-24">
       <div className="max-w-7xl mx-auto space-y-8">
+
+        {erro && (
+          <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+            {erro}
+          </div>
+        )}
 
         {/* ============================================================== */}
         {/* NAVEGAÇÃO SUPERIOR & BREADCRUMBS                               */}
