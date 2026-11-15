@@ -23,6 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
+outputs
+
+tmp
+
 .$modelo-mongodb-mini-stitches.drawio.bkp
 
 .$Diagrama_Mini_Sitches.drawio.bkp
@@ -32,3 +36,6 @@ dist-ssr
 node_modules
 
 .continue/agents/new-config.yaml
+
+# Testes locais
+cliente/tests/
