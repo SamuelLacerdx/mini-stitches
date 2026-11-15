@@ -26,6 +26,7 @@ const estadoInicial = {
   caixa: "",
   preco: "",
   estoque: "",
+  estoqueSeguranca: "0",
   imagemUrl: "",
   materialDescricao: "",
   materialCategoria: "geral",
@@ -201,6 +202,7 @@ export default function Admin() {
       caixa: (item.kit?.caixa || []).join("\n") || "",
       preco: String(item.preco ?? ""),
       estoque: String(item.estoque ?? ""),
+      estoqueSeguranca: String(item.estoqueSeguranca ?? "0"),
       imagemUrl: item.imagemUrl || "",
       materialDescricao: item.material?.descricao || "",
       materialCategoria: item.material?.categoria || "geral",
@@ -295,6 +297,7 @@ export default function Admin() {
         ...form,
         preco: Number(form.preco),
         estoque: Number(form.estoque),
+        estoqueSeguranca: Number(form.estoqueSeguranca || 0),
         destaque: Boolean(form.destaque),
         ativo: Boolean(form.ativo),
         imagemUrl: form.imagemUrl || undefined,
@@ -712,6 +715,20 @@ export default function Admin() {
                         placeholder="10"
                         className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
                         required
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                      Estoque de segurança
+                      <input
+                        name="estoqueSeguranca"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={form.estoqueSeguranca}
+                        onChange={handleChange}
+                        placeholder="0"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
                       />
                     </label>
 

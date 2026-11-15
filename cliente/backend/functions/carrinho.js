@@ -57,24 +57,29 @@ function criarCarrinhoHelpers({ Carrinho, clienteIdDoCarrinho }) {
   async function respostaCarrinho(carrinho) {
     await carrinho.populate(
       "itens.produtoId",
-      "slug nome tipo preco imagemUrl kit.nivel kit.faixaEtaria material.categoria ativo",
+      "slug nome tipo preco imagemUrl kit.nivel kit.faixaEtaria material.categoria ativo estoque estoqueSeguranca",
     );
 
     const itens = carrinho.itens
       .filter((item) => item.produtoId)
-      .map((item) => ({
-        produtoId: String(item.produtoId._id),
-        slug: item.slug,
-        nome: item.produtoId.nome,
-        tipo:
-          item.produtoId.tipo === "kit"
-            ? item.produtoId.kit?.faixaEtaria || item.produtoId.kit?.nivel || "Kit"
-            : item.produtoId.material?.categoria || "Material avulso",
-        preco: item.produtoId.preco,
-        imagemUrl: item.produtoId.imagemUrl || "",
-        quantidade: item.quantidade,
-        ativo: item.produtoId.ativo,
-      }));
+      .map((item) => {
+        const disponivel =
+          (item.produtoId.estoque || 0) - (item.produtoId.estoqueSeguranca || 0);
+        return {
+          produtoId: String(item.produtoId._id),
+          slug: item.slug,
+          nome: item.produtoId.nome,
+          tipo:
+            item.produtoId.tipo === "kit"
+              ? item.produtoId.kit?.faixaEtaria || item.produtoId.kit?.nivel || "Kit"
+              : item.produtoId.material?.categoria || "Material avulso",
+          preco: item.produtoId.preco,
+          imagemUrl: item.produtoId.imagemUrl || "",
+          quantidade: item.quantidade,
+          ativo: item.produtoId.ativo,
+          estoqueDisponivel: disponivel,
+        };
+      });
 
     return { itens };
   }

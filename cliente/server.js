@@ -82,6 +82,43 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ limit: "10mb" }));
 
+// ── Controle de estoque ───────────────────────────────────────────
+// Estoque disponível = estoque - estoqueSeguranca
+function estoqueDisponivel(produto) {
+  return (produto.estoque || 0) - (produto.estoqueSeguranca || 0);
+}
+
+// Decremento atômico: só subtrai se o estoque real comporta a quantidade
+// pedida (respeitando a margem de segurança). Retorna null se não há
+// estoque suficiente.
+async function decrementarEstoque(produtoId, quantidade) {
+  return Produto.findOneAndUpdate(
+    {
+      _id: produtoId,
+      $expr: {
+        $gte: [
+          { $subtract: ["$estoque", "$estoqueSeguranca"] },
+          quantidade,
+        ],
+      },
+    },
+    { $inc: { estoque: -quantidade } },
+    { new: true },
+  );
+}
+
+// Restaura estoque de todos os itens de um pedido (cancelamento).
+async function restaurarEstoqueDosPedidoItens(itens) {
+  await Promise.all(
+    itens.map((item) =>
+      Produto.updateOne(
+        { _id: item.produtoId },
+        { $inc: { estoque: item.quantidade } },
+      ),
+    ),
+  );
+}
+
 app.post("/api/webhook", async (req, res) => {
   try {
     const body = req.body || {};
@@ -116,6 +153,7 @@ app.post("/api/webhook", async (req, res) => {
         ) {
           pedido.status = "cancelado";
           await pedido.save();
+          await restaurarEstoqueDosPedidoItens(pedido.itens);
         }
       }
     }
@@ -896,6 +934,7 @@ app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
     const nome = String(body.nome || "").trim();
     const preco = Number(body.preco);
     const estoque = Number(body.estoque);
+    const estoqueSeguranca = Number(body.estoqueSeguranca || 0);
     const imagemUrl = String(body.imagemUrl || "").trim();
     const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
 
@@ -920,6 +959,11 @@ app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
         erro: "O estoque deve ser um número inteiro maior ou igual a zero.",
       });
     }
+    if (!Number.isInteger(estoqueSeguranca) || estoqueSeguranca < 0) {
+      return res.status(400).json({
+        erro: "O estoque de segurança deve ser um número inteiro >= 0.",
+      });
+    }
 
     const item = {
       slug,
@@ -927,6 +971,7 @@ app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
       nome,
       preco,
       estoque,
+      estoqueSeguranca,
       imagemUrl: imagemUrl || undefined,
       ativo,
     };
@@ -1002,6 +1047,7 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
     const nome = String(body.nome || "").trim();
     const preco = Number(body.preco);
     const estoque = Number(body.estoque);
+    const estoqueSeguranca = Number(body.estoqueSeguranca || 0);
     const imagemUrl = String(body.imagemUrl || "").trim();
     const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
 
@@ -1026,6 +1072,11 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
         erro: "O estoque deve ser um número inteiro maior ou igual a zero.",
       });
     }
+    if (!Number.isInteger(estoqueSeguranca) || estoqueSeguranca < 0) {
+      return res.status(400).json({
+        erro: "O estoque de segurança deve ser um número inteiro >= 0.",
+      });
+    }
 
     const produtoExistente = await Produto.findById(id);
     if (!produtoExistente) {
@@ -1045,6 +1096,7 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
       nome,
       preco,
       estoque,
+      estoqueSeguranca,
       imagemUrl: imagemUrl || undefined,
       ativo,
     };
@@ -1146,7 +1198,11 @@ app.get("/api/produtos", async (req, res) => {
     }
 
     const produtos = await Produto.find(filtro).sort({ nome: 1 }).lean();
-    res.set("Cache-Control", CACHE_PUBLICO).json({ produtos });
+    const resultado = produtos.map(({ estoqueSeguranca: _es, ...p }) => ({
+      ...p,
+      estoqueDisponivel: estoqueDisponivel(p),
+    }));
+    res.set("Cache-Control", CACHE_PUBLICO).json({ produtos: resultado });
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao listar produtos." });
@@ -1157,11 +1213,13 @@ app.get("/api/produto/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
 
-    const produto = await Produto.findOne({ slug, ativo: true }).lean();
-    if (!produto) {
+    const produtoRaw = await Produto.findOne({ slug, ativo: true }).lean();
+    if (!produtoRaw) {
       return res.status(404).json({ erro: "Produto não encontrado." });
     }
 
+    const { estoqueSeguranca: _es, ...produto } = produtoRaw;
+    produto.estoqueDisponivel = estoqueDisponivel(produtoRaw);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produto });
   } catch (error) {
     console.error(error);
@@ -1580,6 +1638,29 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     const total = pagamento === "pix" ? valorPago : valorCheio;
     const clienteId = clienteIdDoCarrinho(req);
 
+    // Decremento atômico: reserva o estoque de cada item antes de criar o
+    // pedido. Se algum falhar, desfaz os que já foram reservados.
+    if (!pedidoPendente) {
+      const reservados = [];
+      for (const item of itens) {
+        const ok = await decrementarEstoque(item.produtoId, item.quantidade);
+        if (!ok) {
+          await Promise.all(
+            reservados.map((r) =>
+              Produto.updateOne(
+                { _id: r.produtoId },
+                { $inc: { estoque: r.quantidade } },
+              ),
+            ),
+          );
+          return res.status(409).json({
+            erro: `Estoque insuficiente para "${item.nome}".`,
+          });
+        }
+        reservados.push(item);
+      }
+    }
+
     let pedido;
     if (pedidoPendente) {
       pedidoPendente.pagamento = pagamento;
@@ -1618,11 +1699,14 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         itens,
       });
     } catch (erro) {
-      if (erro?.code !== 11000) throw erro;
-      pedido = await Pedido.findOne({ pagamentoId: idPagamento });
-      if (!pedido) throw erro;
-      if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
-      return res.json({ pedido: respostaPedido(pedido) });
+      if (erro?.code === 11000) {
+        pedido = await Pedido.findOne({ pagamentoId: idPagamento });
+        if (!pedido) { await restaurarEstoqueDosPedidoItens(itens); throw erro; }
+        if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
+        return res.json({ pedido: respostaPedido(pedido) });
+      }
+      await restaurarEstoqueDosPedidoItens(itens);
+      throw erro;
     }
 
     const carrinho = await obterCarrinho(req);
@@ -1755,11 +1839,17 @@ app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
       }
     }
 
+    const statusAnterior = pedido.status;
     pedido.status = status;
     if (req.body?.rastreio !== undefined) {
       pedido.rastreio = String(req.body.rastreio || "").trim();
     }
     await pedido.save();
+
+    if (status === "cancelado" && statusAnterior !== "cancelado") {
+      await restaurarEstoqueDosPedidoItens(pedido.itens);
+    }
+
     res.json({ pedido: respostaPedidoAdmin(pedido.toObject()) });
   } catch (error) {
     console.error(error);
@@ -2015,6 +2105,16 @@ app.post("/api/carrinho", async (req, res) => {
       (itemCarrinho) => String(itemCarrinho.produtoId) === String(produto._id),
     );
 
+    const qtdTotal = (item ? item.quantidade : 0) + quantidade;
+    const disponivel = estoqueDisponivel(produto);
+    if (qtdTotal > disponivel) {
+      return res.status(409).json({
+        erro: disponivel <= 0
+          ? "Produto esgotado."
+          : `Estoque insuficiente. Disponível: ${disponivel}.`,
+      });
+    }
+
     if (item) {
       item.quantidade += quantidade;
     } else {
@@ -2051,6 +2151,18 @@ app.patch("/api/carrinho/:produtoId", async (req, res) => {
     );
     if (!item) {
       return res.status(404).json({ erro: "Item não encontrado no carrinho." });
+    }
+
+    const produto = await Produto.findById(produtoId).lean();
+    if (produto) {
+      const disponivel = estoqueDisponivel(produto);
+      if (quantidade > disponivel) {
+        return res.status(409).json({
+          erro: disponivel <= 0
+            ? "Produto esgotado."
+            : `Estoque insuficiente. Disponível: ${disponivel}.`,
+        });
+      }
     }
 
     item.quantidade = quantidade;

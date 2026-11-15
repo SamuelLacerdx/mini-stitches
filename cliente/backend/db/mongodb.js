@@ -133,6 +133,12 @@ const produtoSchema = new mongoose.Schema({
     default: 0,
     validate: inteiro,
   },
+  estoqueSeguranca: {
+    type: Number,
+    min: 0,
+    default: 0,
+    validate: inteiro,
+  },
   imagemUrl: { type: String, trim: true },
   ativo: { type: Boolean, required: true, default: true },
 
