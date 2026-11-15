@@ -1,3 +1,4 @@
+import { usePedido } from '../hooks/usePedido';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -70,6 +71,11 @@ export default function FinalizarCompra() {
   const ultimaCotacaoRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState(null); // Armazena sucesso, QR code, Link Boleto
+  const { resultado: acompanhamento, tentarNovamente } = usePedido(resultado?.pedido?.numero, { somentePagamento: true });
+  const statusPagamento = acompanhamento?.pedido?.status || resultado?.pedido?.status;
+  const pagamentoAprovado = ['pago', 'em_separacao', 'enviado', 'entregue'].includes(statusPagamento)
+    || (!resultado?.pedido && resultado?.dados?.status === 'approved');
+  const pagamentoCancelado = statusPagamento === 'cancelado';
   const [mpInstance, setMpInstance] = useState(null);
   const [cartItems, setCartItems] = useState([]);
   const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
@@ -867,8 +873,8 @@ export default function FinalizarCompra() {
 
               {/* RENDERIZAÇÃO DO RESULTADO (Substitui o botão após o envio) */}
               {resultado ? (
-                <div className="bg-white p-4 rounded-xl text-center space-y-4 shadow-sm border border-green-200">
-                  {resultado.tipo === 'pix' && (
+                <div aria-live="polite" className="bg-white p-4 rounded-xl text-center space-y-4 shadow-sm border border-green-200">
+                  {resultado.tipo === 'pix' && !pagamentoAprovado && !pagamentoCancelado && (
                     <>
                       <h4 className="text-green-700 font-bold text-sm">QR Code Pix Gerado!</h4>
                       <img src={`data:image/jpeg;base64,${resultado.dados.qr_code_base64}`} alt="QR Code Pix" className="mx-auto w-40 h-40" />
@@ -878,7 +884,7 @@ export default function FinalizarCompra() {
                       </button>
                     </>
                   )}
-                  {resultado.tipo === 'boleto' && (
+                  {resultado.tipo === 'boleto' && !pagamentoAprovado && !pagamentoCancelado && (
                     <>
                       <h4 className="text-green-700 font-bold text-sm">Boleto Gerado!</h4>
                       <p className="text-[10px] break-all bg-gray-50 p-2 rounded">{resultado.dados.codigo_de_barras}</p>
@@ -887,11 +893,23 @@ export default function FinalizarCompra() {
                       </a>
                     </>
                   )}
-                  {resultado.tipo === 'sucesso' && (
+                  {pagamentoAprovado && (
                     <>
                       <h4 className="text-green-700 font-bold text-lg">Pagamento Aprovado! 🎉</h4>
                       <p className="text-xs text-[#3E2417]">Seu pedido já está sendo processado.</p>
                     </>
+                  )}
+                  {pagamentoCancelado && (
+                    <p role="status" className="text-sm text-red-700">Pagamento cancelado ou não aprovado. Consulte os detalhes do pedido antes de tentar novamente.</p>
+                  )}
+                  {resultado.pedido && !pagamentoAprovado && !pagamentoCancelado && (
+                    <p role="status" className="text-xs text-[#3E2417]">Aguardando confirmação do pagamento. Esta tela será atualizada automaticamente.</p>
+                  )}
+                  {acompanhamento?.erro && (
+                    <div role="alert" className="text-xs text-red-700">
+                      <p>{acompanhamento.erro}</p>
+                      <button type="button" onClick={tentarNovamente} className="underline mt-2">Consultar novamente</button>
+                    </div>
                   )}
                   {resultado.pedido && (
                     <p className="text-xs text-[#3E2417] border-t border-[#3E2417]/10 pt-3">

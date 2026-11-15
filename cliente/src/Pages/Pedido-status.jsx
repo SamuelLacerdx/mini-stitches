@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { usePedido } from '../hooks/usePedido';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ETAPAS, situacaoPedido, formatarDinheiro, formatarData, historicoPedido } from '../utils/pedido.mjs';
 
@@ -6,82 +7,6 @@ const card = 'rounded-2xl border border-[#C58752]/25 bg-white p-5 md:p-7';
 const acao = 'inline-flex min-h-11 items-center justify-center rounded-lg bg-[#3E2417] px-5 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4';
 
 // Uma requisição por vez; pausa fora da aba e encerra em estados finais.
-function usePedido(id) {
-  const [resultado, setResultado] = useState(null);
-  const [tentativa, setTentativa] = useState(0);
-
-  useEffect(() => {
-    let ativo = true;
-    let consultando = false;
-    let encerrado = false;
-    let falhas = 0;
-    let timer;
-    let controller;
-
-    const carregar = async () => {
-      if (!ativo || consultando || encerrado || document.hidden) return;
-      consultando = true;
-      controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      let intervalo = 30000;
-
-      try {
-        const res = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
-          credentials: 'include', cache: 'no-store', signal: controller.signal,
-        });
-        if (!res.ok) {
-          const erro = new Error(res.status === 401 ? 'Entre na sua conta para consultar este pedido.'
-            : res.status === 404 ? 'Pedido não encontrado na sua conta.'
-              : 'Não foi possível atualizar o pedido. Tente novamente.');
-          erro.status = res.status;
-          throw erro;
-        }
-        const { pedido } = await res.json();
-        if (!pedido || typeof pedido.status !== 'string' || !Array.isArray(pedido.itens)) {
-          throw new Error('Os dados do pedido estão indisponíveis. Tente novamente.');
-        }
-        if (!ativo) return;
-        falhas = 0;
-        encerrado = ['entregue', 'cancelado'].includes(pedido.status);
-        intervalo = pedido.status === 'aguardando_pagamento' ? 15000 : 60000;
-        setResultado({ id, pedido, erro: null });
-      } catch (erro) {
-        if (!ativo) return;
-        falhas += 1;
-        encerrado = [401, 403, 404].includes(erro.status);
-        intervalo = Math.min(30000 * 2 ** Math.min(falhas - 1, 3), 120000);
-        setResultado((anterior) => ({
-          id,
-          pedido: encerrado ? null : anterior?.id === id ? anterior.pedido : null,
-          statusErro: erro.status,
-          erro: erro.name === 'AbortError' ? 'A consulta demorou mais que o esperado. Tente novamente.' : erro.message,
-        }));
-      } finally {
-        clearTimeout(timeout);
-        consultando = false;
-        if (ativo && !encerrado && !document.hidden) timer = setTimeout(carregar, intervalo);
-      }
-    };
-
-    const aoMudarVisibilidade = () => {
-      clearTimeout(timer);
-      if (!document.hidden) carregar();
-    };
-    if (id) {
-      carregar();
-      document.addEventListener('visibilitychange', aoMudarVisibilidade);
-    }
-    return () => {
-      ativo = false;
-      clearTimeout(timer);
-      controller?.abort();
-      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
-    };
-  }, [id, tentativa]);
-
-  return { resultado: resultado?.id === id ? resultado : null, tentarNovamente: () => setTentativa((valor) => valor + 1) };
-}
-
 export default function PedidoStatus() {
   const { id = '' } = useParams();
   const { resultado, tentarNovamente } = usePedido(id);

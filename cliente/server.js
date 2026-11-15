@@ -121,7 +121,7 @@ app.post("/api/webhook", async (req, res) => {
     return res.status(200).send("OK");
   } catch (erro) {
     console.error("[webhook] erro:", erro.message || erro);
-    return res.status(200).send("OK");
+    return res.status(503).send("Tente novamente");
   }
 });
 
