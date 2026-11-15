@@ -7,6 +7,7 @@ const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
+const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
   cotarFrete,
   ErroFrete,
@@ -1325,25 +1326,9 @@ app.post("/api/frete", async (req, res) => {
   }
 });
 
-function respostaPedido(pedido) {
-  return {
-    numero: pedido.numero,
-    criadoEm: pedido.criadoEm,
-    status: pedido.status,
-    pagamento: pedido.pagamento,
-    subtotal: pedido.subtotal,
-    frete: pedido.frete,
-    desconto: pedido.desconto || 0,
-    total: pedido.total,
-    rastreio: pedido.rastreio || "",
-    itens: (pedido.itens || []).map((item) => ({
-      nome: item.nome,
-      slug: item.slug,
-      quantidade: item.quantidade,
-      precoUnit: item.precoUnit,
-    })),
-  };
-}
+registrarRotasPedidosCliente(app, {
+  Pedido, autenticar, isValidObjectId: mongoose.isValidObjectId,
+});
 
 // Registra o pedido depois que o pagamento foi criado no Mercado Pago.
 // Itens e preços vêm do carrinho no servidor; status, forma de pagamento e
@@ -1539,43 +1524,6 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
   }
 });
 
-app.get("/api/pedidos", autenticar, async (req, res) => {
-  try {
-    const pedidos = await Pedido.find({ clienteId: req.session.usuarioId })
-      .sort({ criadoEm: -1 })
-      .limit(50)
-      .lean();
-    res.json({ pedidos: pedidos.map(respostaPedido) });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Não foi possível carregar os pedidos." });
-  }
-});
-
-app.get("/api/pedidos/:id/status", autenticar, async (req, res) => {
-  try {
-    const id = String(req.params.id || "").trim();
-    if (!id) {
-      return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    const filtro = mongoose.isValidObjectId(id)
-      ? { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] }
-      : { $or: [{ numero: id }, { pagamentoId: id }] };
-    const pedido = await Pedido.findOne({ ...filtro, clienteId: req.session.usuarioId })
-      .select("status -_id")
-      .lean();
-    if (!pedido) {
-      return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    return res.json({ status: pedido.status });
-  } catch (error) {
-    console.error("[api/pedidos/:id/status] erro:", error?.message || error);
-    return res.status(500).json({ erro: "Não foi possível carregar o status do pedido." });
-  }
-});
-
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
 // Status controlados apenas pelo gateway de pagamento (webhook).
@@ -1595,65 +1543,6 @@ function respostaPedidoAdmin(pedido) {
     historicoStatus: pedido.historicoStatus || [],
   };
 }
-
-app.get("/api/pedidos/:id", autenticar, async (req, res) => {
-  try {
-    const id = String(req.params.id || "").trim();
-    if (!id) {
-      return res.status(400).json({ erro: "Pedido não informado." });
-    }
-
-    let filtro = { $or: [{ numero: id }, { pagamentoId: id }] };
-    if (mongoose.isValidObjectId(id)) {
-      filtro = { $or: [{ _id: id }, { numero: id }, { pagamentoId: id }] };
-    }
-
-    const pedido = await Pedido.findOne({ ...filtro, clienteId: req.session.usuarioId }).lean();
-    if (!pedido) {
-      return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    if (
-      req.session?.usuarioId &&
-      pedido.clienteId &&
-      String(pedido.clienteId) !== String(req.session.usuarioId)
-    ) {
-      return res.status(403).json({
-        erro: "Pedido não pertence ao usuário autenticado.",
-      });
-    }
-
-    res.json({
-      pedido: {
-        ...pedido,
-        id: pedido.numero || String(pedido._id),
-        numero: pedido.numero || String(pedido._id),
-        status: pedido.status,
-        cliente: {
-          nome: pedido.cliente?.nome || "",
-          email: pedido.cliente?.email || "",
-        },
-        entrega: {
-          cep: pedido.entrega?.cep || "",
-          endereco: pedido.entrega?.endereco || "",
-          rastreio: pedido.rastreio || "",
-        },
-        itens: (pedido.itens || []).map((item) => ({
-          ...item,
-          precoUnit: Number(item.precoUnit || 0),
-          quantidade: Number(item.quantidade || 0),
-        })),
-        subtotal: Number(pedido.subtotal || 0),
-        total: Number(pedido.total || 0),
-        frete: Number(pedido.frete || 0),
-        desconto: Number(pedido.desconto || 0),
-      },
-    });
-  } catch (error) {
-    console.error("[api/pedidos/:id] erro:", error?.message || error);
-    return res.status(500).json({ erro: "Não foi possível carregar o pedido." });
-  }
-});
 
 app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
   try {
