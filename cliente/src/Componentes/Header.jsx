@@ -9,12 +9,14 @@ import {
   Zap,
   CreditCard,
   X,
+  Menu,
 } from "lucide-react";
 
 export default function Header() {
   const [usuario, setUsuario] = useState(null);
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
+  const [menuAberto, setMenuAberto] = useState(false);
   const inputRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -22,6 +24,7 @@ export default function Header() {
   useEffect(() => {
     setBuscaAberta(false);
     setTermoBusca("");
+    setMenuAberto(false);
     let ativo = true;
 
     fetch("/api/perfil", { credentials: "include" })
@@ -119,8 +122,8 @@ export default function Header() {
             </Link>
           </nav>
 
-          {/* BOTÕES DE AÇÃO (PESQUISAR, CARRINHO, CONTA) */}
-          <div className="relative flex items-center gap-3">
+          {/* BOTÕES DE AÇÃO (PESQUISAR, CARRINHO, CONTA, MENU) */}
+          <div className="relative flex items-center gap-2 lg:gap-3">
             {/* Wrapper relativo para conter o formulário absoluto sem quebrar o flex */}
             <div className="relative flex items-center">
               {/* Botão de Pesquisar (visível quando fechado) */}
@@ -132,7 +135,7 @@ export default function Header() {
                 }`}
               >
                 <Search className="h-4 w-4 shrink-0 stroke-[1.75]" />
-                <span>PESQUISAR</span>
+                <span className="hidden sm:inline">PESQUISAR</span>
               </button>
 
               {/* Formulário de Busca (absoluto para não alterar o fluxo do header) */}
@@ -175,7 +178,7 @@ export default function Header() {
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
-              <span>CARRINHO</span>
+              <span className="hidden sm:inline">CARRINHO</span>
             </Link>
 
             <Link
@@ -189,11 +192,63 @@ export default function Header() {
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <User className="h-4 w-4 shrink-0 stroke-[1.75]" />
-              <span className="max-w-[100px] truncate">{usuario?.nome || "CONTA"}</span>
+              <span className="hidden max-w-[100px] truncate sm:inline">{usuario?.nome || "CONTA"}</span>
             </Link>
+
+            {/* HAMBURGER – mobile only */}
+            <button
+              type="button"
+              onClick={() => setMenuAberto(true)}
+              className="flex cursor-pointer items-center rounded-full border border-[#D8C2B0] p-1.5 text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] lg:hidden"
+            >
+              <Menu className="h-5 w-5 stroke-[1.75]" />
+            </button>
           </div>
         </div>
       </div>
+
+      {/* MENU LATERAL MOBILE */}
+      {menuAberto && (
+        <div
+          className="fixed inset-0 z-50 lg:hidden"
+          onClick={() => setMenuAberto(false)}
+        >
+          {/* overlay */}
+          <div className="absolute inset-0 bg-black/40" />
+
+          {/* drawer */}
+          <nav
+            className="absolute right-0 top-0 flex h-full w-64 flex-col gap-1 bg-[#FAF5EF] p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setMenuAberto(false)}
+              className="mb-4 self-end cursor-pointer rounded-full p-1 hover:bg-[#F2E8DD]"
+            >
+              <X className="h-5 w-5 stroke-[1.75] text-[#3E1B0E]" />
+            </button>
+
+            {[
+              { to: "/", label: "INÍCIO" },
+              { to: "/kits", label: "KITS" },
+              { to: "/materiais", label: "MATERIAIS" },
+              { to: "/clube", label: "CLUBE DA CAIXINHA" },
+              { to: "/nossa-historia", label: "NOSSA HISTÓRIA" },
+              { to: "/contato", label: "FALE COM A GENTE" },
+            ].map(({ to, label }) => (
+              <Link
+                key={to}
+                to={to}
+                onClick={() => setMenuAberto(false)}
+                className="rounded-lg px-3 py-2.5 text-sm tracking-wide text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {/* 3. FAIXA PROMOCIONAL ROSA */}
       <div className="w-full bg-[#F7C6E5] py-2 px-4">
