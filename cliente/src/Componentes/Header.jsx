@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import logoMarca from "../assets/logo.svg";
 import {
   Search,
@@ -8,13 +8,20 @@ import {
   Truck,
   Zap,
   CreditCard,
+  X,
 } from "lucide-react";
 
 export default function Header() {
   const [usuario, setUsuario] = useState(null);
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [termoBusca, setTermoBusca] = useState("");
+  const inputRef = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
+    setBuscaAberta(false);
+    setTermoBusca("");
     let ativo = true;
 
     fetch("/api/perfil", { credentials: "include" })
@@ -45,6 +52,13 @@ export default function Header() {
       ativo = false;
     };
   }, [location]);
+
+  // Foco automático ao abrir a busca
+  useEffect(() => {
+    if (buscaAberta && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [buscaAberta]);
 
   return (
     <header className="w-full font-['Archivo_Black',sans-serif]">
@@ -106,20 +120,61 @@ export default function Header() {
           </nav>
 
           {/* BOTÕES DE AÇÃO (PESQUISAR, CARRINHO, CONTA) */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
-            >
-              <Search className="h-4 w-4 stroke-[1.75]" />
-              <span>PESQUISAR</span>
-            </button>
+          <div className="relative flex items-center gap-3">
+            {/* Wrapper relativo para conter o formulário absoluto sem quebrar o flex */}
+            <div className="relative flex items-center">
+              {/* Botão de Pesquisar (visível quando fechado) */}
+              <button
+                type="button"
+                onClick={() => setBuscaAberta(true)}
+                className={`flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] ${
+                  buscaAberta ? "opacity-0 pointer-events-none" : "opacity-100"
+                }`}
+              >
+                <Search className="h-4 w-4 shrink-0 stroke-[1.75]" />
+                <span>PESQUISAR</span>
+              </button>
+
+              {/* Formulário de Busca (absoluto para não alterar o fluxo do header) */}
+              {buscaAberta && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const q = termoBusca.trim();
+                    if (!q) return;
+                    setBuscaAberta(false);
+                    setTermoBusca("");
+                    navigate(`/busca?q=${encodeURIComponent(q)}`);
+                  }}
+                  className="absolute right-0 z-20 flex items-center gap-2 rounded-full border border-[#D8C2B0] bg-[#FAF5EF] px-3 py-1.5 text-xs text-[#3E1B0E] shadow-sm sm:w-64"
+                >
+                  <Search className="h-4 w-4 shrink-0 stroke-[1.75]" />
+                  <input
+                    ref={inputRef}
+                    value={termoBusca}
+                    onChange={(e) => setTermoBusca(e.target.value)}
+                    placeholder="Buscar produtos..."
+                    className="w-full bg-transparent outline-none placeholder:text-[#3E1B0E]/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBuscaAberta(false);
+                      setTermoBusca("");
+                    }}
+                    className="cursor-pointer rounded-full p-1 hover:bg-[#F2E8DD]"
+                  >
+                    <X className="h-4 w-4 shrink-0 stroke-[1.75]" />
+                  </button>
+                </form>
+              )}
+            </div>
 
             <Link
               to="/carrinho"
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
-              <ShoppingBag className="h-4 w-4 stroke-[1.75]" />
+              <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
               <span>CARRINHO</span>
             </Link>
 
@@ -133,14 +188,14 @@ export default function Header() {
               }
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
-              <User className="h-4 w-4 stroke-[1.75]" />
-              <span>{usuario?.nome || "CONTA"}</span>
+              <User className="h-4 w-4 shrink-0 stroke-[1.75]" />
+              <span className="max-w-[100px] truncate">{usuario?.nome || "CONTA"}</span>
             </Link>
           </div>
         </div>
       </div>
 
-      {/* 3. FAIXA PROMOCIONAL ROSA (NOVA) */}
+      {/* 3. FAIXA PROMOCIONAL ROSA */}
       <div className="w-full bg-[#F7C6E5] py-2 px-4">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-around gap-4 text-xs font-normal tracking-wide text-[#3E1B0E]">
           <div className="flex items-center gap-2">
