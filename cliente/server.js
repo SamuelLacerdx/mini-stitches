@@ -27,6 +27,8 @@ const {
   Troca,
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 const { MercadoPagoConfig, Payment, PreApproval } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
@@ -2092,6 +2094,89 @@ app.get("/plano/:id", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao buscar plano." });
+  }
+});
+
+// ── Redefinição de senha ────────────────────────────────────────────
+
+const mailer = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_PASS },
+});
+
+function sha256(texto) {
+  return crypto.createHash("sha256").update(texto).digest("hex");
+}
+
+app.post("/api/esqueci-senha", async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ mensagem: "Informe o e-mail." });
+    }
+
+    const usuario = await Usuario.findOne({ email });
+    if (usuario) {
+      const token = crypto.randomBytes(32).toString("hex");
+      usuario.resetToken = sha256(token);
+      usuario.resetExpira = new Date(Date.now() + 60 * 60 * 1000);
+      await usuario.save();
+
+      const link = `${(process.env.APP_URL || "http://localhost:5173").replace(/\/$/, "")}/nova-senha?token=${token}`;
+      await mailer.sendMail({
+        from: `"Mini Stitches" <${process.env.GMAIL_USER}>`,
+        to: email,
+        subject: "Redefinir sua senha",
+        html: `
+          <p>Olá!</p>
+          <p>Recebemos uma solicitação para redefinir sua senha.</p>
+          <p><a href="${link}">Clique aqui para criar uma nova senha</a></p>
+          <p>Este link vale por <strong>1 hora</strong>.</p>
+          <p>Se não foi você, ignore este e-mail.</p>
+        `,
+      });
+    }
+
+    res.json({ mensagem: "Se o e-mail estiver cadastrado, enviamos um link." });
+  } catch (erro) {
+    console.error("Erro em /api/esqueci-senha:", erro.message || erro);
+    res.status(500).json({ mensagem: "Erro ao processar a solicitação." });
+  }
+});
+
+app.post("/api/nova-senha", async (req, res) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+    const senha = String(req.body?.senha || "");
+
+    if (!token || !senha) {
+      return res.status(400).json({ mensagem: "Dados incompletos." });
+    }
+
+    if (senha.length < 8) {
+      return res.status(400).json({ mensagem: "A senha deve ter ao menos 8 caracteres." });
+    }
+
+    const usuario = await Usuario.findOne({
+      resetToken: sha256(token),
+      resetExpira: { $gt: new Date() },
+    });
+
+    if (!usuario) {
+      return res.status(400).json({ mensagem: "Link inválido ou expirado." });
+    }
+
+    usuario.senhaHash = await bcrypt.hash(senha, 10);
+    usuario.resetToken = undefined;
+    usuario.resetExpira = undefined;
+    await usuario.save();
+
+    res.json({ mensagem: "Senha alterada com sucesso!" });
+  } catch (erro) {
+    console.error("Erro em /api/nova-senha:", erro.message || erro);
+    res.status(500).json({ mensagem: "Erro ao redefinir a senha." });
   }
 });
 

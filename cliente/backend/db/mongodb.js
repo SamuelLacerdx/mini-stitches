@@ -36,6 +36,9 @@ const usuarioSchema = new mongoose.Schema({
   status: { type: Boolean, required: true, default: true },
   criadoEm: { type: Date, default: Date.now },
 
+  resetToken: { type: String },
+  resetExpira: { type: Date },
+
   enderecos: { type: [enderecoSchema], default: [] },
   cartoes: { type: [cartaoSchema], default: [] },
 });

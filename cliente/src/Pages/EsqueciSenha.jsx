@@ -1,0 +1,72 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+
+export default function EsqueciSenha() {
+  const [mensagem, setMensagem] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setEnviando(true);
+    setMensagem("");
+
+    try {
+      const resposta = await fetch("/api/esqueci-senha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: new FormData(event.currentTarget).get("email") }),
+      });
+      const data = await resposta.json();
+      setMensagem(data.mensagem);
+    } catch {
+      setMensagem("Erro ao enviar. Tente novamente.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="flex-1 w-full flex items-center justify-center bg-[#FEF8F0] px-4 py-12">
+      <div className="w-full max-w-lg flex flex-col justify-center items-center gap-5 text-center">
+
+        <h1 className="text-[#3E2417] text-4xl md:text-5xl font-['Archivo_Black']">
+          ESQUECI MINHA SENHA
+        </h1>
+
+        <p className="text-[#3E2417] text-base font-['Work_Sans'] leading-relaxed">
+          Informe seu e-mail e enviaremos um link para redefinir sua senha.
+        </p>
+
+        <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
+          <input
+            type="email"
+            name="email"
+            placeholder="Seu e-mail"
+            className="w-full h-12 px-4 py-3 bg-white rounded-md outline outline-1 outline-orange-400/60 text-[#3E2417] placeholder-gray-400 font-['Work_Sans'] text-base focus:outline-2 focus:outline-[#3E2417]"
+            required
+          />
+
+          <button
+            type="submit"
+            disabled={enviando}
+            className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {enviando ? "ENVIANDO..." : "ENVIAR LINK"}
+          </button>
+        </form>
+
+        {mensagem && (
+          <p className="text-[#3E2417] text-sm font-['Work_Sans']">{mensagem}</p>
+        )}
+
+        <Link
+          to="/login"
+          className="text-[#3E2417] text-sm font-['Work_Sans'] underline hover:opacity-80 transition-opacity mt-2"
+        >
+          Voltar ao login
+        </Link>
+
+      </div>
+    </div>
+  );
+}
