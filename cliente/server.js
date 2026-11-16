@@ -8,6 +8,7 @@ const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
 const { criarCobrancaComTentativa } = require("./backend/functions/tentativasPagamento");
+const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
   cotarFrete,
@@ -53,7 +54,11 @@ const mpClient = mpAccessToken
   ? new MercadoPagoConfig({ accessToken: mpAccessToken })
   : null;
 const paymentModule = mpClient ? new Payment(mpClient) : null;
-const cobrarComTentativa = criarCobrancaComTentativa({ TentativaPagamento, paymentModule });
+const reservasEstoque = criarReservasEstoque({
+  Produto, TentativaPagamento, Pedido,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
+});
+const cobrarComTentativa = criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque });
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
@@ -99,37 +104,6 @@ function estoqueDisponivel(produto) {
   return (produto.estoque || 0) - (produto.estoqueSeguranca || 0);
 }
 
-// Decremento atômico: só subtrai se o estoque real comporta a quantidade
-// pedida (respeitando a margem de segurança). Retorna null se não há
-// estoque suficiente.
-async function decrementarEstoque(produtoId, quantidade) {
-  return Produto.findOneAndUpdate(
-    {
-      _id: produtoId,
-      $expr: {
-        $gte: [
-          { $subtract: ["$estoque", "$estoqueSeguranca"] },
-          quantidade,
-        ],
-      },
-    },
-    { $inc: { estoque: -quantidade } },
-    { new: true },
-  );
-}
-
-// Restaura estoque de todos os itens de um pedido (cancelamento).
-async function restaurarEstoqueDosPedidoItens(itens) {
-  await Promise.all(
-    itens.map((item) =>
-      Produto.updateOne(
-        { _id: item.produtoId },
-        { $inc: { estoque: item.quantidade } },
-      ),
-    ),
-  );
-}
-
 app.post("/api/webhook", async (req, res) => {
   try {
     const body = req.body || {};
@@ -153,6 +127,13 @@ app.post("/api/webhook", async (req, res) => {
       // O webhook é registrado antes do middleware que conecta ao banco.
       await conectarBanco();
       const pedido = await Pedido.findOne({ pagamentoId: String(paymentId) });
+      const referencia = String(pagamento?.external_reference || "");
+      const tentativa = mongoose.isValidObjectId(referencia)
+        ? await TentativaPagamento.findById(referencia)
+        : await TentativaPagamento.findOne({ pagamentoId: String(paymentId) });
+      if (["cancelled", "rejected"].includes(pagamento?.status) && tentativa) {
+        await reservasEstoque.liberar(tentativa._id);
+      }
       if (pedido && pedido.status === "aguardando_pagamento") {
         if (pagamento?.status === "approved") {
           pedido.status = "pago";
@@ -163,10 +144,11 @@ app.post("/api/webhook", async (req, res) => {
           )
         ) {
           pedido.status = "cancelado";
+          if (!pedido.tentativaId) pedido.estoqueRestituicaoPendente = true;
           await pedido.save();
-          await restaurarEstoqueDosPedidoItens(pedido.itens);
         }
       }
+      if (pedido?.status === "cancelado") await reservasEstoque.liberarPedido(pedido);
     }
 
     return res.status(200).send("OK");
@@ -357,6 +339,9 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
         resposta.point_of_interaction.transaction_data.qr_code_base64,
     });
   } catch (erro) {
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+    }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
     }
@@ -453,6 +438,9 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       status: resposta.status,
     });
   } catch (erro) {
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+    }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
     }
@@ -531,6 +519,9 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
           : "Pagamento processado.",
     });
   } catch (erro) {
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+    }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
     }
@@ -1713,17 +1704,6 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         quantidade: item.quantidade,
         precoUnit: item.precoUnit,
       }));
-    } else {
-      const carrinho = await obterCarrinho(req);
-      await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-      const itensValidos = carrinho.itens.filter(
-        (item) => item.produtoId && item.produtoId.ativo !== false,
-      );
-      itens = criarItensPedido(itensValidos).itensPedido;
-    }
-
-    if (!itens.length) {
-      return res.status(400).json({ erro: "Seu carrinho está vazio." });
     }
 
     let pagamentoMP;
@@ -1752,11 +1732,26 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
           ? "boleto"
           : "cartao";
 
+    const referencia = String(pagamentoMP.external_reference || "");
+    const tentativa = mongoose.isValidObjectId(referencia)
+      ? await TentativaPagamento.findOne({ _id: referencia, clienteId: req.session.usuarioId })
+      : null;
+    if (!tentativa || tentativa.estoqueEstado !== "reservado" || tentativa.metodo !== pagamento) {
+      return res.status(409).json({ erro: "Pagamento sem reserva válida. Solicite conciliação antes de continuar." });
+    }
+    if (tentativa.cep !== cep || tentativa.frete !== freteInformado) {
+      return res.status(400).json({ erro: "A entrega não confere com a tentativa de pagamento." });
+    }
+    itens = tentativa.itens.map((item) => ({
+      produtoId: item.produtoId, nome: item.nome, slug: item.slug,
+      quantidade: item.quantidade, precoUnit: item.precoUnit,
+    }));
+
     const subtotal = itens.reduce(
       (soma, item) => soma + item.quantidade * item.precoUnit,
       0,
     );
-    const frete = await obterFreteAplicavelCentavos(req, subtotal, itens);
+    const frete = tentativa.frete;
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
     const valorEsperado = pagamento === "pix"
@@ -1781,31 +1776,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     const total = pagamento === "pix" ? valorPago : valorCheio;
     const clienteId = clienteIdDoCarrinho(req);
 
-    // Decremento atômico: reserva o estoque de cada item antes de criar o
-    // pedido. Se algum falhar, desfaz os que já foram reservados.
-    if (!pedidoPendente) {
-      const reservados = [];
-      for (const item of itens) {
-        const ok = await decrementarEstoque(item.produtoId, item.quantidade);
-        if (!ok) {
-          await Promise.all(
-            reservados.map((r) =>
-              Produto.updateOne(
-                { _id: r.produtoId },
-                { $inc: { estoque: r.quantidade } },
-              ),
-            ),
-          );
-          return res.status(409).json({
-            erro: `Estoque insuficiente para "${item.nome}".`,
-          });
-        }
-        reservados.push(item);
-      }
-    }
-
     let pedido;
     if (pedidoPendente) {
+      pedidoPendente.tentativaId = tentativa._id;
+      pedidoPendente.itens = itens;
       pedidoPendente.pagamento = pagamento;
       pedidoPendente.pagamentoId = idPagamento;
       pedidoPendente.subtotal = subtotal;
@@ -1829,6 +1803,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     try {
       pedido = await Pedido.create({
+        tentativaId: tentativa._id,
         clienteId: clienteId || null,
         pagamento,
         pagamentoId: idPagamento,
@@ -1844,11 +1819,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     } catch (erro) {
       if (erro?.code === 11000) {
         pedido = await Pedido.findOne({ pagamentoId: idPagamento });
-        if (!pedido) { await restaurarEstoqueDosPedidoItens(itens); throw erro; }
+        if (!pedido) throw erro;
         if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
         return res.json({ pedido: respostaPedido(pedido) });
       }
-      await restaurarEstoqueDosPedidoItens(itens);
       throw erro;
     }
 
@@ -1988,15 +1962,17 @@ app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
       }
     }
 
-    const statusAnterior = pedido.status;
+    if (status === "cancelado" && pedido.status !== "cancelado" && !pedido.tentativaId) {
+      pedido.estoqueRestituicaoPendente = true;
+    }
     pedido.status = status;
     if (req.body?.rastreio !== undefined) {
       pedido.rastreio = String(req.body.rastreio || "").trim();
     }
     await pedido.save();
 
-    if (status === "cancelado" && statusAnterior !== "cancelado") {
-      await restaurarEstoqueDosPedidoItens(pedido.itens);
+    if (status === "cancelado") {
+      await reservasEstoque.liberarPedido(pedido);
     }
 
     res.json({ pedido: respostaPedidoAdmin(pedido.toObject()) });

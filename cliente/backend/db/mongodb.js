@@ -253,6 +253,9 @@ const tentativaPagamentoSchema = new mongoose.Schema({
   },
   pagamentoId: { type: String },
   statusProvedor: { type: String, maxlength: 80 },
+  estoqueEstado: {
+    type: String, enum: ["nao_reservado", "reservado", "liberado"], default: "nao_reservado",
+  },
 }, { timestamps: { createdAt: "criadoEm", updatedAt: "atualizadoEm" } });
 
 tentativaPagamentoSchema.pre("validate", function () {
@@ -264,6 +267,9 @@ tentativaPagamentoSchema.pre("validate", function () {
 });
 
 const pedidoSchema = new mongoose.Schema({
+  tentativaId: { type: mongoose.Schema.Types.ObjectId, ref: "TentativaPagamento" },
+  estoqueRestituido: { type: Boolean, default: false },
+  estoqueRestituicaoPendente: { type: Boolean, default: false },
   numero: { type: String, unique: true, trim: true }, // MS-1001
 
   // null = compra como convidado

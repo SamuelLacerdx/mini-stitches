@@ -138,10 +138,41 @@ inicial continua disponível para conciliação pela referência externa. O regi
 não guarda token, CPF, número do cartão, CVV ou o payload completo do gateway.
 
 O pedido comercial continua sendo registrado pelo fluxo de `/api/pedidos`.
-Esta etapa não implementa reserva antecipada de estoque (PAG-06), idempotência
-entre requisições (PAG-07) ou conciliação automática de tentativas inconclusivas.
+O controle de reserva antecipada está descrito abaixo. A idempotência entre
+requisições (PAG-07) e a conciliação automática de tentativas inconclusivas
+permanecem etapas separadas.
 Os testes locais estão disponíveis em `npm run test:pagamentos`, na pasta
 `cliente`; arquivos ignorados em `cliente/tests/` precisam existir localmente.
+
+### Reserva de estoque (PAG-06)
+
+A tentativa é registrada e todos os seus itens são reservados em uma transação
+MongoDB antes de solicitar a cobrança. A condição de decremento verifica o
+produto ativo e o saldo disponível após a margem de segurança. Se faltar um
+item, a transação desfaz todos os decrementos e o gateway não é chamado.
+
+É obrigatório usar MongoDB com transações: replica set (inclusive no ambiente
+local) ou cluster compatível, como MongoDB Atlas. Uma instância standalone não
+suporta esse fluxo e a cobrança não deve prosseguir se a reserva falhar.
+
+O estado `estoqueEstado` da tentativa controla a reserva. A liberação muda
+`reservado` para `liberado` e repõe todos os itens na mesma transação; repetir
+a operação não repõe novamente. Recusa ou cancelamento confirmados pelo
+provedor liberam a reserva, inclusive por webhook antes de existir pedido.
+O cancelamento do pedido usa a mesma operação. O registro do pedido reutiliza
+os itens da tentativa e não desconta o estoque uma segunda vez.
+
+Timeout, erro sem resposta conclusiva, pagamento pendente e falha ao gravar
+o pedido após cobrar mantêm a reserva para conciliação. Não há expiração
+automática: não libere apenas pelo tempo decorrido. Em falhas, consulte o
+pagamento no provedor usando `external_reference` antes de decidir a liberação.
+Em pedidos legados, novos cancelamentos gravam um marcador de restituição
+pendente; cancelamentos antigos sem esse marcador exigem conferência manual
+para evitar repor estoque já restituído.
+
+Os testes de disputa, reversão e repetição usam persistência simulada com
+transações serializadas; a homologação com MongoDB real e gateway sandbox
+continua necessária.
 
 ## Estrutura principal
 

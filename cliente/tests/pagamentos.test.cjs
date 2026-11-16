@@ -13,7 +13,25 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const rotas = new Map();
   const cobrancas = [];
   const tentativas = [];
+  const pedidos = [];
   const eventos = [];
+  let reservas;
+  const estoques = falhas.estoques ?? { 'produto-teste': { estoque: 10, estoqueSeguranca: 0, ativo: true } };
+  let transacaoAnterior = Promise.resolve();
+  const executarTransacao = (operacao) => {
+    const atual = transacaoAnterior.then(async () => {
+      const copia = JSON.parse(JSON.stringify({ estoques, tentativas }));
+      try { return await operacao({ transacaoTeste: true }); }
+      catch (erro) {
+        for (const chave of Object.keys(estoques)) delete estoques[chave];
+        Object.assign(estoques, copia.estoques);
+        tentativas.splice(0, tentativas.length, ...copia.tentativas);
+        throw erro;
+      }
+    });
+    transacaoAnterior = atual.catch(() => {});
+    return atual;
+  };
   const app = { use() {} };
   for (const metodo of ['get', 'post', 'patch', 'put', 'delete']) {
     app[metodo] = (url, ...handlers) => rotas.set(`${metodo} ${url}`, handlers.at(-1));
@@ -21,15 +39,62 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const express = Object.assign(() => app, { json() {}, urlencoded() {} });
   const carrinho = { itens: [{ quantidade: 1, produtoId: {
     _id: 'produto-teste', slug: 'kit', nome: 'Kit', ativo: true, preco,
-  } }], async populate() {} };
+  } }], async populate() {}, async save() {} };
+  if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/reservasEstoque') {
+      const modulo = requerer(nome);
+      return { ...modulo, criarReservasEstoque(opcoes) {
+        reservas = modulo.criarReservasEstoque(opcoes);
+        return reservas;
+      } };
+    }
+    if (nome === 'mongoose') return new Proxy(requerer(nome), {
+      get(alvo, chave) {
+        if (chave === 'connection') return { transaction: executarTransacao };
+        if (chave === 'connect') return async () => {};
+        if (chave === 'isValidObjectId') return (id) => /^tentativa-\d+$/.test(String(id)) || alvo.isValidObjectId(id);
+        return alvo[chave];
+      },
+    });
     if (nome === './backend/db/mongodb') return {
       ...requerer(nome),
+      Pedido: {
+        async findOne(filtro) { return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null; },
+        async create(dados) {
+          if (falhas.pedido) throw new Error('Falha no registro do pedido');
+          const pedido = { _id: 'pedido-1', numero: 'MS-1001', ...dados };
+          pedidos.push(pedido);
+          return pedido;
+        },
+      },
+      Produto: {
+        async findOneAndUpdate(filtro, atualizacao, { session }) {
+          assert.ok(session.transacaoTeste);
+          const produto = estoques[String(filtro._id)];
+          const quantidade = filtro.$expr.$gte[1];
+          if (!produto || !produto.ativo || produto.estoque - (produto.estoqueSeguranca ?? 0) < quantidade) return null;
+          produto.estoque += atualizacao.$inc.estoque;
+          return produto;
+        },
+        async updateOne(filtro, atualizacao, { session }) {
+          assert.ok(session.transacaoTeste);
+          const produto = estoques[String(filtro._id)];
+          if (falhas.liberacao) throw new Error('Falha ao repor estoque');
+          if (!produto) return { matchedCount: 0 };
+          produto.estoque += atualizacao.$inc.estoque;
+          return { matchedCount: 1 };
+        },
+      },
       TentativaPagamento: {
+        async findById(id) { return tentativas.find((item) => item._id === id) ?? null; },
+        async findOne(filtro) {
+          return tentativas.find((item) => Object.entries(filtro).every(([chave, valor]) => item[chave] === valor)) ?? null;
+        },
         async create(dados) {
           eventos.push('registro');
           if (falhas.registro) throw new Error('Banco indisponível');
-          const tentativa = { _id: `tentativa-${tentativas.length + 1}`, ...JSON.parse(JSON.stringify(dados)) };
+          const tentativa = { _id: `tentativa-${tentativas.length + 1}`, estoqueEstado: 'nao_reservado', ...JSON.parse(JSON.stringify(dados)) };
           tentativas.push(tentativa);
           return tentativa;
         },
@@ -39,6 +104,14 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           const tentativa = tentativas.find((item) => item._id === filtro._id);
           if (tentativa) Object.assign(tentativa, atualizacao.$set);
           return { matchedCount: tentativa ? 1 : 0 };
+        },
+        async findOneAndUpdate(filtro, atualizacao, { session }) {
+          assert.ok(session.transacaoTeste);
+          eventos.push(atualizacao.$set.estoqueEstado === 'reservado' ? 'reserva' : 'liberacao');
+          const tentativa = tentativas.find((item) => item._id === String(filtro._id) && item.estoqueEstado === filtro.estoqueEstado);
+          if (!tentativa) return null;
+          Object.assign(tentativa, atualizacao.$set);
+          return tentativa;
         },
       },
     };
@@ -55,12 +128,19 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     if (nome === 'mercadopago') return {
       MercadoPagoConfig: class {}, PreApproval: class {},
       Payment: class {
+        async get() {
+          const body = cobrancas.at(-1);
+          return { id: 123, status: falhas.status ?? 'approved', external_reference: body.external_reference,
+            transaction_amount: body.transaction_amount, payment_method_id: body.payment_method_id,
+            payment_type_id: body.payment_method_id === 'bolbradesco' ? 'ticket' : 'credit_card' };
+        }
         async create({ body }) {
           eventos.push('gateway');
           assert.ok(tentativas.some((item) => item._id === body.external_reference && item.estado === 'registrada'));
+          assert.equal(tentativas.find((item) => item._id === body.external_reference).estoqueEstado, 'reservado');
           cobrancas.push(body);
           if (falhas.gateway) throw new Error('Timeout com token-sensivel');
-          return { id: 123, status: 'approved', installments: body.installments,
+          return { id: 123, status: falhas.status ?? 'approved', installments: body.installments,
             point_of_interaction: { transaction_data: {} } };
         }
       },
@@ -73,14 +153,19 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     console: { log() {}, error() {} },
   }, { filename: arquivo });
 
-  return { cobrancas, tentativas, eventos, async enviar(metodo, dados = {}) {
+  return { cobrancas, tentativas, eventos, estoques, pedidos, get reservas() { return reservas; },
+    async enviar(metodo, dados = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
       session: { usuarioId: 'cliente-teste' } };
+    req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
+    req.body.entrega ??= { cep: req.body.cep, endereco: 'Rua Teste, 1' };
     const res = { statusCode: 200, status(valor) { this.statusCode = valor; return this; },
+      send(valor) { this.dados = valor; return this; },
       json(valor) { this.dados = valor; return this; } };
-    await rotas.get(`post /api/pagamento/${metodo}`)(req, res);
+    const url = metodo.startsWith('/') ? metodo : `/api/pagamento/${metodo}`;
+    await rotas.get(`post ${url}`)(req, res);
     return res;
   } };
 }
@@ -182,7 +267,7 @@ test('PAG-05: Pix, boleto e cartão persistem tentativa antes da cobrança com s
     const servidor = montarServidor();
     const res = await servidor.enviar(metodo, { total: 1, numeroCartao: '4111111111111111', cvv: '123' });
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(servidor.eventos, ['registro', 'gateway', 'atualizacao']);
+    assert.deepEqual(servidor.eventos, ['registro', 'reserva', 'gateway', 'atualizacao']);
     const tentativa = servidor.tentativas[0];
     assert.equal(tentativa.clienteId, 'cliente-teste');
     assert.equal(tentativa.metodo, metodo);
@@ -239,4 +324,101 @@ test('PAG-05: esquema valida valores, itens e cliente sem depender do banco', as
   for (const alteracao of [{ clienteId: undefined }, { total: 1 }, { itens: [] }, { parcelas: 7 }, { cep: 'invalido' }]) {
     await assert.rejects(new TentativaPagamento({ ...dados, ...alteracao }).validate());
   }
+});
+
+test('PAG-06: sem estoque ou abaixo da margem não cria cobrança nem estoque negativo', async () => {
+  for (const metodo of ['pix', 'boleto', 'cartao']) {
+    const servidor = montarServidor(4990, undefined, {
+      estoques: { 'produto-teste': { estoque: 2, estoqueSeguranca: 2, ativo: true } },
+    });
+    assert.equal((await servidor.enviar(metodo)).statusCode, 409);
+    assert.equal(servidor.cobrancas.length, 0);
+    assert.equal(servidor.estoques['produto-teste'].estoque, 2);
+    assert.equal(servidor.tentativas[0].estoqueEstado, 'nao_reservado');
+  }
+});
+
+test('PAG-06: duas tentativas simultâneas disputando a última unidade só geram uma cobrança', async () => {
+  const servidor = montarServidor(4990, undefined, {
+    estoques: { 'produto-teste': { estoque: 1, ativo: true } },
+  });
+  const respostas = await Promise.all([servidor.enviar('pix'), servidor.enviar('pix')]);
+  assert.deepEqual(respostas.map((res) => res.statusCode).sort(), [200, 409]);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 0);
+});
+
+test('PAG-06: falha no segundo item desfaz toda a reserva', async () => {
+  const servidor = montarServidor(4990, undefined, {
+    itens: ['a', 'b'].map((id) => ({ quantidade: 1, produtoId: { _id: id, slug: id, nome: id, preco: 4990, ativo: true } })),
+    estoques: { a: { estoque: 1, ativo: true }, b: { estoque: 0, ativo: true } },
+  });
+  assert.equal((await servidor.enviar('boleto')).statusCode, 409);
+  assert.equal(servidor.estoques.a.estoque, 1);
+  assert.equal(servidor.estoques.b.estoque, 0);
+  assert.equal(servidor.cobrancas.length, 0);
+});
+
+test('PAG-06: recusa definitiva libera e repetição da liberação não duplica estoque', async () => {
+  const servidor = montarServidor(4990, undefined, { status: 'rejected' });
+  await servidor.enviar('cartao');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'liberado');
+  await Promise.all([servidor.reservas.liberar('tentativa-1'), servidor.reservas.liberar('tentativa-1')]);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+});
+
+test('PAG-06: timeout ou pagamento pendente conserva reserva até conciliação', async () => {
+  for (const opcoes of [{ gateway: true }, { status: 'pending' }, { status: 'approved' }]) {
+    const servidor = montarServidor(4990, undefined, opcoes);
+    await servidor.enviar('pix');
+    assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+    assert.equal(servidor.tentativas[0].estoqueEstado, 'reservado');
+  }
+});
+
+test('PAG-06: falha ao liberar reverte marcador e permite nova tentativa de liberação', async () => {
+  const falhas = { status: 'rejected', liberacao: true };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('cartao');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'reservado');
+  falhas.liberacao = false;
+  await servidor.reservas.liberar('tentativa-1');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'liberado');
+});
+
+test('PAG-06: registrar pedido ou repetir registro não desconta estoque novamente', async () => {
+  const servidor = montarServidor();
+  await servidor.enviar('boleto');
+  assert.equal((await servidor.enviar('/api/pedidos', { pagamentoId: '123' })).statusCode, 201);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  assert.equal(servidor.pedidos[0].tentativaId, servidor.tentativas[0]._id);
+  assert.equal((await servidor.enviar('/api/pedidos', { pagamentoId: '123' })).statusCode, 200);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  assert.equal(servidor.pedidos.length, 1);
+});
+
+test('PAG-06: falha no pedido após cobrança mantém reserva e permite registrar depois', async () => {
+  const falhas = { pedido: true };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  assert.equal((await servidor.enviar('/api/pedidos', { pagamentoId: '123' })).statusCode, 500);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  falhas.pedido = false;
+  assert.equal((await servidor.enviar('/api/pedidos', { pagamentoId: '123' })).statusCode, 201);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-06: webhook de recusa antes do pedido libera uma única vez', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('pix');
+  falhas.status = 'rejected';
+  for (let i = 0; i < 2; i++) {
+    assert.equal((await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } })).statusCode, 200);
+  }
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'liberado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
 });

@@ -1,4 +1,4 @@
-function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, logger = console }) {
+function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque, logger = console }) {
   return async function cobrar({ clienteId, metodo, itens, subtotal, frete, desconto, total,
     parcelas = 1, cep, servicoId, body }) {
     let tentativa;
@@ -11,6 +11,8 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, logger =
       throw new Error("Não foi possível registrar a tentativa. Nenhuma cobrança foi solicitada.");
     }
     const tentativaId = String(tentativa._id);
+    // A transação deve terminar antes de qualquer comunicação com o gateway.
+    await reservasEstoque.reservar(tentativa._id);
 
     async function atualizar(dados) {
       try {
@@ -44,6 +46,13 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, logger =
       pagamentoId: String(resposta.id),
       statusProvedor: String(resposta.status || "desconhecido").slice(0, 80),
     });
+    if (["rejected", "cancelled"].includes(resposta.status)) {
+      try {
+        await reservasEstoque.liberar(tentativa._id);
+      } catch {
+        logger.error("[pagamento] reserva requer conciliacao", { tentativaId });
+      }
+    }
     return { resposta, tentativaId };
   };
 }
