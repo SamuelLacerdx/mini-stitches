@@ -7,7 +7,7 @@ const { runInNewContext } = require('node:vm');
 const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
-function montarServidor(preco = 4990) {
+function montarServidor(preco = 4990, cotacao) {
   const arquivo = resolve(__dirname, '../server.js');
   const requerer = createRequire(arquivo);
   const rotas = new Map();
@@ -25,7 +25,7 @@ function montarServidor(preco = 4990) {
     if (nome === 'nodemailer') return { createTransport: () => ({}) };
     if (nome === './backend/functions/frete') return {
       ...requerer(nome),
-      cotarFrete: async () => [{ servicoId: 1, preco: 1500, prazoMin: 3, prazoMax: 5 }],
+      cotarFrete: cotacao ?? (async () => [{ servicoId: 1, preco: 1500, prazoMin: 3, prazoMax: 5 }]),
     };
     if (nome === 'express') return express;
     if (nome === './backend/functions/carrinho') return {
@@ -118,8 +118,37 @@ test('handlers mantêm frete grátis antes do Pix e bloqueiam valores de frete i
 });
 
 test('UC03: adulterar frete pago não deve diminuir a cobrança', async () => {
-  const servidor = montarServidor();
-  const res = await servidor.enviar('boleto', { freteCentavos: 0 });
-  assert.ok(res.statusCode === 400 || (servidor.cobrancas[0]?.transaction_amount === 64.9),
-    'Servidor aceitou frete zero sem validar a cotação do carrinho/CEP.');
+  for (const metodo of ['pix', 'boleto', 'cartao']) {
+    for (const dados of [{ freteCentavos: 0 }, { freteCentavos: 1 }, { freteCentavos: 9999 },
+      { servicoId: 99 }, { servicoId: null }, { servicoId: true }, { cep: 'invalido' }]) {
+      const servidor = montarServidor();
+      assert.equal((await servidor.enviar(metodo, dados)).statusCode, 400);
+      assert.equal(servidor.cobrancas.length, 0);
+    }
+  }
+});
+
+test('cotação usa o CEP, preço e quantidade do carrinho do servidor', async () => {
+  let consulta;
+  const servidor = montarServidor(4990, async (dados) => {
+    consulta = dados;
+    return [{ servicoId: 1, preco: 1500 }];
+  });
+  assert.equal((await servidor.enviar('boleto', { cep: '01310-100', preco: 1 })).statusCode, 200);
+  assert.equal(consulta.cepDestino, '01310100');
+  assert.equal(consulta.itens[0].produtoId.preco, 4990);
+  assert.equal(consulta.itens[0].quantidade, 1);
+  assert.equal(servidor.cobrancas[0].transaction_amount, 64.9);
+});
+
+test('falha da cotação impede cobrança e frete grátis dispensa cotação externa', async () => {
+  const { ErroFrete } = require('../backend/functions/frete');
+  const indisponivel = async () => { throw new ErroFrete(503, 'Frete indisponível.'); };
+  for (const metodo of ['pix', 'boleto', 'cartao']) {
+    const servidor = montarServidor(4990, indisponivel);
+    assert.equal((await servidor.enviar(metodo)).statusCode, 503);
+    assert.equal(servidor.cobrancas.length, 0);
+    const gratuito = montarServidor(41000, indisponivel);
+    assert.equal((await gratuito.enviar(metodo)).statusCode, 200);
+  }
 });

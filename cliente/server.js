@@ -23,7 +23,7 @@ const {
   calcularValorBaseCentavos,
   calcularPixCentavos,
   calcularParcelasCentavos,
-  calcularFreteAplicavelCentavos,
+  LIMITE_FRETE_GRATIS_CENTAVOS,
 } = require("./backend/functions/calculosPagamento");
 const {
   Usuario,
@@ -189,11 +189,40 @@ function obterFreteCentavos(body) {
   return frete;
 }
 
-async function obterFreteAplicavelCentavos(req, subtotalCentavos) {
-  return calcularFreteAplicavelCentavos(
-    subtotalCentavos,
-    obterFreteCentavos(req.body),
-  );
+async function obterFreteAplicavelCentavos(req, subtotalCentavos, itensPedido) {
+  const informado = obterFreteCentavos(req.body);
+  if (subtotalCentavos > LIMITE_FRETE_GRATIS_CENTAVOS) return 0;
+
+  const cepDestino = normalizarCEP(req.body?.entrega?.cep ?? req.body?.cep);
+  const servicoInformado = req.body?.servicoId;
+  const servicoId = typeof servicoInformado === "number" ? servicoInformado
+    : typeof servicoInformado === "string" && /^\d+$/.test(servicoInformado)
+      ? Number(servicoInformado) : NaN;
+  if (!cepDestino || !Number.isSafeInteger(servicoId) || servicoId <= 0) {
+    throw new ErroCalculoPagamento("Informe o CEP e um serviço de frete válido.");
+  }
+
+  let itens;
+  if (itensPedido) {
+    itens = itensPedido.map((item) => ({
+      quantidade: item.quantidade,
+      produtoId: { _id: item.produtoId, preco: item.precoUnit },
+    }));
+  } else {
+    const carrinho = await obterCarrinho(req);
+    await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+    itens = carrinho.itens.filter((item) => item.produtoId && item.produtoId.ativo !== false);
+    criarItensPedido(itens);
+  }
+  const opcoes = await cotarFrete({ cepDestino, itens });
+  const opcao = opcoes.find((item) => item.servicoId === servicoId);
+  if (!opcao || !Number.isSafeInteger(opcao.preco) || opcao.preco < 0) {
+    throw new ErroCalculoPagamento("Serviço de frete indisponível. Calcule o frete novamente.");
+  }
+  if (informado !== opcao.preco) {
+    throw new ErroCalculoPagamento("O valor do frete mudou. Calcule o frete novamente.");
+  }
+  return opcao.preco;
 }
 
 app.get("/api/config", (_req, res) => {
@@ -269,6 +298,9 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   } catch (erro) {
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
     console.error("Erro na geração do PIX:", erro);
     return res.status(500).json({
@@ -359,6 +391,9 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
     }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro na geração do boleto:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -429,6 +464,9 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   } catch (erro) {
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
     console.error("Erro no pagamento com cartão:", erro);
     return res.status(500).json({
@@ -1628,7 +1666,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       (soma, item) => soma + item.quantidade * item.precoUnit,
       0,
     );
-    const frete = calcularFreteAplicavelCentavos(subtotal, freteInformado);
+    const frete = await obterFreteAplicavelCentavos(req, subtotal, itens);
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
     const valorEsperado = pagamento === "pix"
@@ -1706,6 +1744,9 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
   } catch (error) {
     if (error instanceof ErroCalculoPagamento) {
       return res.status(400).json({ erro: error.message });
+    }
+    if (error instanceof ErroFrete) {
+      return res.status(error.status).json({ erro: error.message });
     }
     console.error("[api/pedidos] erro:", error?.message || error);
     return res

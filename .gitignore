@@ -38,7 +38,4 @@ node_modules
 .continue/agents/new-config.yaml
 
 # Testes locais
-cliente/tests/*
-!cliente/tests/parcelamento.test.cjs
-!cliente/tests/pagamentos.test.cjs
-!cliente/tests/calculosPagamento.test.mjs
+cliente/tests/

@@ -402,6 +402,7 @@ export default function FinalizarCompra() {
         body: JSON.stringify({
           pagamentoId: String(pagamentoId),
           freteCentavos: valorFrete,
+          servicoId: freteSelecionadoId,
           cliente: { nome: formData.nome.trim(), email: formData.email.trim() },
           entrega: {
             cep: cep.replace(/\D/g, ''),
@@ -464,6 +465,8 @@ export default function FinalizarCompra() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             freteCentavos: valorFrete,
+            servicoId: freteSelecionadoId,
+            cep: cep.replace(/\D/g, ''),
             email,
             cpf: cpfLimpo,
             nome: primeiroNome,
@@ -496,6 +499,8 @@ export default function FinalizarCompra() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             freteCentavos: valorFrete,
+            servicoId: freteSelecionadoId,
+            cep: cep.replace(/\D/g, ''),
             email,
             cpf: cpfLimpo,
             nomeCompleto,
@@ -549,6 +554,8 @@ export default function FinalizarCompra() {
             token: cardToken.id,
             payment_method_id: formData.bandeira || bandeiraDetectada,
             freteCentavos: valorFrete,
+            servicoId: freteSelecionadoId,
+            cep: cep.replace(/\D/g, ''),
             parcelas: parcelasSelecionadas,
             email,
             cpf: cpfLimpo,
