@@ -12,6 +12,7 @@ const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
 const { PLANO_CLUBE, ErroAssinatura, assinaturaPublica, criarContratacaoClube } = require("./backend/functions/assinaturaClube");
 const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = require('./backend/functions/recorrenciaClube');
+const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backend/functions/cancelamentoClube');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -37,6 +38,7 @@ const {
   MensalidadeClube,
   CaixaClube,
   CalendarioClube,
+  OperacaoClube,
   Produto,
   Carrinho,
   Pedido,
@@ -47,7 +49,7 @@ const {
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
-const { MercadoPagoConfig, Payment, PreApproval } = require("mercadopago");
+const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
 
@@ -74,9 +76,14 @@ const processarWebhook = criarProcessadorWebhook({
   isValidObjectId: mongoose.isValidObjectId,
 });
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
-const contratarClube = criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env: process.env });
+const refundModule = mpClient ? new PaymentRefund(mpClient) : null;
+const cancelamentoClube = criarCancelamentoClube({ Assinatura, MensalidadeClube, CaixaClube, OperacaoClube,
+  preApprovalModule, paymentModule, refundModule,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
+const contratarClube = criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env: process.env,
+  aposAutorizacao: (assinaturaId) => cancelamentoClube.processarPendentes({ assinaturaId, forcar: true }) });
 const processarRecorrencia = criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, CalendarioClube,
-  consultaFaturas: criarConsultaFaturas({ accessToken: mpAccessToken }), preApprovalModule, paymentModule,
+  consultaFaturas: criarConsultaFaturas({ accessToken: mpAccessToken }), preApprovalModule, paymentModule, cancelamento: cancelamentoClube,
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
@@ -547,6 +554,8 @@ app.get("/api/assinatura/plano", (_req, res) => res.json({ plano: PLANO_CLUBE })
 
 registrarRotasClube({ app, autenticar, autenticarAdmin, MensalidadeClube, CaixaClube, CalendarioClube,
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
+registrarRotasCancelamento({ app, autenticar, autenticarAdmin, cancelamento: cancelamentoClube,
+  processarRecorrencia, Assinatura, OperacaoClube, cronSecret: process.env.CRON_SECRET });
 
 app.get("/api/assinaturas", autenticar, async (req, res) => {
   res.set("Cache-Control", "private, no-store");

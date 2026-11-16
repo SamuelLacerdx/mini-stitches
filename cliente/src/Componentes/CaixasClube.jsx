@@ -24,7 +24,10 @@ export default function CaixasClube() {
     {!erro && !caixas.length && <p>Nenhuma caixa com mensalidade aprovada até o momento.</p>}
     {caixas.map((caixa) => <article key={caixa.id} className="space-y-1 rounded-lg bg-[#FEF9F3] p-4">
       <h3 className="font-bold">Caixa de {caixa.competencia.split('-').reverse().join('/')}</h3>
-      <p>{caixa.bloqueada ? 'Expedição bloqueada por pendência financeira. Consulte o atendimento.'
+      <p>{caixa.bloqueadaParaReembolso ? caixa.reembolsoEstado === 'concluido' ? 'Reembolso integral confirmado pelo provedor. Esta caixa não será enviada.'
+        : caixa.reembolsoEstado === 'solicitado' ? 'Reembolso integral solicitado. Esta caixa permanece bloqueada. O crédito depende do meio de pagamento.'
+        : 'Pagamento aprovado após o cancelamento. Caixa bloqueada para reembolso integral.'
+        : caixa.bloqueada ? 'Expedição bloqueada por pendência financeira. Consulte o atendimento.'
         : `Preparação: ${caixa.statusPreparacao}.`}</p>
       <p>{caixa.postagemPrevista ? `Previsão de postagem: ${caixa.postagemPrevista.split('-').reverse().join('/')}.`
         : 'Previsão de postagem aguardando confirmação da operação da transportadora.'}</p>

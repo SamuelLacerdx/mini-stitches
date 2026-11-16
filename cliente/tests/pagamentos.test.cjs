@@ -8,6 +8,7 @@ const { randomUUID, createHmac } = require('node:crypto');
 const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
 const { primeiraCompetencia, loteElegivel, vencimentoMensal, validarPostagem } = require('../backend/functions/calendarioClube');
 const { criarConciliadorClube, criarConsultaFaturas, registrarRotasClube } = require('../backend/functions/recorrenciaClube');
+const { criarCancelamentoClube, registrarRotasCancelamento } = require('../backend/functions/cancelamentoClube');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
 function montarServidor(preco = 4990, cotacao, falhas = {}) {
@@ -56,6 +57,9 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   } }], async populate() {}, async save() {} };
   if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/cancelamentoClube' && falhas.retomaCancelamento) {
+      return { ...requerer(nome), criarCancelamentoClube: () => ({ processarPendentes: falhas.retomaCancelamento }) };
+    }
     if (nome === './backend/functions/recorrenciaClube') {
       const modulo = requerer(nome);
       return { ...modulo,
@@ -222,7 +226,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       criarCarrinhoHelpers: () => ({ obterCarrinho: async () => carrinho }),
     };
     if (nome === 'mercadopago') return {
-      MercadoPagoConfig: class {}, PreApproval: class {
+      MercadoPagoConfig: class {}, PaymentRefund: class {}, PreApproval: class {
         async create({ body, requestOptions }) {
           assert.equal(body.external_reference, adesoes[0]._id);
           assert.equal(requestOptions.idempotencyKey, body.external_reference);
@@ -1045,15 +1049,19 @@ test('PAG-10: modelo aceita SUB-02 e não permite cadastrar novamente planos ant
   }
 });
 
-function montarRecorrencia() {
+function montarRecorrencia(opcoes = {}) {
   const clone = (valor) => JSON.parse(JSON.stringify(valor));
-  const colecoes = { Assinatura: [], MensalidadeClube: [], CaixaClube: [], CalendarioClube: [] };
-  const contexto = { falhaCaixa: false, faturas: [], pagamentos: {}, colecoes };
+  const colecoes = { Assinatura: [], MensalidadeClube: [], CaixaClube: [], CalendarioClube: [], OperacaoClube: [] };
+  const contexto = { falhaCaixa: false, falhaOperacao: Boolean(opcoes.falhaOperacao), faturas: [], pagamentos: {}, colecoes };
   const corresponde = (item, filtro) => Object.entries(filtro).every(([chave, esperado]) => {
+    if (chave === '$or') return esperado.some((alternativa) => corresponde(item, alternativa));
     const atual = chave.split('.').reduce((valor, parte) => valor?.[parte], item);
-    if (esperado && typeof esperado === 'object') {
+    if (esperado && typeof esperado === 'object' && !(esperado instanceof Date)) {
       if ('$in' in esperado) return esperado.$in.includes(atual);
       if ('$exists' in esperado) return (atual !== undefined) === esperado.$exists;
+      if ('$ne' in esperado) return (atual ?? null) !== esperado.$ne;
+      if ('$gt' in esperado) return new Date(atual) > new Date(esperado.$gt);
+      if ('$lte' in esperado) return new Date(atual) <= new Date(esperado.$lte);
     }
     return atual === esperado;
   });
@@ -1061,8 +1069,9 @@ function montarRecorrencia() {
   for (const [nome, lista] of Object.entries(colecoes)) {
     const atualizar = (filtro, dados, opcoes = {}) => {
       if (nome === 'CaixaClube' && contexto.falhaCaixa) throw new Error('Falha de persistência');
+      if (nome === 'OperacaoClube' && contexto.falhaOperacao) throw new Error('Falha ao salvar operação');
       let item = lista.find((valor) => corresponde(valor, filtro));
-      if (!item && opcoes.upsert) { item = { _id: `${nome}-${lista.length + 1}`, ...filtro }; lista.push(item); }
+      if (!item && opcoes.upsert) { item = { _id: `${nome}-${lista.length + 1}`, ...filtro, ...clone(dados.$setOnInsert || {}) }; lista.push(item); }
       if (!item) return null;
       Object.assign(item, clone(dados.$set || {}));
       for (const [chave, valor] of Object.entries(dados.$inc || {})) item[chave] = (item[chave] || 0) + valor;
@@ -1073,7 +1082,7 @@ function montarRecorrencia() {
       async init() {},
       async findById(id) { return clone(lista.find((item) => item._id === id) || null); },
       async findOne(filtro) { return clone(lista.find((item) => corresponde(item, filtro)) || null); },
-      find(filtro) { return { sort() { return this; }, async lean() { return clone(lista.filter((item) => corresponde(item, filtro))); } }; },
+      find(filtro) { return { sort() { return this; }, limit() { return this; }, session() { return this; }, async lean() { return clone(lista.filter((item) => corresponde(item, filtro))); } }; },
       async updateOne(filtro, dados, opcoes) { const item = atualizar(filtro, dados, opcoes); return { matchedCount: item ? 1 : 0 }; },
       async findOneAndUpdate(filtro, dados, opcoes) { return atualizar(filtro, dados, opcoes); },
       async updateMany(filtro, dados, opcoes) {
@@ -1096,20 +1105,65 @@ function montarRecorrencia() {
   };
   colecoes.Assinatura.push({ _id: '507f1f77bcf86cd799439011', clienteId: 'cliente-a', preapprovalId: 'acordo-123',
     plano: { codigo: 'SUB-02', valor: 9490 }, entrega: { cep: '01001000' }, statusAdesao: 'aguardando_pagamento' });
-  const acordo = { id: 'acordo-123', external_reference: '507f1f77bcf86cd799439011',
+  const acordo = { id: 'acordo-123', external_reference: '507f1f77bcf86cd799439011', status: 'authorized',
     auto_recurring: { frequency: 1, frequency_type: 'months', currency_id: 'BRL', transaction_amount: 94.9 } };
-  const processar = criarConciliadorClube({ ...modelos, executarTransacao,
-    preApprovalModule: { get: async () => clone(acordo) },
+  const chamadasCancelamento = [];
+  const chamadasReembolso = [];
+  const reembolsos = new Map();
+  let hora = new Date('2026-11-10T16:00:00Z');
+  const preApprovalModule = { search: async () => ({ paging: { total: opcoes.buscaAmbigua ? 2 : 1 },
+    results: opcoes.buscaAmbigua ? [clone(acordo), { ...clone(acordo), id: 'outro-acordo' }] : [clone(acordo)] }), get: async () => {
+    if (opcoes.falhaConsultaAcordo) throw new Error('Timeout de consulta');
+    return clone(acordo);
+  }, update: async (pedido) => {
+    chamadasCancelamento.push(clone(pedido));
+    if (opcoes.falhaCancelar) throw new Error('Timeout de cancelamento');
+    acordo.status = 'cancelled';
+    if (opcoes.timeoutAposCancelar) throw new Error('Resposta perdida');
+    return clone(acordo);
+  } };
+  const paymentModule = { get: async ({ id }) => clone(contexto.pagamentos[id]), update: async (pedido) => {
+    chamadasCancelamento.push(clone(pedido));
+    if (opcoes.aprovarDuranteCancelamento) {
+      Object.assign(contexto.pagamentos[pedido.id], { status: 'approved', date_approved: '2026-11-10T16:01:00Z',
+        date_last_updated: '2027-03-01T12:00:01Z' });
+      throw new Error('Pagamento já aprovado');
+    }
+    contexto.pagamentos[pedido.id].status = 'cancelled';
+  } };
+  const refundModule = { get: async ({ refund_id }) => clone([...reembolsos.values()].find((item) => String(item.id) === refund_id)),
+    create: async (pedido) => {
+      chamadasReembolso.push(clone(pedido));
+      const chave = pedido.requestOptions.idempotencyKey;
+      if (opcoes.falhaReembolso) throw new Error('Timeout token-sensivel');
+      if (!reembolsos.has(chave)) {
+        const resposta = { id: reembolsos.size + 1, payment_id: pedido.payment_id, amount: pedido.body.amount,
+          status: opcoes.reembolsoPendente ? 'in_process' : 'approved' };
+        reembolsos.set(chave, resposta);
+        if (!opcoes.reembolsoPendente) Object.assign(contexto.pagamentos[pedido.payment_id], {
+          status: 'refunded', transaction_amount_refunded: 94.9, date_last_updated: '2027-03-02T12:00:00Z' });
+      }
+      if (opcoes.timeoutAposReembolso) throw new Error('Resposta perdida');
+      return clone(reembolsos.get(chave));
+    } };
+  const cancelamento = criarCancelamentoClube({ ...modelos, executarTransacao, preApprovalModule, paymentModule,
+    refundModule, agora: () => new Date(hora), logger: { error() {} } });
+  const conciliador = criarConciliadorClube({ ...modelos, executarTransacao,
+    preApprovalModule, cancelamento: opcoes.cancelamento ? cancelamento : undefined,
     consultaFaturas: { obter: async (id) => clone(contexto.faturas.find((item) => String(item.id) === id)),
       buscar: async (filtro) => clone(filtro.payment_id ? contexto.faturas.filter((item) => String(item.payment?.id) === filtro.payment_id) : contexto.faturas) },
-    paymentModule: { get: async ({ id }) => clone(contexto.pagamentos[id]) },
+    paymentModule,
   });
+  const processar = (evento) => conciliador({ recebidoEm: new Date(hora), ...evento });
   const app = {};
   const rotas = new Map();
   for (const metodo of ['get', 'put', 'patch', 'post']) app[metodo] = (url, ...handlers) => rotas.set(`${metodo} ${url}`, handlers);
   const { autenticar, autenticarAdmin } = require('../backend/functions/autenticacao').criarAutenticacao({ jwtSecret: 'teste' });
   registrarRotasClube({ app, autenticar, autenticarAdmin, ...modelos, executarTransacao });
-  return { ...contexto, acordo, modelos, processar,
+  registrarRotasCancelamento({ app, autenticar, autenticarAdmin, ...modelos, cancelamento, processarRecorrencia: processar, cronSecret: 'segredo-cron-testes' });
+  return { ...contexto, acordo, modelos, processar, cancelamento, chamadasCancelamento, chamadasReembolso, reembolsos,
+    definirHora(valor) { hora = new Date(valor); },
+    falharOperacao(valor) { contexto.falhaOperacao = valor; },
     falharCaixa(valor) { contexto.falhaCaixa = valor; },
     adicionar(id, aprovadoEm, vencimento = aprovadoEm, status = 'approved') {
       contexto.faturas.push({ id, preapproval_id: 'acordo-123', currency_id: 'BRL', transaction_amount: 94.9,
@@ -1117,10 +1171,11 @@ function montarRecorrencia() {
       contexto.pagamentos[`pag-${id}`] = { id: `pag-${id}`, currency_id: 'BRL', transaction_amount: 94.9,
         payment_type_id: 'credit_card', date_approved: aprovadoEm, date_last_updated: '2027-03-01T12:00:00Z', status };
     },
-    async enviar(metodo, url, body = {}, { clienteId = 'cliente-a', perfil = 'admin', params = {} } = {}) {
-      const req = { headers: {}, session: { usuarioId: clienteId, perfil }, params, body };
+    async enviar(metodo, url, body = {}, { clienteId = 'cliente-a', perfil = 'admin', params = {}, headers = {} } = {}) {
+      const req = { headers, session: { usuarioId: clienteId, perfil }, params, body };
       const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, set() { return this; }, json(dados) { this.dados = dados; return this; } };
       const [auth, handler] = rotas.get(`${metodo} ${url}`);
+      if (!handler) { await auth(req, res); return res; }
       let autorizado = false;
       auth(req, res, () => { autorizado = true; });
       if (autorizado) await handler(req, res);
@@ -1382,4 +1437,237 @@ test('PAG-11: resposta e timeout da adesão não regridem ativação já concili
     assert.equal(servidor.adesoes[0].statusAdesao, 'ativa');
     assert.equal(servidor.adesoes[0].assinadoEm, '2026-11-05T12:00:00-03:00');
   }
+});
+
+const assinaturaTesteId = '507f1f77bcf86cd799439011';
+
+test('PAG-12: cancelamento exige dono autenticado e ignora data e pagamento enviados pelo navegador', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  const params = { id: assinaturaTesteId };
+  const rota = '/api/assinaturas/:id/cancelar';
+  assert.equal((await sistema.enviar('post', rota, {}, { params, clienteId: null })).statusCode, 401);
+  assert.equal((await sistema.enviar('post', rota, {}, { params, clienteId: 'outra-conta' })).statusCode, 404);
+  assert.equal(sistema.chamadasCancelamento.length, 0);
+  const res = await sistema.enviar('post', rota, { canceladoEm: '2020-01-01', pagamentoId: 'alheio', valor: 0.01 }, { params });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.dados.assinatura.canceladoEm, '2026-11-10T16:00:00.000Z');
+  assert.equal(res.dados.assinatura.cancelamentoEstado, 'confirmado');
+  assert.equal(sistema.chamadasCancelamento[0].body.status, 'cancelled');
+});
+
+test('PAG-12: falha no registro não cancela no gateway e desfaz a alteração local', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, falhaOperacao: true });
+  await assert.rejects(sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId));
+  assert.equal(sistema.colecoes.Assinatura[0].canceladoEm, undefined);
+  assert.equal(sistema.chamadasCancelamento.length, 0);
+  assert.equal(sistema.colecoes.OperacaoClube.length, 0);
+});
+
+test('PAG-12: caixas já aprovadas e em preparação continuam devidas sem estorno automático', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  sistema.colecoes.CaixaClube[0].statusPreparacao = 'preparando';
+  sistema.colecoes.CaixaClube[0].postagemPrevista = '2026-11-11';
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  await sistema.processar({ tipo: 'subscription_authorized_payment', id: '1' });
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, false);
+  assert.equal(sistema.colecoes.CaixaClube[0].statusPreparacao, 'preparando');
+  assert.equal(sistema.colecoes.CaixaClube[0].postagemPrevista, '2026-11-11');
+  assert.equal((await sistema.enviar('get', '/admin/clube/caixas')).dados.caixas.length, 1);
+  assert.equal(sistema.chamadasReembolso.length, 0);
+});
+
+test('PAG-12: aprovação anterior com webhook atrasado preserva inclusive primeira caixa futura', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  sistema.definirHora('2026-11-16T12:00:00Z');
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-15T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.colecoes.Assinatura[0].statusAdesao, 'cancelada');
+  assert.equal(sistema.colecoes.CaixaClube[0].competencia, '2026-12');
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, false);
+  assert.equal(sistema.chamadasReembolso.length, 0);
+});
+
+test('PAG-12: aprovação posterior solicita reembolso integral, bloqueia envio e preserva um vínculo', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.chamadasReembolso.length, 1);
+  assert.equal(sistema.chamadasReembolso[0].body.amount, 94.9);
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueadaParaReembolso, true);
+  assert.equal(sistema.colecoes.CaixaClube[0].reembolsoEstado, 'solicitado');
+  assert.equal((await sistema.enviar('get', '/admin/clube/caixas')).dados.caixas.length, 0);
+  await Promise.all(Array.from({ length: 3 }, () => sistema.processar({ tipo: 'payment', id: 'pag-1' })));
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasReembolso.length, 1);
+  assert.equal(sistema.reembolsos.size, 1);
+  assert.equal(sistema.colecoes.CaixaClube.length, 1);
+  assert.equal(sistema.colecoes.CaixaClube[0].reembolsoEstado, 'concluido');
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+});
+
+test('PAG-12: concorrência no cancelamento mantém instante original e uma operação por assinatura', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  await Promise.all(Array.from({ length: 4 }, () => sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId)));
+  const data = sistema.colecoes.Assinatura[0].canceladoEm;
+  sistema.definirHora('2026-11-11T12:00:00Z');
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  assert.equal(sistema.colecoes.Assinatura[0].canceladoEm, data);
+  assert.equal(sistema.colecoes.OperacaoClube.length, 1);
+  assert.equal(sistema.chamadasCancelamento.length, 1);
+});
+
+test('PAG-12: timeout do provedor mantém cancelamento pendente e permite retomada com mesma chave', async () => {
+  const opcoes = { cancelamento: true, falhaCancelar: true };
+  const sistema = montarRecorrencia(opcoes);
+  const primeiro = await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  assert.equal(primeiro.cancelamentoEstado, 'pendente');
+  assert.equal(sistema.colecoes.OperacaoClube[0].estado, 'pendente');
+  const chave = sistema.chamadasCancelamento[0].requestOptions.idempotencyKey;
+  opcoes.falhaCancelar = false;
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.colecoes.Assinatura[0].cancelamentoEstado, 'confirmado');
+  assert.equal(sistema.chamadasCancelamento[1].requestOptions.idempotencyKey, chave);
+});
+
+test('PAG-12: resposta perdida após cancelamento é conciliada sem outro PUT', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, timeoutAposCancelar: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.colecoes.Assinatura[0].cancelamentoEstado, 'confirmado');
+  assert.equal(sistema.chamadasCancelamento.length, 1);
+});
+
+test('PAG-12: cancelamento de pagamento pendente é solicitado ao provedor', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  sistema.adicionar('1', null, '2026-11-10T15:00:00Z', 'pending');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  assert.equal(sistema.pagamentos['pag-1'].status, 'cancelled');
+  assert.equal(sistema.colecoes.CaixaClube.length, 0);
+  assert.equal(sistema.chamadasCancelamento.filter((item) => item.id === 'pag-1').length, 1);
+});
+
+test('PAG-12: aprovação durante cancelamento de pendência gera reembolso, sem enviar caixa', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, aprovarDuranteCancelamento: true });
+  sistema.adicionar('1', null, '2026-11-10T15:00:00Z', 'pending');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.chamadasReembolso.length, 1);
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+});
+
+test('PAG-12: timeout após reembolso não duplica devolução e preserva chave e valor da requisição', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, timeoutAposReembolso: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  const operacao = sistema.colecoes.OperacaoClube.find((item) => item.tipo === 'reembolsar_pagamento');
+  assert.equal(operacao.estado, 'pendente');
+  assert.equal(operacao.valorSolicitado, 9490);
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(operacao.estado, 'concluida');
+  assert.equal(sistema.reembolsos.size, 1);
+  assert.equal(sistema.chamadasReembolso.length, 1);
+});
+
+test('PAG-12: falha antes do reembolso retoma o mesmo POST e alerta no prazo interno conservador', async () => {
+  const opcoes = { cancelamento: true, falhaReembolso: true };
+  const sistema = montarRecorrencia(opcoes);
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  const operacao = sistema.colecoes.OperacaoClube.find((item) => item.tipo === 'reembolsar_pagamento');
+  assert.equal(operacao.limiteSolicitacaoEm, '2026-11-12T16:02:00.000Z');
+  assert.equal(operacao.solicitadoEm, undefined);
+  opcoes.falhaReembolso = false;
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasReembolso.length, 2);
+  assert.deepEqual(sistema.chamadasReembolso[0], sistema.chamadasReembolso[1]);
+  assert.equal(sistema.reembolsos.size, 1);
+});
+
+test('PAG-12: reembolso ainda processando permanece bloqueado e é consultado sem novo POST', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, reembolsoPendente: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasReembolso.length, 1);
+  assert.equal(sistema.colecoes.CaixaClube[0].reembolsoEstado, 'solicitado');
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+  assert.equal(sistema.colecoes.OperacaoClube.find((item) => item.tipo === 'reembolsar_pagamento').estado, 'aguardando_provedor');
+});
+
+test('PAG-12: valor já devolvido parcialmente é descontado para completar restituição integral', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.pagamentos['pag-1'].transaction_amount_refunded = 10;
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.chamadasReembolso[0].body.amount, 84.9);
+});
+
+test('PAG-12: criação com resposta desconhecida pode ser encontrada e cancelada pela referência exata', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  delete sistema.colecoes.Assinatura[0].preapprovalId;
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  assert.equal(sistema.colecoes.Assinatura[0].preapprovalId, 'acordo-123');
+  assert.equal(sistema.colecoes.Assinatura[0].cancelamentoEstado, 'confirmado');
+  const ambiguo = montarRecorrencia({ cancelamento: true, buscaAmbigua: true });
+  delete ambiguo.colecoes.Assinatura[0].preapprovalId;
+  await ambiguo.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  assert.equal(ambiguo.chamadasCancelamento.length, 0);
+  assert.equal(ambiguo.colecoes.Assinatura[0].cancelamentoEstado, 'pendente');
+});
+
+test('PAG-12: cron exige segredo e administração exige perfil, sem expor operações a outro cliente', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  const rota = '/api/clube/operacoes/processar';
+  assert.equal((await sistema.enviar('get', rota)).statusCode, 401);
+  assert.equal((await sistema.enviar('get', rota, {}, { headers: { authorization: 'Bearer inválido' } })).statusCode, 401);
+  assert.equal((await sistema.enviar('get', rota, {}, { headers: { authorization: 'Bearer segredo-cron-testes' } })).statusCode, 200);
+  assert.equal((await sistema.enviar('get', '/admin/clube/operacoes', {}, { perfil: 'cliente' })).statusCode, 403);
+  assert.equal((await sistema.enviar('post', '/admin/clube/operacoes/processar', {}, { perfil: 'cliente' })).statusCode, 403);
+});
+
+test('PAG-12: esquema exige chave idempotente e impede reembolso acima da mensalidade', async () => {
+  const { OperacaoClube } = require('../backend/db/mongodb');
+  const base = { _id: 'reembolsar_pagamento:1', tipo: 'reembolsar_pagamento', assinaturaId: assinaturaTesteId,
+    clienteId: '507f1f77bcf86cd799439012', chaveIdempotencia: randomUUID(), estado: 'pendente', identificadoEm: new Date() };
+  await new OperacaoClube(base).validate();
+  await assert.rejects(new OperacaoClube({ ...base, chaveIdempotencia: undefined }).validate());
+  await assert.rejects(new OperacaoClube({ ...base, valorSolicitado: 9491 }).validate());
+});
+
+test('PAG-12: cancelamento durante autorização guarda ID remoto para retomada sem reabrir adesão', async () => {
+  const retomadas = [];
+  const servidor = montarServidor(4990, undefined, {
+    retomaCancelamento: async (dados) => retomadas.push(dados),
+    antesRespostaClube: async (adesao) => {
+      adesao.statusAdesao = 'cancelada'; adesao.canceladoEm = '2026-11-10T16:00:00Z'; adesao.cancelamentoEstado = 'pendente';
+    },
+  });
+  const resposta = await servidor.enviar('/api/assinatura/criar', dadosAdesao());
+  assert.equal(servidor.adesoes[0].preapprovalId, 'acordo-123');
+  assert.equal(servidor.adesoes[0].statusAdesao, 'cancelada');
+  assert.equal(resposta.dados.assinatura.statusAdesao, 'cancelada');
+  assert.equal(retomadas.length, 1);
+  assert.equal(retomadas[0].assinaturaId, servidor.adesoes[0]._id);
 });

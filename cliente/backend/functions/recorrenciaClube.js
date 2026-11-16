@@ -41,7 +41,7 @@ function criarConsultaFaturas({ accessToken, fetchImpl = globalThis.fetch }) {
 }
 
 function criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, CalendarioClube,
-  consultaFaturas, preApprovalModule, paymentModule, executarTransacao }) {
+  consultaFaturas, preApprovalModule, paymentModule, executarTransacao, cancelamento }) {
   async function conciliar(preapprovalId, recebidoEm) {
     const acordo = await preApprovalModule.get({ id: preapprovalId });
     if (String(acordo.id) !== preapprovalId) throw new Error('Assinatura divergente.');
@@ -90,10 +90,11 @@ function criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, Calen
       throw new Error('Ordem de aprovações requer conciliação.');
     }
     await Promise.all([MensalidadeClube.init(), CaixaClube.init()]);
-    return executarTransacao(async (session) => {
+    const resultado = await executarTransacao(async (session) => {
       // Serializa as renovações da mesma assinatura, inclusive em concorrência.
       const atual = await Assinatura.findOneAndUpdate({ _id: assinatura._id },
         { $inc: { versaoConciliacao: 1 } }, { session, new: true });
+      await Assinatura.updateOne({ _id: atual._id }, { $set: { preapprovalId } }, { session, runValidators: true });
       if (primeira && atual.primeiraFaturaId && (atual.primeiraFaturaId !== primeira.id ||
         new Date(atual.assinadoEm).getTime() !== primeira.aprovadoEm.getTime())) {
         throw new Error('Primeira mensalidade já consolidada.');
@@ -143,6 +144,7 @@ function criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, Calen
         if (caixa && !caixa.postagemPrevista && calendario) nova.postagemPrevista = calendario.postagemPrevista;
         await CaixaClube.updateOne({ mensalidadeId: item.id }, { $set: nova }, { session, upsert: true, runValidators: true });
       }
+      if (cancelamento) await cancelamento.agendarConciliacao({ assinatura: atual, verificadas, recebidoEm, session });
       if (primeira) {
         await Assinatura.updateOne({ _id: atual._id }, { $set: {
           preapprovalId, primeiraFaturaId: primeira.id, assinadoEm: primeira.aprovadoEm,
@@ -153,6 +155,8 @@ function criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, Calen
       }
       return 'processada';
     });
+    if (cancelamento) await cancelamento.processarPendentes({ assinaturaId: assinatura._id });
+    return resultado;
   }
   return async function processar({ tipo, id, referencia, recebidoEm = new Date() }) {
     if (tipo === 'subscription_preapproval') return conciliar(id, recebidoEm);
@@ -184,8 +188,9 @@ function registrarRotasClube({ app, autenticar, autenticarAdmin, MensalidadeClub
     try {
       const caixas = await CaixaClube.find({ clienteId: req.session.usuarioId }).sort({ competencia: 1 }).lean();
       res.json({ caixas: caixas.map(({ _id, assinaturaId, competencia, lote, statusPreparacao, postagemPrevista,
-        rastreio, statusFinanceiro, bloqueada, ocorrencias }) => ({ id: String(_id), assinaturaId: String(assinaturaId),
+        rastreio, statusFinanceiro, bloqueada, bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm, ocorrencias }) => ({ id: String(_id), assinaturaId: String(assinaturaId),
         competencia, lote, statusPreparacao, postagemPrevista, rastreio, statusFinanceiro, bloqueada,
+        bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm,
         ocorrencias: (ocorrencias || []).map(({ motivo, novaPrevisao, registradoEm }) => ({ motivo, novaPrevisao, registradoEm })) })) });
     } catch { res.status(503).json({ erro: 'Não foi possível consultar as caixas.' }); }
   });

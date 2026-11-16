@@ -12,7 +12,8 @@ function assinaturaPublica(assinatura) {
     frete: assinatura.frete ?? 0, statusAdesao: assinatura.statusAdesao || "legada_a_conferir",
     solicitadoEm: assinatura.solicitadoEm, assinadoEm: assinatura.assinadoEm,
     primeiraCompetencia: assinatura.primeiraCompetencia, diaCobrancaOriginal: assinatura.diaCobrancaOriginal,
-    canceladoEm: assinatura.canceladoEm };
+    canceladoEm: assinatura.canceladoEm, cancelamentoEstado: assinatura.cancelamentoEstado,
+    cancelamentoConfirmadoEm: assinatura.cancelamentoConfirmadoEm };
 }
 
 function urlRetorno(env) {
@@ -25,7 +26,7 @@ function urlRetorno(env) {
   return new URL("/clube?retorno=assinatura", url.origin).href;
 }
 
-function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, logger = console }) {
+function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, logger = console, aposAutorizacao }) {
   return async function contratar(clienteId, body) {
     if (!clienteId) throw new ErroAssinatura("Entre na sua conta para contratar o Clube.", 401);
     if (!preApprovalModule) throw new ErroAssinatura("Contratação do Clube indisponível.", 503);
@@ -99,8 +100,20 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
     // Autorizar a recorrência não comprova aprovação da primeira mensalidade.
     const dados = { preapprovalId: String(resposta.id), statusProvedor: resposta.status,
       statusAdesao: resposta.status === "cancelled" ? "cancelada" : "aguardando_pagamento" };
-    try { await Assinatura.updateOne({ _id: assinatura._id,
-      statusAdesao: { $in: ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento'] } }, { $set: dados }, { runValidators: true }); }
+    try {
+      // Se o cliente cancelar durante a autorização, ainda precisamos guardar
+      // o ID remoto para interrompê-la, sem reabrir a assinatura cancelada.
+      await Assinatura.updateOne({ _id: assinatura._id }, { $set: {
+        preapprovalId: dados.preapprovalId, statusProvedor: dados.statusProvedor,
+      } }, { runValidators: true });
+      await Assinatura.updateOne({ _id: assinatura._id,
+        statusAdesao: { $in: ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento'] } }, { $set: dados }, { runValidators: true });
+      const atual = await Assinatura.findOne({ _id: assinatura._id });
+      if (atual?.canceladoEm) {
+        if (aposAutorizacao) await aposAutorizacao(id);
+        return assinaturaPublica(atual);
+      }
+    }
     catch { logger.error("[clube] autorizacao requer conciliacao", { assinaturaId: id }); }
     return assinaturaPublica({ ...assinatura.toObject(), ...dados });
   };

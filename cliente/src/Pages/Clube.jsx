@@ -38,7 +38,8 @@ export default function Clube() {
           const consulta = await fetch('/api/assinaturas', { credentials: 'include', cache: 'no-store' });
           if (!consulta.ok) throw new Error('Não foi possível conferir suas contratações. Tente novamente antes de assinar.');
           const dados = await consulta.json();
-          atual = dados.assinaturas?.find((item) => ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento', 'ativa'].includes(item.statusAdesao)) || null;
+          atual = dados.assinaturas?.find((item) => ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento', 'ativa'].includes(item.statusAdesao) || item.cancelamentoEstado === 'pendente')
+            || dados.assinaturas?.find((item) => item.canceladoEm) || null;
         }
         if (!ativo) return;
         setPlano(dadosPlano.plano);
@@ -61,6 +62,26 @@ export default function Clube() {
   }, []);
 
   const alterar = (event) => setCartao((anterior) => ({ ...anterior, [event.target.name]: event.target.value }));
+
+  const cancelar = async () => {
+    if (envioRef.current || !assinatura) return;
+    envioRef.current = true;
+    setEnviando(true);
+    setErro('');
+    try {
+      const resposta = await fetch(`/api/assinaturas/${assinatura.id}/cancelar`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível confirmar o cancelamento. Consulte a situação antes de repetir.');
+      setAssinatura(dados.assinatura);
+      if (dados.assinatura.cancelamentoEstado === 'confirmado') {
+        sessionStorage.removeItem('mini-stitches:adesao-clube');
+        chaveRef.current = null;
+      }
+    } catch (error) { setErro(error.message); }
+    finally { envioRef.current = false; setEnviando(false); }
+  };
 
   const contratar = async (event) => {
     event.preventDefault();
@@ -130,13 +151,28 @@ export default function Clube() {
           </section>
           {assinatura ? (
             <section className="space-y-3 rounded-2xl border border-[#C58752]/40 bg-white p-6" role="status">
-              <h2 className="text-xl font-bold">{assinatura.statusAdesao === 'ativa' ? 'Assinatura ativa' : 'Solicitação de assinatura registrada'}</h2>
-              <p>{assinatura.statusAdesao === 'ativa' ? `Primeira caixa: ${assinatura.primeiraCompetencia || 'em conciliação'}. Consulte o acompanhamento das caixas nesta página.`
+              <h2 className="text-xl font-bold">{assinatura.canceladoEm ? 'Cancelamento da assinatura'
+                : assinatura.statusAdesao === 'ativa' ? 'Assinatura ativa' : 'Solicitação de assinatura registrada'}</h2>
+              <p>{assinatura.canceladoEm ? assinatura.cancelamentoEstado === 'confirmado'
+                ? 'O provedor confirmou o cancelamento da recorrência. As caixas aprovadas antes da solicitação continuam devidas.'
+                : 'Seu pedido de cancelamento está registrado. A confirmação no provedor está pendente e será conciliada.'
+                : assinatura.statusAdesao === 'ativa' ? `Primeira caixa: ${assinatura.primeiraCompetencia || 'em conciliação'}. Consulte o acompanhamento das caixas nesta página.`
                 : assinatura.statusAdesao === 'cancelada' ? 'A autorização foi cancelada pelo provedor. Consulte o atendimento para acompanhar a solicitação.'
                 : ['iniciando', 'resultado_desconhecido'].includes(assinatura.statusAdesao)
                   ? 'A contratação aguarda conciliação. Consulte o atendimento antes de solicitar outra assinatura.'
                   : 'Aguardamos a confirmação da primeira mensalidade. A autorização da recorrência ainda não confirma o pagamento da caixa.'}</p>
               <p className="text-sm">Referência: {assinatura.id}</p>
+              {assinatura.cancelamentoEstado !== 'confirmado' && <button type="button" onClick={cancelar} disabled={enviando}
+                className="mr-4 rounded-lg border border-[#602C16] px-4 py-2 disabled:opacity-50">
+                {enviando ? 'Processando...' : assinatura.canceladoEm ? 'Atualizar cancelamento' : 'Cancelar recorrência'}
+              </button>}
+              {assinatura.cancelamentoEstado === 'confirmado' && <button type="button" className="mr-4 underline" onClick={() => {
+                sessionStorage.removeItem('mini-stitches:adesao-clube'); chaveRef.current = null; setAssinatura(null); setAceite(false);
+              }}>Contratar novamente</button>}
+              <p className="text-sm">Cancelar não estorna automaticamente caixas pagas antes da solicitação.
+                Aprovações posteriores não geram envio: a loja solicita reembolso integral em até 2 dias úteis após identificá-las.
+                O crédito depende do meio de pagamento. Seus vídeos continuam disponíveis mediante login.
+                O cancelamento preserva o direito de arrependimento e os demais direitos legais.</p>
               <Link to="/contato" className="inline-block underline">Falar com o atendimento</Link>
             </section>
           ) : !perfil ? (

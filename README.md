@@ -407,9 +407,8 @@ Não há disparo automático de mensagem nem monitoramento automático desse pra
 As previsões referem-se à postagem; o recebimento depende do transporte ao CEP.
 
 A página `/clube` consulta as caixas da conta mesmo após cancelamento e oferece
-atualização manual. Cancelamento efetivo no provedor e solicitação de reembolso
-posterior pertencem à PAG-12. Esta etapa já preserva a caixa aprovada antes do
-cancelamento e bloqueia a aprovada depois, sem solicitar estorno por conta própria.
+atualização manual. O cancelamento efetivo no provedor e a solicitação de reembolso
+posterior são tratados pela PAG-12 abaixo.
 
 Os testes executam os módulos e handlers reais com banco e provedor simulados,
 incluindo corte exato, fim de mês, ano bissexto, atraso, duplicidade, concorrência
@@ -420,6 +419,88 @@ Mercado Pago. Configure os tópicos recorrentes na integração do provedor.
 Referências: [faturas recorrentes](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/get-authorized-payment/get),
 [busca de faturas](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/authorized-payment-search/get)
 e [gestão de assinaturas](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/subscription-management).
+
+### Cancelamento e reembolsos do Clube (PAG-12)
+
+O fluxo segue RN01 e UC04 da especificação revisada. O cliente pode cancelar
+a recorrência na página `/clube`, antes ou depois da primeira aprovação.
+`POST /api/assinaturas/:id/cancelar` exige login e propriedade do registro.
+IDs de pagamentos, valores e datas enviados no corpo não são utilizados.
+
+A solicitação fixa `canceladoEm` no servidor e registra uma `OperacaoClube`
+na mesma transação, antes de chamar o provedor. O instante não muda em repetições.
+`statusAdesao: cancelada` representa a decisão local; `cancelamentoEstado`
+separa a situação `pendente` da confirmação `confirmado` no provedor.
+A API retorna 202 enquanto aguarda confirmação, e a página informa a pendência.
+Somente após consultar e confirmar a autorização remota cancelada o fluxo
+declara que a recorrência foi interrompida. Timeout não gera confirmação falsa.
+
+A operação solicita `PreApproval.update` com `status: cancelled`, impedindo
+novas cobranças e tentativas da recorrência no provedor após a confirmação.
+Pagamentos conhecidos ainda pendentes também têm seu cancelamento solicitado
+pela Payments API. A consulta de faturas encontra pendências ainda não notificadas.
+Se a autorização tiver resposta desconhecida e nenhum ID local, a retomada
+percorre a busca de assinaturas e exige uma referência externa exata e única.
+Vínculo ausente/ambíguo permanece pendente para conciliação. Se a resposta da
+criação chegar depois do cancelamento, seu ID é guardado e a interrupção retomada,
+sem reabrir a assinatura. Nenhuma rota desta etapa cria ou reativa cobranças.
+
+Uma aprovação efetiva anterior ao cancelamento mantém a caixa devida, inclusive
+com postagem futura, em preparação ou com webhook recebido posteriormente.
+Não há estorno automático dessas caixas. Uma aprovação posterior bloqueia a
+caixa e agenda restituição integral. Em reembolso parcial já realizado, solicita
+somente o saldo restante para completar o total de R$ 94,90. Arrependimento e
+demais direitos legais permanecem preservados. Os vídeos continuam disponíveis
+a qualquer conta autenticada; o cancelamento não altera essa autorização.
+
+Cada operação possui ID estável por assinatura/pagamento e chave idempotente
+enviada ao Mercado Pago. Para reembolso, o corpo é salvo antes do POST e não
+é recalculado na repetição de uma solicitação inconclusiva. Um bloqueio temporário
+com token impede processadores simultâneos de assumirem a mesma operação;
+uma execução interrompida pode ser retomada após expirar o bloqueio de 2 minutos.
+O índice `_id` impede enfileiramento duplicado. Falhas mantêm as operações no
+banco para nova tentativa após 1 minuto e registram apenas o identificador da operação.
+
+A solicitação de reembolso ocorre imediatamente após a identificação da aprovação
+posterior. Como limite interno conservador, registra 48 horas corridas após essa
+identificação, sem exceder o prazo comercial de 2 dias úteis. A consulta administrativa
+marca `prazoExcedido` quando esse limite é ultrapassado sem solicitação confirmada.
+Uma resposta inconclusiva não é apresentada como estorno efetuado. Um reembolso
+aceito, mas ainda processando, fica `solicitado`; a retomada consulta seu ID sem
+outro POST. Só a Payments API confirmando devolução integral libera a situação
+`concluido`. A caixa continua bloqueada e não será enviada. O crédito ao cliente
+depende do meio de pagamento.
+
+Rotas operacionais:
+
+| Rota | Finalidade |
+| --- | --- |
+| `POST /api/assinaturas/:id/cancelar` | Cliente cancela sua própria recorrência; repetições preservam o instante original |
+| `GET /admin/clube/operacoes` | Administrador consulta até 100 operações abertas, tentativas, prazo e situação |
+| `POST /admin/clube/operacoes/processar` | Administrador retoma conciliação e operações pendentes |
+| `GET /api/clube/operacoes/processar` | Endpoint do agendador, autenticado exclusivamente com `Authorization: Bearer <CRON_SECRET>` |
+
+**Configuração de produção necessária:** defina um `CRON_SECRET` forte no servidor
+e configure um agendador externo para chamar o endpoint acima periodicamente
+(por exemplo, a cada minuto). Não coloque o segredo na URL nem no frontend.
+Sem segredo, a rota retorna 503; com autenticação incorreta, 401. A execução
+reconsulta contratos cancelados para descobrir aprovações sem webhook e processa
+até 50 operações elegíveis por chamada. Chamadas concorrentes são permitidas.
+Monitore o volume e a fila; agende mais execuções quando necessário. Falhas
+permanentes do provedor/saldo insuficiente exigem intervenção do administrador.
+Esta implementação não configura nem publica um agendador no ambiente externo.
+
+Os testes locais usam handlers reais, HMAC e serviços reais com banco/gateway
+simulados. Cobrem propriedade, falha antes da chamada, repetição, concorrência,
+timeout antes/depois do efeito remoto, cobrança pendente, aprovação durante o
+cancelamento, webhook atrasado, restituição parcial já existente e retorno da
+autorização após o cancelamento. Homologue o cancelamento e o reembolso com
+contas de teste e MongoDB em replica set antes de produção. Não foram realizadas
+cobranças, cancelamentos nem devoluções reais para executar os testes.
+
+Referências: [cancelamentos e reembolsos](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/additional-content/cancellations-and-refunds),
+[atualização da assinatura](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/update-preapproval/put)
+e [criação idempotente de reembolso](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-api-payments/create-refund/post).
 
 ## Estrutura principal
 

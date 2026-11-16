@@ -80,6 +80,8 @@ const assinaturaSchema = new mongoose.Schema({
     default: "aguardando_pagamento",
   },
   canceladoEm: { type: Date, default: null },
+  cancelamentoEstado: { type: String, enum: ['pendente', 'confirmado'] },
+  cancelamentoConfirmadoEm: Date,
 });
 
 assinaturaSchema.index({ clienteId: 1, chaveTentativa: 1 }, { unique: true,
@@ -139,6 +141,8 @@ const caixaClubeSchema = new mongoose.Schema({
   valorReembolsado: { type: Number, min: 0, validate: inteiro },
   bloqueada: { type: Boolean, required: true, default: true },
   bloqueadaParaReembolso: { type: Boolean, default: false },
+  reembolsoEstado: { type: String, enum: ['solicitado', 'concluido'] },
+  reembolsoSolicitadoEm: Date,
   entrega: { rua: String, numero: String, complemento: String, bairro: String, cidade: String, estado: String, cep: String },
   postagemPrevista: String,
   statusPreparacao: { type: String, enum: ['aguardando', 'preparando', 'enviada', 'entregue'], default: 'aguardando' },
@@ -146,6 +150,27 @@ const caixaClubeSchema = new mongoose.Schema({
   ocorrencias: [{ motivo: String, novaPrevisao: String, registradoEm: Date, clienteInformadoEm: Date }],
 });
 caixaClubeSchema.index({ assinaturaId: 1, competencia: 1 }, { unique: true });
+
+const operacaoClubeSchema = new mongoose.Schema({
+  _id: { type: String },
+  tipo: { type: String, enum: ['cancelar_assinatura', 'cancelar_pagamento', 'reembolsar_pagamento'], required: true },
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  pagamentoId: String,
+  chaveIdempotencia: { type: String, required: true },
+  estado: { type: String, enum: ['pendente', 'processando', 'aguardando_provedor', 'concluida'], required: true },
+  identificadoEm: { type: Date, required: true },
+  limiteSolicitacaoEm: Date,
+  proximaExecucaoEm: Date,
+  lockToken: String,
+  lockAte: Date,
+  tentativas: { type: Number, default: 0, min: 0, validate: inteiro },
+  valorSolicitado: { type: Number, min: 1, max: PLANO_CLUBE.valor, validate: inteiro },
+  solicitadoEm: Date,
+  reembolsoId: String,
+  finalizadoEm: Date,
+});
+operacaoClubeSchema.index({ estado: 1, proximaExecucaoEm: 1 });
 
 const tutorialSchema = new mongoose.Schema({
   titulo: { type: String, required: true, trim: true },
@@ -548,6 +573,7 @@ const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
 const MensalidadeClube = mongoose.model('MensalidadeClube', mensalidadeClubeSchema);
 const CaixaClube = mongoose.model('CaixaClube', caixaClubeSchema);
 const CalendarioClube = mongoose.model('CalendarioClube', calendarioClubeSchema);
+const OperacaoClube = mongoose.model('OperacaoClube', operacaoClubeSchema);
 const Produto = mongoose.model("Produto", produtoSchema);
 const Contador = mongoose.model("Contador", contadorSchema);
 const Pedido = mongoose.model("Pedido", pedidoSchema);
@@ -562,6 +588,7 @@ module.exports = {
   MensalidadeClube,
   CaixaClube,
   CalendarioClube,
+  OperacaoClube,
   Produto,
   Contador,
   Pedido,
