@@ -156,11 +156,12 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           return pedido;
         },
         async findOne(filtro) {
-          if (filtro.numero) return falhas.pedidoResumo?.numero === filtro.numero && falhas.pedidoResumo.clienteId === filtro.clienteId ? falhas.pedidoResumo : null;
-          return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null;
+          if (filtro.numero && falhas.pedidoResumo?.numero === filtro.numero && falhas.pedidoResumo.clienteId === filtro.clienteId) return falhas.pedidoResumo;
+          return pedidos.find((pedido) => Object.entries(filtro).every(([campo, valor]) => pedido[campo] === valor)) ?? null;
         },
         async create(dados) {
           if (falhas.pedido) throw new Error('Falha no registro do pedido');
+          if (pedidos.some((pedido) => pedido.pagamentoId === dados.pagamentoId)) throw Object.assign(new Error('Pagamento duplicado'), { code: 11000 });
           const pedido = { _id: 'pedido-1', numero: 'MS-1001', ...dados };
           pedidos.push(pedido);
           return pedido;
@@ -2335,4 +2336,316 @@ test('PAG-15: handler do checkout bloqueia resumo ausente ou expirado antes de t
     assert.equal(tokenizacoes, 0);
     assert.equal(atualizacoes, 1);
   }
+});
+
+async function consultarRecuperacao(servidor, chave) {
+  return servidor.enviar('/api/pagamentos/tentativas/:chave', { httpMethod: 'get', parametros: { chave }, testarAutenticacao: true });
+}
+
+test('PAG-16: recarregar consulta a tentativa existente, restaura Pix e não registra pedido no GET', async () => {
+  const servidor = montarServidor(4990, undefined, { status: 'pending', respostaGateway: {
+    point_of_interaction: { transaction_data: { qr_code: 'pix-ficticio-da-tentativa', qr_code_base64: 'aGVsbG8=' } },
+  } });
+  const chave = randomUUID();
+  await servidor.enviar('pix', { chaveTentativa: chave });
+  for (let repeticao = 0; repeticao < 3; repeticao++) {
+    const resposta = await consultarRecuperacao(servidor, chave);
+    assert.equal(resposta.statusCode, 200);
+    assert.equal(resposta.headers['Cache-Control'], 'private, no-store');
+    assert.equal(resposta.dados.tentativa.dados.qr_code_pix, 'pix-ficticio-da-tentativa');
+    assert.equal(resposta.dados.tentativa.statusFinanceiro, 'aguardando_pagamento');
+    assert.equal(resposta.dados.tentativa.resumo.total, 6241);
+    assert.equal(resposta.dados.tentativa.podeRegistrarPedido, true);
+    assert.equal(JSON.stringify(resposta.dados).includes('teste@example.com'), false);
+  }
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.pedidos.length, 0);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-16: recuperar exige proprietário e identidade válida, sem revelar tentativa alheia', async () => {
+  const opcoes = {};
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const chave = randomUUID();
+  await servidor.enviar('cartao', { chaveTentativa: chave });
+  opcoes.clienteId = 'outra-conta';
+  assert.equal((await consultarRecuperacao(servidor, chave)).statusCode, 404);
+  opcoes.semSessao = true;
+  assert.equal((await consultarRecuperacao(servidor, chave)).statusCode, 401);
+  opcoes.semSessao = false; opcoes.clienteId = 'cliente-teste';
+  for (const invalida of ['curta', 'x'.repeat(81), '{$ne:null}']) assert.equal((await consultarRecuperacao(servidor, invalida)).statusCode, 404);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-16: falha no registro é recuperada do snapshot sem cobrar ou reservar novamente', async () => {
+  const opcoes = { pedido: true };
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const chave = randomUUID();
+  await servidor.enviar('cartao', { chaveTentativa: chave });
+  assert.equal((await servidor.enviar('/api/pedidos', { pagamentoId: '123' })).statusCode, 500);
+  opcoes.pedido = false;
+  const dados = { parametros: { chave }, testarAutenticacao: true, pagamentoId: 'pagamento-alheio', freteCentavos: 1,
+    cliente: { nome: 'Alterado', email: 'outro@example.com' }, entrega: { cep: '20000000', endereco: 'Outro endereço' } };
+  const respostas = await Promise.all([servidor.enviar('/api/pagamentos/tentativas/:chave/pedido', dados), servidor.enviar('/api/pagamentos/tentativas/:chave/pedido', dados)]);
+  assert.ok(respostas.every((res) => res.statusCode === 200 || res.statusCode === 201));
+  assert.equal(servidor.pedidos.length, 1);
+  assert.equal(servidor.pedidos[0].total, 6490);
+  assert.equal(servidor.pedidos[0].entrega.endereco, 'Rua Teste, 1');
+  assert.equal(servidor.pedidos[0].cliente.nome, 'Cliente Teste');
+  assert.equal(servidor.pedidos[0].cliente.email, 'teste@example.com');
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  const recuperada = await consultarRecuperacao(servidor, chave);
+  assert.equal(recuperada.dados.tentativa.pedido.numero, 'MS-1001');
+  const porNumero = await servidor.enviar('/api/pedidos/:numero/pagamento', { httpMethod: 'get', parametros: { numero: 'MS-1001' }, testarAutenticacao: true });
+  assert.equal(porNumero.statusCode, 200);
+  assert.equal(porNumero.dados.tentativa.pedido.numero, 'MS-1001');
+});
+
+test('PAG-16: timeout sem resposta fica em conciliação, sem registro ou segunda cobrança', async () => {
+  const servidor = montarServidor(4990, undefined, { gateway: true });
+  const chave = randomUUID();
+  await servidor.enviar('cartao', { chaveTentativa: chave });
+  const recuperada = await consultarRecuperacao(servidor, chave);
+  assert.equal(recuperada.dados.tentativa.situacao, 'conciliacao_pendente');
+  assert.equal(recuperada.dados.tentativa.statusFinanceiro, 'desconhecido');
+  assert.equal(recuperada.dados.tentativa.podeRegistrarPedido, false);
+  assert.equal(recuperada.dados.tentativa.resumo.total, 6490);
+  assert.equal((await servidor.enviar('/api/pagamentos/tentativas/:chave/pedido', { parametros: { chave } })).statusCode, 409);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-16: tentativa não cobrada e legado sem contato não inventam dados de entrega', async () => {
+  const semEstoque = montarServidor(4990, undefined, { estoques: { 'produto-teste': { estoque: 0, estoqueSeguranca: 0, ativo: true } } });
+  const chave = randomUUID();
+  await semEstoque.enviar('cartao', { chaveTentativa: chave });
+  assert.equal((await consultarRecuperacao(semEstoque, chave)).dados.tentativa.situacao, 'nao_cobrada');
+  assert.equal(semEstoque.cobrancas.length, 0);
+  const legado = montarServidor();
+  await legado.enviar('cartao', { chaveTentativa: chave });
+  delete legado.tentativas[0].clienteContato;
+  assert.equal((await consultarRecuperacao(legado, chave)).dados.tentativa.podeRegistrarPedido, false);
+  assert.equal((await legado.enviar('/api/pagamentos/tentativas/:chave/pedido', { parametros: { chave } })).statusCode, 409);
+});
+
+test('PAG-16: recuperação do pedido confere moeda e valor exato do provedor', async () => {
+  for (const alteracao of [{ currency_id: 'USD' }, { transaction_amount: 64.89 }, { transaction_amount: 64.91 }]) {
+    const opcoes = {};
+    const servidor = montarServidor(4990, undefined, opcoes);
+    const chave = randomUUID();
+    await servidor.enviar('cartao', { chaveTentativa: chave });
+    opcoes.pagamento = alteracao;
+    assert.equal((await servidor.enviar('/api/pagamentos/tentativas/:chave/pedido', { parametros: { chave } })).statusCode, 400);
+    assert.equal(servidor.pedidos.length, 0);
+    assert.equal(servidor.cobrancas.length, 1);
+  }
+});
+
+test('PAG-16: reembolso após entrega é recuperado sem apagar logística nem apresentar nova aprovação', async () => {
+  const opcoes = {};
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const chave = randomUUID();
+  await servidor.enviar('cartao', { chaveTentativa: chave });
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  Object.assign(servidor.pedidos[0], { status: 'entregue', statusLogistico: 'entregue' });
+  opcoes.status = 'refunded'; opcoes.pagamento = { date_last_updated: '2026-11-15T13:00:00Z' };
+  await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+  const resultado = (await consultarRecuperacao(servidor, chave)).dados.tentativa;
+  assert.equal(resultado.statusFinanceiro, 'reembolsado');
+  assert.equal(resultado.valorReembolsado, 6490);
+  assert.equal(resultado.statusLogistico, 'entregue');
+  assert.equal(resultado.resumo.total, 6490);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-16: referência de URL/sessão recupera apenas identificadores e boleto só abre HTTPS seguro', async () => {
+  const { origemRecuperacao, permiteNovaCompra, urlBoletoSegura } = await import('../src/utils/recuperacaoPagamento.mjs');
+  assert.deepEqual(origemRecuperacao('', { getItem: () => 'chave-da-sessao' }), { chave: 'chave-da-sessao' });
+  assert.deepEqual(origemRecuperacao('?pedido=MS-1001', { getItem() { throw new Error('bloqueado'); } }), { pedido: 'MS-1001' });
+  assert.deepEqual(origemRecuperacao('?tentativa=chave-url', { getItem: () => 'outra-chave' }), { chave: 'chave-url' });
+  assert.equal(origemRecuperacao('', { getItem() { throw new Error('bloqueado'); } }), null);
+  for (const url of ['javascript:alert(1)', 'data:text/html,teste', 'http://example.com/boleto', 'https://usuario:senha@example.com', 'inválida']) {
+    assert.equal(urlBoletoSegura(url), null);
+  }
+  assert.equal(urlBoletoSegura('https://example.com/boleto'), 'https://example.com/boleto');
+  assert.equal(permiteNovaCompra({ situacao: 'conciliacao_pendente', statusFinanceiro: 'desconhecido' }), false);
+  assert.equal(permiteNovaCompra({ situacao: 'nao_cobrada' }), true);
+  assert.equal(permiteNovaCompra({ situacao: 'localizada', statusFinanceiro: 'aprovado', pedido: { numero: 'MS-1' } }), true);
+});
+
+function superficieConsulta() {
+  const eventos = new Map();
+  return { hidden: false, addEventListener: (nome, callback) => eventos.set(nome, callback),
+    removeEventListener: (nome) => eventos.delete(nome), emitir: (nome) => eventos.get(nome)?.() };
+}
+
+async function montarAcompanhamentoTeste(responder, opcoes = {}) {
+  const { criarAcompanhamento } = await import('../src/utils/acompanhamento.mjs');
+  const documento = superficieConsulta();
+  const janela = superficieConsulta();
+  const timers = new Map();
+  const atualizacoes = [];
+  let contador = 0;
+  const consulta = criarAcompanhamento({ url: '/api/teste-privado', selecionar: (dados) => dados,
+    aoAtualizar: (dados) => atualizacoes.push(dados), fetchImpl: responder, documento, janela,
+    agendar: (callback, ms) => { const id = ++contador; timers.set(id, { callback, ms }); return id; },
+    cancelar: (id) => timers.delete(id), agora: () => new Date('2026-11-16T12:00:00Z'), ...opcoes });
+  return { consulta, documento, janela, timers, atualizacoes,
+    async avancar() { const [id, timer] = timers.entries().next().value; timers.delete(id); await timer.callback(); } };
+}
+
+test('PAG-16: consultas não se sobrepõem, param fora da aba e retomam ao retornar', async () => {
+  let chamadas = 0;
+  let resolver;
+  const caso = await montarAcompanhamentoTeste(async () => { chamadas++; return new Promise((resolve) => { resolver = resolve; }); });
+  const inicial = caso.consulta.iniciar();
+  await caso.consulta.atualizar();
+  await caso.janela.emitir('focus');
+  assert.equal(chamadas, 1);
+  resolver({ ok: true, json: async () => ({ statusFinanceiro: 'aguardando_pagamento' }) });
+  await inicial;
+  assert.equal([...caso.timers.values()][0].ms, 4000);
+  caso.documento.hidden = true;
+  await caso.documento.emitir('visibilitychange');
+  assert.equal(caso.timers.size, 0);
+  const retorno = caso.documento.emitir('visibilitychange');
+  await retorno;
+  assert.equal(chamadas, 1);
+  caso.documento.hidden = false;
+  const visivel = caso.documento.emitir('visibilitychange');
+  assert.equal(chamadas, 2);
+  resolver({ ok: true, json: async () => ({ statusFinanceiro: 'aprovado' }) });
+  await visivel;
+  assert.equal([...caso.timers.values()][0].ms, 60000);
+  caso.consulta.parar();
+});
+
+test('PAG-16: entregue/aprovado continua consultável para reembolso ou contestação posterior', async () => {
+  let financeiro = 'aprovado';
+  const caso = await montarAcompanhamentoTeste(async () => ({ ok: true, json: async () => ({ statusFinanceiro: financeiro, statusLogistico: 'entregue' }) }));
+  await caso.consulta.iniciar();
+  assert.equal([...caso.timers.values()][0].ms, 60000);
+  financeiro = 'reembolsado';
+  await caso.avancar();
+  assert.equal(caso.atualizacoes.at(-1).dados.statusFinanceiro, 'reembolsado');
+  financeiro = 'contestado';
+  await caso.janela.emitir('focus');
+  assert.equal(caso.atualizacoes.at(-1).dados.statusFinanceiro, 'contestado');
+  caso.consulta.parar();
+});
+
+test('PAG-16: erro transitório mantém última consulta marcada e aplica backoff; acesso negado remove dados', async () => {
+  let status = 200;
+  const caso = await montarAcompanhamentoTeste(async () => ({ ok: status === 200, status,
+    json: async () => ({ statusFinanceiro: 'aprovado' }) }));
+  await caso.consulta.iniciar();
+  status = 503;
+  for (const intervalo of [30000, 60000, 120000]) {
+    await caso.avancar();
+    assert.equal(caso.atualizacoes.at(-1).desatualizado, true);
+    assert.equal(caso.atualizacoes.at(-1).dados.statusFinanceiro, 'aprovado');
+    assert.equal([...caso.timers.values()][0].ms, intervalo);
+  }
+  status = 403;
+  await caso.avancar();
+  assert.equal(caso.atualizacoes.at(-1).dados, null);
+  assert.equal(caso.timers.size, 0);
+  caso.consulta.parar();
+});
+
+test('PAG-16: consulta cancelada não publica resposta atrasada nem deixa timers', async () => {
+  let resolver;
+  let sinal;
+  const caso = await montarAcompanhamentoTeste(async (_url, opcoes) => { sinal = opcoes.signal; return new Promise((resolve) => { resolver = resolve; }); });
+  const inicial = caso.consulta.iniciar();
+  caso.consulta.parar();
+  resolver({ ok: true, json: async () => ({ statusFinanceiro: 'aprovado' }) });
+  await inicial;
+  assert.equal(sinal.aborted, true);
+  assert.equal(caso.atualizacoes.length, 0);
+  assert.equal(caso.timers.size, 0);
+});
+
+test('PAG-16: mensagens distinguem aprovação, reembolso parcial, crédito e contestação sem presumir sucesso', async () => {
+  const { financeiroPedido, situacaoFinanceira } = await import('../src/utils/pedido.mjs');
+  for (const status of ['aguardando_pagamento', 'recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado', 'em_contestacao', 'contestado', 'desconhecido', 'futuro']) {
+    assert.notEqual(financeiroPedido({ statusFinanceiro: status, status: 'entregue' }), 'aprovado');
+  }
+  assert.match(situacaoFinanceira('reembolsado').descricao, /crédito depende/);
+  assert.match(situacaoFinanceira('parcialmente_reembolsado').descricao, /total original/);
+  assert.match(situacaoFinanceira('em_contestacao').descricao, /histórico de entregas/);
+});
+
+test('PAG-16: boleto pendente é recuperado com os mesmos dados sem nova emissão', async () => {
+  const servidor = montarServidor(4990, undefined, { status: 'pending', respostaGateway: {
+    barcode: { content: '12345678901234567890123456789012345678901234567' },
+    transaction_details: { external_resource_url: 'https://example.com/boleto-ficticio.pdf' },
+  } });
+  const chave = randomUUID();
+  await servidor.enviar('boleto', { chaveTentativa: chave });
+  const dados = (await consultarRecuperacao(servidor, chave)).dados.tentativa;
+  assert.equal(dados.dados.link_boleto_pdf, 'https://example.com/boleto-ficticio.pdf');
+  assert.equal(dados.dados.codigo_de_barras.length, 47);
+  assert.equal(dados.statusFinanceiro, 'aguardando_pagamento');
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-16: referência ainda não encontrada continua em consulta sem liberar outro pagamento', async () => {
+  let status = 404;
+  const caso = await montarAcompanhamentoTeste(async () => ({ ok: status === 200, status,
+    json: async () => ({ situacao: 'conciliacao_pendente', statusFinanceiro: 'desconhecido' }) }), { repetir404: true });
+  await caso.consulta.iniciar();
+  assert.equal(caso.atualizacoes.at(-1).dados, null);
+  assert.equal(caso.atualizacoes.at(-1).statusErro, 404);
+  assert.equal(caso.timers.size, 1);
+  assert.match(caso.atualizacoes.at(-1).erro, /antes de tentar outro pagamento/);
+  status = 200;
+  await caso.avancar();
+  assert.equal(caso.atualizacoes.at(-1).dados.situacao, 'conciliacao_pendente');
+  caso.consulta.parar();
+});
+
+test('PAG-16: falha de rede ao enviar pagamento preserva referência e abre recuperação sem repetir o POST', async () => {
+  const referencias = [];
+  const retomadas = [];
+  let posts = 0;
+  await executarCheckoutTeste({
+    resumo: { cotacao: 'cotacao-de-teste', validoAte: new Date(Date.now() + 60000).toISOString() }, cartItems: [{}], subtotal: 4990,
+    valorFrete: 1500, freteSelecionadoId: 1, parcelasSelecionadas: '1', freteSelecionado: {}, pagamento: 'cartao', cep: '01001000', pedidoPendente: null,
+    entregaResumo: { cep: '01001000', endereco: 'Rua Teste, 1' },
+    formData: { nome: 'Cliente Teste', email: 'teste@example.com', cpf: '00000000000', numeroCartao: '4111111111111111', nomeCartao: 'Cliente',
+      validade: '12/30', cpfTitular: '00000000000', cvv: '123' },
+    envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null }, crypto: { randomUUID },
+    sessionStorage: { getItem: () => null, setItem: (chave, valor) => referencias.push([chave, valor]) },
+    window: { history: { state: null, replaceState: (_estado, _titulo, url) => referencias.push(['url', url]) } },
+    mpInstance: { createCardToken: async () => ({ id: 'token-teste' }) }, detectarBandeiraCartao: () => 'visa',
+    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {},
+    onRetomar: (chave) => retomadas.push(chave), alert: (mensagem) => assert.fail(mensagem),
+    fetch: async () => { posts++; throw new Error('Resposta de rede perdida'); },
+  });
+  assert.equal(posts, 1);
+  assert.equal(retomadas.length, 1);
+  assert.equal(referencias[0][1], retomadas[0]);
+  assert.equal(referencias[1][1], `/checkout?tentativa=${retomadas[0]}`);
+  assert.equal(JSON.stringify(referencias).includes('4111111111111111'), false);
+});
+
+test('PAG-16: falha na tokenização não persiste referência de uma cobrança que não foi enviada', async () => {
+  let persistencias = 0;
+  let posts = 0;
+  let retomadas = 0;
+  const avisos = [];
+  await executarCheckoutTeste({ resumo: { cotacao: 'cotacao-de-teste', validoAte: new Date(Date.now() + 60000).toISOString() },
+    cartItems: [{}], subtotal: 4990, freteSelecionado: {}, pagamento: 'cartao',
+    formData: { nome: 'Cliente Teste', email: 'teste@example.com', cpf: '00000000000', numeroCartao: '4111111111111111', nomeCartao: 'Cliente',
+      validade: '12/30', cpfTitular: '00000000000', cvv: '123' },
+    envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null }, crypto: { randomUUID },
+    sessionStorage: { getItem: () => null, setItem: () => { persistencias++; } },
+    mpInstance: { createCardToken: async () => { throw new Error('erro com cartão'); } }, detectarBandeiraCartao: () => 'visa',
+    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert: (mensagem) => avisos.push(mensagem),
+    onRetomar: () => { retomadas++; }, fetch: async () => { posts++; },
+  });
+  assert.equal(posts + persistencias + retomadas, 0);
+  assert.equal(avisos.length, 1);
+  assert.match(avisos[0], /validar o cartão/);
 });

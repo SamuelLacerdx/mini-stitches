@@ -6,7 +6,7 @@ import { ETAPAS, situacaoPedido, situacaoFinanceira, financeiroPedido, formatarD
 const card = 'rounded-2xl border border-[#C58752]/25 bg-white p-5 md:p-7';
 const acao = 'inline-flex min-h-11 items-center justify-center rounded-lg bg-[#3E2417] px-5 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4';
 
-// Uma requisição por vez; pausa fora da aba e encerra em estados finais.
+// Uma requisição por vez, com pausa fora da aba e atualização após aprovação.
 export default function PedidoStatus() {
   const { id = '' } = useParams();
   const { resultado, tentarNovamente } = usePedido(id);
@@ -65,7 +65,7 @@ export default function PedidoStatus() {
             {financeiroPedido(pedido) === 'aguardando_pagamento' && pedido.statusLogistico !== 'cancelado' && (
               <div className="space-y-4">
                 <p className="text-sm">Se você já pagou, aguarde a confirmação. Para evitar cobranças duplicadas, confira o pagamento antes de tentar novamente.</p>
-                <Link to="/checkout" state={{ pedido }} className={acao}>Finalizar pagamento</Link>
+                <Link to={`/checkout?pedido=${encodeURIComponent(pedido.numero)}`} className={acao}>Consultar pagamento existente</Link>
               </div>
             )}
             {pedido.status === 'cancelado' && <Link to="/contato" className={acao}>Pedir ajuda</Link>}
@@ -145,7 +145,9 @@ export default function PedidoStatus() {
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#C58752]/25 pt-5 text-sm">
-            <p>Precisa de ajuda com o pedido #{pedido.numero}?</p>
+            <div><p>Precisa de ajuda com o pedido #{pedido.numero}?</p>
+              {resultado.atualizadoEm && <p>Última consulta: {formatarData(resultado.atualizadoEm, true)} · Horário de Brasília</p>}
+              <button type="button" className="min-h-11 underline" onClick={tentarNovamente}>Atualizar pedido</button></div>
             <Link to="/contato" className="inline-flex min-h-11 items-center font-semibold underline">Fale com a gente</Link>
           </footer>
         </>}

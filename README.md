@@ -676,6 +676,48 @@ simulados. Homologue a interação completa no navegador, a concorrência do ín
 no MongoDB e as chamadas reais de frete/pagamento em ambiente de testes antes
 de produção. Não houve cobrança real nesta validação.
 
+## PAG-16 — Recuperação e acompanhamento do pagamento
+
+O checkout retoma uma tentativa pelo endereço `/checkout?tentativa=CHAVE` ou
+um pedido por `/checkout?pedido=NUMERO`. A sessão do navegador guarda somente
+a chave opaca da tentativa, imediatamente antes de solicitar o pagamento.
+Falhas anteriores na tokenização não deixam uma tentativa de recuperação.
+Recarregar a página ou perder a resposta da cobrança abre a consulta do pagamento
+existente, sem repetir a solicitação de cobrança.
+
+As consultas autenticadas `GET /api/pagamentos/tentativas/:chave` e
+`GET /api/pedidos/:numero/pagamento` restringem os resultados ao proprietário e
+enviam `private, no-store`. Elas permitem recuperar as instruções de Pix/boleto,
+o resumo original, o pedido e a situação financeira. Instruções de pagamento
+deixam de aparecer quando a situação financeira ou logística não permite pagar.
+
+Novas tentativas salvam nome/e-mail de contato e a entrega confirmada para
+recuperar um registro de pedido interrompido. O endpoint autenticado
+`POST /api/pagamentos/tentativas/:chave/pedido` usa esse snapshot, verifica a
+cobrança existente no provedor e reutiliza o registro idempotente do pedido.
+Ele não cria pagamentos. Moeda e valor precisam corresponder exatamente à
+cobrança em BRL e ao total da tentativa. Tentativas antigas sem dados suficientes
+continuam consultáveis, mas não têm o pedido fabricado automaticamente.
+
+Timeout ou tentativa ainda não encontrada mantém a recuperação pendente:
+um 404 pode anteceder a persistência de uma solicitação em andamento e não
+libera outra cobrança. O cliente recebe orientação para consultar novamente.
+O acompanhamento evita consultas sobrepostas, interrompe requisições ao sair,
+pausa em abas ocultas e retoma ao voltar. Há timeout de 15 segundos e aumento
+do intervalo após falhas. Erros de autorização removem os dados exibidos.
+
+Pedido e caixas do Clube continuam sendo consultados após aprovação e entrega,
+permitindo comunicar reembolso integral/parcial e contestação sem alterar o
+histórico logístico. Cancelamento logístico não é apresentado como reembolso.
+A interface mostra a última consulta e permite atualização manual.
+
+Validação local desta etapa: 158 testes de pagamentos/parcelamento, incluindo
+17 cenários novos de recuperação, isolamento, concorrência, timeout, boleto,
+polling e estados financeiros; 8 testes HTTP de pedidos; build e lint dos
+módulos alterados aprovados. As dependências externas são simuladas nos testes
+de pagamentos. Permanecem necessárias a homologação no navegador, a validação
+com MongoDB real e as chamadas ao provedor em ambiente de testes.
+
 ## Estrutura principal
 
 ```text

@@ -24,6 +24,7 @@ function identificarRequisicao(req, metodo) {
     body.endereco?.rua, body.endereco?.numero, body.endereco?.bairro, body.endereco?.cidade, body.endereco?.estado];
   if (body.pedidoNumero) dados.push(body.pedidoNumero);
   if (body.entrega?.endereco) dados.push(body.entrega.endereco);
+  if (body.cliente) dados.push([body.cliente.nome, body.cliente.email]);
   return { chaveTentativa: body.chaveTentativa,
     hashRequisicao: createHash("sha256").update(JSON.stringify(dados)).digest("hex") };
 }
@@ -61,7 +62,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
   }
 
   async function cobrar({ clienteId, metodo, itens, subtotal, frete, desconto, total,
-    parcelas = 1, cep, servicoId, body, chaveTentativa, hashRequisicao, cotacaoId, enderecoConfirmado }) {
+    parcelas = 1, cep, servicoId, body, chaveTentativa, hashRequisicao, cotacaoId, enderecoConfirmado, clienteContato, pedidoOrigemNumero }) {
     const existente = await buscar({ clienteId, chaveTentativa, hashRequisicao });
     if (existente) return existente;
     let tentativa;
@@ -69,7 +70,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
       tentativa = await TentativaPagamento.create({
         clienteId, metodo, itens, subtotal, frete, desconto, total, parcelas, cep, servicoId,
         estado: "registrada",
-        chaveTentativa, hashRequisicao, ...(cotacaoId && { cotacaoId }), enderecoConfirmado,
+        chaveTentativa, hashRequisicao, ...(cotacaoId && { cotacaoId }), enderecoConfirmado, clienteContato, pedidoOrigemNumero,
       });
     } catch (erro) {
       if (erro.code === 11000) {

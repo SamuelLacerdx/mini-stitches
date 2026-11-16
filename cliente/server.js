@@ -16,6 +16,7 @@ const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backen
 const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredosAplicacao } = require('./backend/functions/segurancaPagamento');
 const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
 const { criarResumoCheckout, ErroResumoCheckout } = require('./backend/functions/resumoCheckout');
+const { criarRecuperacaoPagamento, registrarRotasRecuperacao } = require('./backend/functions/recuperacaoPagamento');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -222,7 +223,11 @@ function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
     calculo, cep, servicoId, frete, metodo, parcelas, pedidoNumero: req.body.pedidoNumero || '', entrega: req.body.entrega });
   return {
     cotacaoId,
+    pedidoOrigemNumero: req.body.pedidoNumero || '',
     enderecoConfirmado: req.body.entrega?.endereco || '',
+    ...(typeof req.body.cliente?.nome === 'string' && typeof req.body.cliente?.email === 'string' &&
+      req.body.cliente.nome.trim() && req.body.cliente.nome.length <= 120 && req.body.cliente.email.includes('@') && req.body.cliente.email.length <= 254 &&
+      { clienteContato: { nome: req.body.cliente.nome.trim(), email: req.body.cliente.email.trim().toLowerCase() } }),
     ...req.identidadePagamento,
     clienteId: req.session.usuarioId,
     metodo,
@@ -1496,7 +1501,11 @@ registrarRotasPedidosCliente(app, {
 // Registra o pedido depois que o pagamento foi criado no Mercado Pago.
 // Itens e preços vêm do carrinho no servidor; status, forma de pagamento e
 // valor pago vêm do próprio Mercado Pago, nunca do navegador.
-app.post("/api/pedidos", autenticar, async (req, res) => {
+app.post('/api/pedidos', autenticar, registrarPedidoDoPagamento);
+registrarRotasRecuperacao({ app, autenticar,
+  recuperacao: criarRecuperacaoPagamento({ TentativaPagamento, Pedido, formatarTentativa }), registrarPedido: registrarPedidoDoPagamento });
+
+async function registrarPedidoDoPagamento(req, res) {
   try {
     validarCorpoSeguro(req.body || {});
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
@@ -1616,10 +1625,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       ? calcularPixCentavos(subtotal, frete).total
       : valorCheio;
 
-    // Tolerância de 1 centavo para arredondamentos do desconto.
+    // O registro recuperado deve corresponder exatamente à cobrança em BRL.
     if (
-      !Number.isFinite(valorPago) ||
-      Math.abs(valorPago - valorEsperado) > 1
+      pagamentoMP.currency_id !== 'BRL' || !Number.isSafeInteger(valorPago) ||
+      valorPago !== valorEsperado || valorPago !== tentativa.total
     ) {
       console.error("[api/pedidos] valor pago não confere:", {
         idPagamento,
@@ -1710,7 +1719,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       .status(500)
       .json({ erro: "Não foi possível registrar o pedido." });
   }
-});
+}
 
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];

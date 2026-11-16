@@ -332,6 +332,8 @@ const historicoStatusSchema = new mongoose.Schema(
 // Registro anterior à chamada externa. Não armazena payload do gateway,
 // token de cartão, CPF, número de cartão ou CVV.
 const tentativaPagamentoSchema = new mongoose.Schema({
+  pedidoOrigemNumero: { type: String, maxlength: 100 },
+  clienteContato: { nome: { type: String, maxlength: 120 }, email: { type: String, maxlength: 254 } },
   cotacaoId: { type: String },
   enderecoConfirmado: { type: String, maxlength: 1000 },
   clienteId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, index: true },

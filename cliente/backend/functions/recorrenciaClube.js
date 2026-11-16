@@ -188,9 +188,9 @@ function registrarRotasClube({ app, autenticar, autenticarAdmin, MensalidadeClub
     try {
       const caixas = await CaixaClube.find({ clienteId: req.session.usuarioId }).sort({ competencia: 1 }).lean();
       res.json({ caixas: caixas.map(({ _id, assinaturaId, competencia, lote, statusPreparacao, postagemPrevista,
-        rastreio, statusFinanceiro, bloqueada, bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm, ocorrencias }) => ({ id: String(_id), assinaturaId: String(assinaturaId),
+        rastreio, statusFinanceiro, valorReembolsado, bloqueada, bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm, ocorrencias }) => ({ id: String(_id), assinaturaId: String(assinaturaId),
         competencia, lote, statusPreparacao, postagemPrevista, rastreio, statusFinanceiro, bloqueada,
-        bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm,
+        valorReembolsado, bloqueadaParaReembolso, reembolsoEstado, reembolsoSolicitadoEm,
         ocorrencias: (ocorrencias || []).map(({ motivo, novaPrevisao, registradoEm }) => ({ motivo, novaPrevisao, registradoEm })) })) });
     } catch { res.status(503).json({ erro: 'Não foi possível consultar as caixas.' }); }
   });

@@ -23,8 +23,8 @@ const FINANCEIRO = {
   recusado: { titulo: 'Pagamento recusado', descricao: 'O pagamento foi recusado pelo provedor.' },
   cancelado: { titulo: 'Pagamento cancelado', descricao: 'O provedor confirmou o cancelamento do pagamento.' },
   reembolsado: { titulo: 'Pagamento reembolsado', descricao: 'O provedor registrou o reembolso. A disponibilização do crédito depende do meio de pagamento.' },
-  parcialmente_reembolsado: { titulo: 'Pagamento parcialmente reembolsado', descricao: 'Uma parte do pagamento foi reembolsada. Consulte o valor registrado abaixo.' },
-  em_contestacao: { titulo: 'Pagamento em contestação', descricao: 'O pagamento está em disputa. A expedição fica bloqueada enquanto houver pendência financeira.' },
+  parcialmente_reembolsado: { titulo: 'Pagamento parcialmente reembolsado', descricao: 'Uma parte do pagamento foi reembolsada. Consulte o valor registrado; o total original permanece no resumo. Novos envios ficam bloqueados enquanto houver pendência financeira.' },
+  em_contestacao: { titulo: 'Pagamento em contestação', descricao: 'O pagamento está em disputa. Novos envios ficam bloqueados enquanto houver pendência financeira; o histórico de entregas já realizadas é preservado.' },
   contestado: { titulo: 'Pagamento contestado', descricao: 'O provedor registrou uma contestação do pagamento. Entre em contato para acompanhar o caso.' },
   desconhecido: { titulo: 'Pagamento a conferir', descricao: 'A situação financeira precisa ser confirmada com o atendimento.' },
 };

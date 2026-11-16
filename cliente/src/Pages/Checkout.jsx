@@ -1,5 +1,7 @@
 import { usePedido } from '../hooks/usePedido';
 import { useResumoCheckout } from '../hooks/useResumoCheckout';
+import RecuperarPagamento from '../Componentes/RecuperarPagamento';
+import { origemRecuperacao } from '../utils/recuperacaoPagamento.mjs';
 import { financeiroPedido, situacaoFinanceira } from '../utils/pedido.mjs';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -59,7 +61,22 @@ const enderecoTemDadosValidos = (endereco) => {
   });
 };
 
-export default function FinalizarCompra() {
+export default function Checkout() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [origem, setOrigem] = useState(() => origemRecuperacao(location.search, {
+    getItem: (chave) => sessionStorage.getItem(chave),
+  }) || (location.state?.pedido?.numero ? { pedido: location.state.pedido.numero } : null));
+  const novaCompra = () => {
+    try { sessionStorage.removeItem('mini-stitches:tentativa-pagamento'); } catch { /* Storage pode estar indisponível. */ }
+    navigate('/checkout', { replace: true, state: null });
+    setOrigem(null);
+  };
+  if (origem) return <RecuperarPagamento key={origem.chave || origem.pedido} origem={origem} onNovaCompra={novaCompra} />;
+  return <FinalizarCompra onRetomar={(chave) => { if (chave) setOrigem({ chave }); }} />;
+}
+
+function FinalizarCompra({ onRetomar }) {
   const location = useLocation();
   const navigate = useNavigate();
   const pedidoPendente = location.state?.pedido || null;
@@ -331,20 +348,27 @@ export default function FinalizarCompra() {
   // Processamento do Pagamento
   const lerRespostaPagamento = async (resposta) => {
     const dados = await resposta.json();
+    const chaveRecuperacao = chavePagamentoRef.current;
+    if (!dados.sucesso && !dados.tentativa_id && ([400, 401, 403].includes(resposta.status) || dados.resumo_invalido || dados.nova_tentativa_permitida)) {
+      try { sessionStorage.removeItem('mini-stitches:tentativa-pagamento'); } catch { /* Referência não utilizada no provedor. */ }
+      try { window.history.replaceState(window.history.state, '', '/checkout'); } catch { /* Não há dados financeiros na URL. */ }
+    }
     if (dados.nova_tentativa_permitida || ['rejected', 'cancelled'].includes(dados.status)) {
       chavePagamentoRef.current = null;
       sessionStorage.removeItem('mini-stitches:tentativa-pagamento');
       atualizarResumo();
     }
     if (dados.resumo_invalido) { limparFrete(); atualizarResumo(); }
-    return dados;
+    if (dados.tentativa_id && !dados.sucesso && !dados.nova_tentativa_permitida) onRetomar(chaveRecuperacao);
+    return { ...dados, chaveRecuperacao };
   };
 
   const concluirPagamento = async (tipo, dados) => {
     setResumoConfirmado(dados.resumo);
-    const registro = await registrarPedido(dados.id_pagamento, dados.resumo);
-    if (registro.pedido) sessionStorage.removeItem('mini-stitches:tentativa-pagamento');
+    const registro = ['aprovado', 'aguardando_pagamento'].includes(dados.statusFinanceiro)
+      ? await registrarPedido(dados.id_pagamento, dados.resumo) : {};
     setResultado({ tipo, dados, ...registro });
+    onRetomar(dados.chaveRecuperacao || chavePagamentoRef.current);
   };
 
   const handleFinalizarPedido = async (e) => {
@@ -376,20 +400,28 @@ export default function FinalizarCompra() {
       return;
     }
 
+    let envioIncerto = false;
     try {
-      chavePagamentoRef.current ??= sessionStorage.getItem('mini-stitches:tentativa-pagamento') || crypto.randomUUID();
+      try { chavePagamentoRef.current ??= sessionStorage.getItem('mini-stitches:tentativa-pagamento'); } catch { /* Usa a referência da URL se storage estiver bloqueado. */ }
+      chavePagamentoRef.current ??= crypto.randomUUID();
       const chaveTentativa = chavePagamentoRef.current;
-      sessionStorage.setItem('mini-stitches:tentativa-pagamento', chaveTentativa);
+      const guardarReferencia = () => {
+        try { sessionStorage.setItem('mini-stitches:tentativa-pagamento', chaveTentativa); } catch { /* A URL mantém a referência sem dados pessoais. */ }
+        try { window.history.replaceState(window.history.state, '', `/checkout?tentativa=${encodeURIComponent(chaveTentativa)}`); } catch { /* A sessão mantém a referência quando disponível. */ }
+      };
       // 1. PAGAMENTO PIX
       if (pagamento === 'pix') {
         if (!email || !email.includes('@')) throw new Error('E-mail inválido.');
         if (cpfLimpo.length !== 11) throw new Error('CPF inválido.');
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/pix', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
             cotacao: resumo.cotacao,
             entrega: entregaResumo,
             ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
@@ -403,10 +435,11 @@ export default function FinalizarCompra() {
           }),
         });
         const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
         if (json.sucesso) {
           await concluirPagamento('pix', json);
-        } else {
+        } else if (!json.tentativa_id) {
           throw new Error(json.mensagem || 'Erro ao processar Pix');
         }
       }
@@ -423,11 +456,14 @@ export default function FinalizarCompra() {
           throw new Error('Informe nome e sobrenome para gerar o boleto.');
         }
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/boleto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
             cotacao: resumo.cotacao,
             entrega: entregaResumo,
             ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
@@ -448,10 +484,11 @@ export default function FinalizarCompra() {
           }),
         });
         const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
         if (json.sucesso) {
           await concluirPagamento('boleto', json);
-        } else {
+        } else if (!json.tentativa_id) {
           throw new Error(json.mensagem || 'Erro ao processar Boleto');
         }
       }
@@ -482,11 +519,14 @@ export default function FinalizarCompra() {
           throw new Error('Falha ao validar os dados do cartão.');
         }
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/cartao', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
             cotacao: resumo.cotacao,
             entrega: entregaResumo,
             ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
@@ -501,15 +541,17 @@ export default function FinalizarCompra() {
           }),
         });
         const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
-        if (json.sucesso && json.status === 'approved') {
+        if (json.sucesso) {
           await concluirPagamento('sucesso', json);
-        } else {
-          throw new Error(json.mensagem || 'Pagamento recusado.');
+        } else if (!json.tentativa_id) {
+          throw new Error(json.mensagem || 'Não foi possível confirmar o pagamento.');
         }
       }
     } catch (erro) {
-      alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
+      if (envioIncerto && chavePagamentoRef.current) onRetomar(chavePagamentoRef.current);
+      else alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
     } finally {
       setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
       setLoading(false);
