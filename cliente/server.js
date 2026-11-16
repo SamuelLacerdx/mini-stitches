@@ -11,6 +11,7 @@ const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia } = r
 const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions/webhookPagamento");
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
 const { PLANO_CLUBE, ErroAssinatura, assinaturaPublica, criarContratacaoClube } = require("./backend/functions/assinaturaClube");
+const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = require('./backend/functions/recorrenciaClube');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -33,6 +34,9 @@ const {
 const {
   Usuario,
   Assinatura,
+  MensalidadeClube,
+  CaixaClube,
+  CalendarioClube,
   Produto,
   Carrinho,
   Pedido,
@@ -71,6 +75,9 @@ const processarWebhook = criarProcessadorWebhook({
 });
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
 const contratarClube = criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env: process.env });
+const processarRecorrencia = criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, CalendarioClube,
+  consultaFaturas: criarConsultaFaturas({ accessToken: mpAccessToken }), preApprovalModule, paymentModule,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
 // boleto. APP_URL vence; VERCEL_URL e preenchido automaticamente em cada
@@ -121,14 +128,21 @@ app.post("/api/webhook", async (req, res) => {
   const assinatura = validarWebhook(req, secret);
   if (!assinatura) return res.status(401).send("Notificação inválida");
   const tipo = req.body?.type || req.query?.type;
-  if (tipo !== "payment" && !/^payment\./.test(String(req.body?.action || ""))) {
+  const recorrente = ['subscription_authorized_payment', 'subscription_preapproval'].includes(tipo);
+  if (!recorrente && tipo !== "payment" && !/^payment\./.test(String(req.body?.action || ""))) {
     return res.status(200).send("Evento não tratado");
   }
   const recebidoEm = new Date();
   try {
-    const pagamento = await paymentModule.get({ id: assinatura.paymentId });
     await conectarBanco();
-    await processarWebhook({ pagamento, ...assinatura, recebidoEm });
+    if (recorrente) {
+      await processarRecorrencia({ tipo, id: assinatura.paymentId, recebidoEm });
+    } else {
+      const pagamento = await paymentModule.get({ id: assinatura.paymentId });
+      const resultado = await processarWebhook({ pagamento, ...assinatura, recebidoEm });
+      if (resultado === 'sem_vinculo') await processarRecorrencia({ tipo: 'payment', id: assinatura.paymentId,
+        referencia: pagamento.external_reference, recebidoEm });
+    }
     return res.status(200).send("OK");
   } catch {
     console.error("[webhook] processamento pendente", { pagamentoId: assinatura.paymentId });
@@ -530,6 +544,9 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
 });
 
 app.get("/api/assinatura/plano", (_req, res) => res.json({ plano: PLANO_CLUBE }));
+
+registrarRotasClube({ app, autenticar, autenticarAdmin, MensalidadeClube, CaixaClube, CalendarioClube,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
 
 app.get("/api/assinaturas", autenticar, async (req, res) => {
   res.set("Cache-Control", "private, no-store");

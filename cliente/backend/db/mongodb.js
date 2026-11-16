@@ -58,6 +58,10 @@ const assinaturaSchema = new mongoose.Schema({
   aceiteEm: { type: Date },
   preapprovalId: { type: String },
   statusProvedor: { type: String },
+  versaoConciliacao: { type: Number, default: 0 },
+  primeiraFaturaId: String,
+  primeiraCompetencia: String,
+  diaCobrancaOriginal: { type: Number, min: 1, max: 31 },
   statusAdesao: { type: String, enum: ["iniciando", "resultado_desconhecido", "aguardando_pagamento", "ativa", "cancelada"] },
   frete: { type: Number, min: 0, default: 0 },
   enderecoOrigemId: { type: mongoose.Schema.Types.ObjectId },
@@ -92,6 +96,56 @@ const inteiro = {
   validator: Number.isInteger,
   message: "{PATH} deve ser um número inteiro (centavos).",
 };
+
+const mensalidadeClubeSchema = new mongoose.Schema({
+  _id: { type: String },
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  preapprovalId: { type: String, required: true },
+  pagamentoId: String,
+  tentativasAnteriores: [{ pagamentoId: String, statusFinanceiro: { type: String, enum: FINANCEIROS }, provedorAtualizadoEm: Date }],
+  valor: { type: Number, required: true, enum: [PLANO_CLUBE.valor], validate: inteiro },
+  statusFinanceiro: { type: String, required: true, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
+  aprovadoEm: Date,
+  recebidoEm: { type: Date, required: true },
+  provedorAtualizadoEm: { type: Date, required: true },
+  vencimentoProvedor: { type: Date, required: true },
+  vencimentoContratual: String,
+  cobrancaDivergente: { type: Boolean, default: false },
+  competencia: { type: String, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  sequencia: { type: Number, min: 0, validate: inteiro },
+});
+mensalidadeClubeSchema.index({ pagamentoId: 1 }, { unique: true, sparse: true });
+mensalidadeClubeSchema.index({ assinaturaId: 1, competencia: 1 }, { unique: true,
+  partialFilterExpression: { competencia: { $type: 'string' } } });
+
+const calendarioClubeSchema = new mongoose.Schema({
+  _id: { type: String, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  postagemPrevista: { type: String, required: true },
+  confirmadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  confirmadoEm: { type: Date, required: true },
+});
+
+const caixaClubeSchema = new mongoose.Schema({
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true, index: true },
+  mensalidadeId: { type: String, required: true, unique: true },
+  pagamentoId: { type: String, required: true, unique: true },
+  competencia: { type: String, required: true, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  lote: { type: String, required: true, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  aprovadoEm: { type: Date, required: true },
+  statusFinanceiro: { type: String, required: true, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
+  bloqueada: { type: Boolean, required: true, default: true },
+  bloqueadaParaReembolso: { type: Boolean, default: false },
+  entrega: { rua: String, numero: String, complemento: String, bairro: String, cidade: String, estado: String, cep: String },
+  postagemPrevista: String,
+  statusPreparacao: { type: String, enum: ['aguardando', 'preparando', 'enviada', 'entregue'], default: 'aguardando' },
+  rastreio: String,
+  ocorrencias: [{ motivo: String, novaPrevisao: String, registradoEm: Date, clienteInformadoEm: Date }],
+});
+caixaClubeSchema.index({ assinaturaId: 1, competencia: 1 }, { unique: true });
 
 const tutorialSchema = new mongoose.Schema({
   titulo: { type: String, required: true, trim: true },
@@ -491,6 +545,9 @@ const notificacaoPagamentoSchema = new mongoose.Schema({
 const NotificacaoPagamento = mongoose.model("NotificacaoPagamento", notificacaoPagamentoSchema);
 const Plano = mongoose.model("Plano", planoSchema);
 const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
+const MensalidadeClube = mongoose.model('MensalidadeClube', mensalidadeClubeSchema);
+const CaixaClube = mongoose.model('CaixaClube', caixaClubeSchema);
+const CalendarioClube = mongoose.model('CalendarioClube', calendarioClubeSchema);
 const Produto = mongoose.model("Produto", produtoSchema);
 const Contador = mongoose.model("Contador", contadorSchema);
 const Pedido = mongoose.model("Pedido", pedidoSchema);
@@ -502,6 +559,9 @@ module.exports = {
   Usuario,
   Plano,
   Assinatura,
+  MensalidadeClube,
+  CaixaClube,
+  CalendarioClube,
   Produto,
   Contador,
   Pedido,

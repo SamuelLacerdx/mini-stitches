@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import CaixasClube from '../Componentes/CaixasClube';
 
 const moeda = (valor) => (valor / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const campo = 'mt-1 w-full rounded-lg border border-[#C58752]/50 bg-white p-3';
@@ -114,6 +115,7 @@ export default function Clube() {
         </header>
         {carregando && <p role="status">Carregando o Clube...</p>}
         {erro && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{erro}</p>}
+        {perfil && <CaixasClube />}
         {plano && <>
           <section className="space-y-4 rounded-2xl border border-[#C58752]/40 bg-white p-6">
             <h2 className="text-2xl font-bold">{plano.nome}</h2>
@@ -129,7 +131,7 @@ export default function Clube() {
           {assinatura ? (
             <section className="space-y-3 rounded-2xl border border-[#C58752]/40 bg-white p-6" role="status">
               <h2 className="text-xl font-bold">{assinatura.statusAdesao === 'ativa' ? 'Assinatura ativa' : 'Solicitação de assinatura registrada'}</h2>
-              <p>{assinatura.statusAdesao === 'ativa' ? 'Acompanhe as próximas informações da sua assinatura na sua conta.'
+              <p>{assinatura.statusAdesao === 'ativa' ? `Primeira caixa: ${assinatura.primeiraCompetencia || 'em conciliação'}. Consulte o acompanhamento das caixas nesta página.`
                 : assinatura.statusAdesao === 'cancelada' ? 'A autorização foi cancelada pelo provedor. Consulte o atendimento para acompanhar a solicitação.'
                 : ['iniciando', 'resultado_desconhecido'].includes(assinatura.statusAdesao)
                   ? 'A contratação aguarda conciliação. Consulte o atendimento antes de solicitar outra assinatura.'

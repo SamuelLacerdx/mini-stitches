@@ -11,6 +11,7 @@ function assinaturaPublica(assinatura) {
   return { id: String(assinatura._id), plano: assinatura.plano,
     frete: assinatura.frete ?? 0, statusAdesao: assinatura.statusAdesao || "legada_a_conferir",
     solicitadoEm: assinatura.solicitadoEm, assinadoEm: assinatura.assinadoEm,
+    primeiraCompetencia: assinatura.primeiraCompetencia, diaCobrancaOriginal: assinatura.diaCobrancaOriginal,
     canceladoEm: assinatura.canceladoEm };
 }
 
@@ -90,14 +91,16 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
       });
       if (!resposta?.id) throw new Error("Resposta inconclusiva");
     } catch {
-      try { await Assinatura.updateOne({ _id: assinatura._id }, { $set: { statusAdesao: "resultado_desconhecido" } }); }
+      try { await Assinatura.updateOne({ _id: assinatura._id,
+        statusAdesao: { $in: ['iniciando', 'resultado_desconhecido'] } }, { $set: { statusAdesao: "resultado_desconhecido" } }); }
       catch { logger.error("[clube] contratacao requer conciliacao", { assinaturaId: id }); }
       throw new ErroAssinatura("Não foi possível confirmar a contratação. Consulte o atendimento antes de repetir.", 503, id);
     }
     // Autorizar a recorrência não comprova aprovação da primeira mensalidade.
     const dados = { preapprovalId: String(resposta.id), statusProvedor: resposta.status,
       statusAdesao: resposta.status === "cancelled" ? "cancelada" : "aguardando_pagamento" };
-    try { await Assinatura.updateOne({ _id: assinatura._id }, { $set: dados }, { runValidators: true }); }
+    try { await Assinatura.updateOne({ _id: assinatura._id,
+      statusAdesao: { $in: ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento'] } }, { $set: dados }, { runValidators: true }); }
     catch { logger.error("[clube] autorizacao requer conciliacao", { assinaturaId: id }); }
     return assinaturaPublica({ ...assinatura.toObject(), ...dados });
   };

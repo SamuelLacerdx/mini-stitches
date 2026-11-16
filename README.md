@@ -245,7 +245,7 @@ do pagamento nos logs.
 
 Este fluxo trata o tópico `payment` das compras avulsas. O status financeiro
 mais recente fica registrado na tentativa e no pedido, separadamente da logística
-(PAG-09). A integração recorrente terá seus próprios tópicos nas etapas de assinatura.
+(PAG-09). Os tópicos recorrentes são conciliados separadamente, conforme PAG-11 abaixo.
 
 Referência técnica: [notificações do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/payment-notifications).
 Os testes locais usam HMAC real e banco/gateway simulados; a homologação
@@ -336,6 +336,90 @@ pendentes não são contadas como assinaturas ativas no painel.
 Referência técnica: [assinaturas com pagamento autorizado](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/integration-configuration/subscription-no-associated-plan/authorized-payments).
 Os testes locais simulam o provedor e o banco; a tokenização e a primeira
 cobrança devem ser homologadas com contas e cartões de teste do Mercado Pago.
+
+### Mensalidades, caixas e calendário do Clube (PAG-11)
+
+A implementação segue RN01, RF10 e UC08 da
+[especificação revisada](https://docs.google.com/document/d/1q2ahCE_9drT_uEBRZR1qIDAnrjw1jFWuaUfM733luBE/edit).
+O webhook aceita `subscription_authorized_payment` e `subscription_preapproval`,
+sempre com a validação HMAC já utilizada no tópico `payment`. Consulta a autorização,
+percorre todas as páginas de `/authorized_payments/search` e consulta os pagamentos
+na Payments API. Confere vínculo, cartão de crédito, moeda BRL, valor 9490 centavos
+e datas efetivas. Autorizar a recorrência não ativa a adesão. A primeira aprovação
+efetiva registra `assinadoEm` e ativa a assinatura. A data de recebimento é separada.
+O tópico `payment` também procura a fatura quando não encontra uma compra avulsa.
+
+`MensalidadeClube` identifica a fatura; `CaixaClube` identifica sua entrega.
+Índices únicos impedem reutilizar pagamento, fatura ou competência da assinatura.
+A conciliação é transacional, serializada por assinatura e ordenada pela versão
+do recurso. Lê o histórico completo para resolver notificações fora de ordem;
+inconsistências de vínculo, primeira aprovação ou competência já consolidada
+recebem 503 para conciliação, sem remapear entregas silenciosamente. Uma nova
+tentativa de uma fatura recusada pode substituir o pagamento não aprovado,
+preservando seu identificador e situação no histórico. Pagamentos pendentes e
+recusados não geram caixa. Reembolsos e contestações bloqueiam novos envios.
+
+O calendário usa `America/Sao_Paulo`: primeira aprovação até dia 10 às 12:00:00,
+inclusive, corresponde ao mês atual; após isso, ao seguinte. Cada mensalidade
+aprovada seguinte financia o próximo mês da sequência de caixas. Não reaplica
+o corte de adesão a cada renovação. Aprovação após o corte da competência adia
+o lote de postagem até o próximo corte elegível, mantendo a competência e o
+pagamento original. Repetições preservam preparação, rastreio e adiamentos.
+O prazo de separação de 2 dias úteis das compras avulsas não se aplica ao Clube.
+
+O vencimento contratual é calculado a partir do dia da primeira aprovação:
+31/janeiro → 28/fevereiro → 31/março, ou 29/fevereiro em ano bissexto.
+`vencimentoProvedor`, `vencimentoContratual` e `cobrancaDivergente` ficam disponíveis
+para conciliação administrativa. **Essa verificação não altera a agenda de débito
+do Mercado Pago**. É necessário homologar a agenda do provedor, inclusive quando
+a aprovação inicial acontece em dia diferente da autorização e nos dias 29 a 31.
+Não há criação de cobrança adicional para corrigir calendário. Enquanto essa
+compatibilidade não estiver comprovada, a PAG-11 não está integralmente homologada.
+
+Rotas adicionadas (todas privadas e sem cache):
+
+| Rota | Acesso e finalidade |
+| --- | --- |
+| `GET /api/clube/caixas` | Cliente: apenas suas caixas, competência, previsão, situação, ocorrências e rastreio |
+| `GET /admin/clube/mensalidades` | Administrador: pagamentos, faturas, versões e divergências de vencimento |
+| `GET /admin/clube/caixas` | Administrador: caixas aprovadas, desbloqueadas e ainda não postadas, inclusive de assinaturas canceladas |
+| `PUT /admin/clube/calendario/:mes` | Administrador: confirma a data operacional de postagem do lote `AAAA-MM` |
+| `PATCH /admin/clube/caixas/:id` | Administrador: avança `aguardando` → `preparando` → `enviada` → `entregue` |
+| `POST /admin/clube/caixas/:id/ocorrencias` | Administrador: registra impedimento, nova previsão e confirmação de contato com o cliente |
+
+Para confirmar o calendário, envie `postagemPrevista: "AAAA-MM-DD"` e
+`operacaoConfirmada: true`. A operação deve conferir a unidade/transportadora:
+use o dia 10 ou o primeiro dia útil com operação seguinte, inclusive feriados
+locais. Sem calendário confirmado, a previsão fica pendente e o envio bloqueado.
+A alteração do calendário atualiza caixas ainda não postadas sem ocorrência
+específica, preservando as exceções individuais.
+
+Para avançar a preparação, envie `statusPreparacao`; no envio, inclua `rastreio`.
+Não é permitido marcar envio antes da previsão, sem calendário ou com pendência
+financeira. O recebimento de uma caixa já enviada pode ser registrado mesmo
+se surgir uma pendência financeira posteriormente.
+
+Em impedimento extraordinário, a operação deve informar o cliente e apresentar
+nova previsão **até 1 dia útil após identificar o problema**. Registre `motivo`,
+`novaPrevisao` e `clienteInformado: true` na rota de ocorrências. O registro guarda
+a comunicação confirmada pelo operador e fica visível na página `/clube`.
+Não há disparo automático de mensagem nem monitoramento automático desse prazo.
+As previsões referem-se à postagem; o recebimento depende do transporte ao CEP.
+
+A página `/clube` consulta as caixas da conta mesmo após cancelamento e oferece
+atualização manual. Cancelamento efetivo no provedor e solicitação de reembolso
+posterior pertencem à PAG-12. Esta etapa já preserva a caixa aprovada antes do
+cancelamento e bloqueia a aprovada depois, sem solicitar estorno por conta própria.
+
+Os testes executam os módulos e handlers reais com banco e provedor simulados,
+incluindo corte exato, fim de mês, ano bissexto, atraso, duplicidade, concorrência
+simulada, versão antiga, falha transacional, autorização e adulteração de valores.
+É necessária homologação com MongoDB em replica set e notificações reais do
+Mercado Pago. Configure os tópicos recorrentes na integração do provedor.
+
+Referências: [faturas recorrentes](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/get-authorized-payment/get),
+[busca de faturas](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/authorized-payment-search/get)
+e [gestão de assinaturas](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/subscription-management).
 
 ## Estrutura principal
 

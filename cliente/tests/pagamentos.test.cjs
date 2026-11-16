@@ -6,6 +6,8 @@ const { createRequire } = require('node:module');
 const { runInNewContext } = require('node:vm');
 const { randomUUID, createHmac } = require('node:crypto');
 const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
+const { primeiraCompetencia, loteElegivel, vencimentoMensal, validarPostagem } = require('../backend/functions/calendarioClube');
+const { criarConciliadorClube, criarConsultaFaturas, registrarRotasClube } = require('../backend/functions/recorrenciaClube');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
 function montarServidor(preco = 4990, cotacao, falhas = {}) {
@@ -54,6 +56,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   } }], async populate() {}, async save() {} };
   if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/recorrenciaClube') {
+      const modulo = requerer(nome);
+      return { ...modulo,
+        criarConsultaFaturas: () => ({ buscar: async () => [], obter: async () => { throw new Error('Fatura indisponível'); } }),
+        criarConciliadorClube: (opcoes) => falhas.conciliacaoClube || modulo.criarConciliadorClube(opcoes),
+      };
+    }
     if (nome === './backend/functions/estadosPedido') {
       const modulo = requerer(nome);
       return { ...modulo, criarAtualizadorLogistico(opcoes) {
@@ -102,7 +111,8 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         },
         async updateOne(filtro, dados) {
           if (falhas.atualizacaoClube) throw new Error('Falha no banco');
-          const item = adesoes.find((item) => item._id === filtro._id);
+          const item = adesoes.find((item) => item._id === filtro._id &&
+            (!filtro.statusAdesao?.$in || filtro.statusAdesao.$in.includes(item.statusAdesao)));
           if (item) Object.assign(item, dados.$set);
           return { matchedCount: item ? 1 : 0 };
         },
@@ -217,6 +227,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           assert.equal(body.external_reference, adesoes[0]._id);
           assert.equal(requestOptions.idempotencyKey, body.external_reference);
           autorizacoes.push(body);
+          if (falhas.antesRespostaClube) await falhas.antesRespostaClube(adesoes[0]);
           if (falhas.clube) throw new Error('Timeout token-sensivel');
           return { id: 'acordo-123', status: 'authorized' };
         }
@@ -1031,5 +1042,344 @@ test('PAG-10: modelo aceita SUB-02 e não permite cadastrar novamente planos ant
   assert.equal(assinatura.statusCaixa, 'aguardando_pagamento');
   for (const plano of [{ nome: 'mensal', valor: 8990 }, { nome: 'trimestral', valor: 24000 }]) {
     await assert.rejects(new Assinatura({ ...base, plano }).validate());
+  }
+});
+
+function montarRecorrencia() {
+  const clone = (valor) => JSON.parse(JSON.stringify(valor));
+  const colecoes = { Assinatura: [], MensalidadeClube: [], CaixaClube: [], CalendarioClube: [] };
+  const contexto = { falhaCaixa: false, faturas: [], pagamentos: {}, colecoes };
+  const corresponde = (item, filtro) => Object.entries(filtro).every(([chave, esperado]) => {
+    const atual = chave.split('.').reduce((valor, parte) => valor?.[parte], item);
+    if (esperado && typeof esperado === 'object') {
+      if ('$in' in esperado) return esperado.$in.includes(atual);
+      if ('$exists' in esperado) return (atual !== undefined) === esperado.$exists;
+    }
+    return atual === esperado;
+  });
+  const modelos = {};
+  for (const [nome, lista] of Object.entries(colecoes)) {
+    const atualizar = (filtro, dados, opcoes = {}) => {
+      if (nome === 'CaixaClube' && contexto.falhaCaixa) throw new Error('Falha de persistência');
+      let item = lista.find((valor) => corresponde(valor, filtro));
+      if (!item && opcoes.upsert) { item = { _id: `${nome}-${lista.length + 1}`, ...filtro }; lista.push(item); }
+      if (!item) return null;
+      Object.assign(item, clone(dados.$set || {}));
+      for (const [chave, valor] of Object.entries(dados.$inc || {})) item[chave] = (item[chave] || 0) + valor;
+      for (const [chave, valor] of Object.entries(dados.$push || {})) (item[chave] ||= []).push(clone(valor));
+      return clone(item);
+    };
+    modelos[nome] = {
+      async init() {},
+      async findById(id) { return clone(lista.find((item) => item._id === id) || null); },
+      async findOne(filtro) { return clone(lista.find((item) => corresponde(item, filtro)) || null); },
+      find(filtro) { return { sort() { return this; }, async lean() { return clone(lista.filter((item) => corresponde(item, filtro))); } }; },
+      async updateOne(filtro, dados, opcoes) { const item = atualizar(filtro, dados, opcoes); return { matchedCount: item ? 1 : 0 }; },
+      async findOneAndUpdate(filtro, dados, opcoes) { return atualizar(filtro, dados, opcoes); },
+      async updateMany(filtro, dados, opcoes) {
+        for (const item of lista.filter((item) => corresponde(item, filtro))) atualizar({ _id: item._id }, dados, opcoes);
+      },
+    };
+  }
+  let fila = Promise.resolve();
+  const executarTransacao = (operacao) => {
+    const proxima = fila.then(async () => {
+      const copia = clone(colecoes);
+      try { return await operacao({ teste: true }); }
+      catch (erro) {
+        for (const [nome, lista] of Object.entries(colecoes)) lista.splice(0, lista.length, ...copia[nome]);
+        throw erro;
+      }
+    });
+    fila = proxima.catch(() => {});
+    return proxima;
+  };
+  colecoes.Assinatura.push({ _id: '507f1f77bcf86cd799439011', clienteId: 'cliente-a', preapprovalId: 'acordo-123',
+    plano: { codigo: 'SUB-02', valor: 9490 }, entrega: { cep: '01001000' }, statusAdesao: 'aguardando_pagamento' });
+  const acordo = { id: 'acordo-123', external_reference: '507f1f77bcf86cd799439011',
+    auto_recurring: { frequency: 1, frequency_type: 'months', currency_id: 'BRL', transaction_amount: 94.9 } };
+  const processar = criarConciliadorClube({ ...modelos, executarTransacao,
+    preApprovalModule: { get: async () => clone(acordo) },
+    consultaFaturas: { obter: async (id) => clone(contexto.faturas.find((item) => String(item.id) === id)),
+      buscar: async (filtro) => clone(filtro.payment_id ? contexto.faturas.filter((item) => String(item.payment?.id) === filtro.payment_id) : contexto.faturas) },
+    paymentModule: { get: async ({ id }) => clone(contexto.pagamentos[id]) },
+  });
+  const app = {};
+  const rotas = new Map();
+  for (const metodo of ['get', 'put', 'patch', 'post']) app[metodo] = (url, ...handlers) => rotas.set(`${metodo} ${url}`, handlers);
+  const { autenticar, autenticarAdmin } = require('../backend/functions/autenticacao').criarAutenticacao({ jwtSecret: 'teste' });
+  registrarRotasClube({ app, autenticar, autenticarAdmin, ...modelos, executarTransacao });
+  return { ...contexto, acordo, modelos, processar,
+    falharCaixa(valor) { contexto.falhaCaixa = valor; },
+    adicionar(id, aprovadoEm, vencimento = aprovadoEm, status = 'approved') {
+      contexto.faturas.push({ id, preapproval_id: 'acordo-123', currency_id: 'BRL', transaction_amount: 94.9,
+        debit_date: vencimento, last_modified: '2027-03-01T12:00:00Z', payment: { id: `pag-${id}` } });
+      contexto.pagamentos[`pag-${id}`] = { id: `pag-${id}`, currency_id: 'BRL', transaction_amount: 94.9,
+        payment_type_id: 'credit_card', date_approved: aprovadoEm, date_last_updated: '2027-03-01T12:00:00Z', status };
+    },
+    async enviar(metodo, url, body = {}, { clienteId = 'cliente-a', perfil = 'admin', params = {} } = {}) {
+      const req = { headers: {}, session: { usuarioId: clienteId, perfil }, params, body };
+      const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, set() { return this; }, json(dados) { this.dados = dados; return this; } };
+      const [auth, handler] = rotas.get(`${metodo} ${url}`);
+      let autorizado = false;
+      auth(req, res, () => { autorizado = true; });
+      if (autorizado) await handler(req, res);
+      return res;
+    },
+  };
+}
+
+test('PAG-11: corte inclusivo às 12h de Brasília, milissegundo seguinte e mudança de ano', () => {
+  for (const [instante, mes] of [
+    ['2026-11-10T14:59:59.999Z', '2026-11'], ['2026-11-10T15:00:00.000Z', '2026-11'],
+    ['2026-11-10T15:00:00.001Z', '2026-12'], ['2026-12-31T23:59:59-03:00', '2027-01'],
+    ['2026-12-01T01:00:00Z', '2026-12'],
+  ]) assert.equal(primeiraCompetencia(instante), mes);
+  assert.throws(() => primeiraCompetencia('inválida'));
+  assert.throws(() => validarPostagem('2027-02', '2027-02-30'));
+  assert.throws(() => validarPostagem('2026-11', '2026-11-09'));
+});
+
+test('PAG-11: dia 31 volta após fevereiro, inclusive bissexto; atraso altera lote e preserva competência', () => {
+  assert.equal(vencimentoMensal('2027-01-31T12:00:00-03:00', 1), '2027-02-28');
+  assert.equal(vencimentoMensal('2027-01-31T12:00:00-03:00', 2), '2027-03-31');
+  assert.equal(vencimentoMensal('2028-01-31T12:00:00-03:00', 1), '2028-02-29');
+  assert.equal(loteElegivel('2026-12', '2026-12-10T12:00:00-03:00'), '2026-12');
+  assert.equal(loteElegivel('2026-12', '2026-12-10T12:00:01-03:00'), '2027-01');
+  assert.equal(loteElegivel('2026-12', '2027-02-05T12:00:00-03:00'), '2027-02');
+});
+
+test('PAG-11: primeira aprovação ativa; renovação avança caixa sem reaplicar corte de adesão', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-15T12:00:00-03:00');
+  sistema.adicionar('2', '2026-12-15T12:00:00-03:00');
+  await sistema.processar({ tipo: 'subscription_authorized_payment', id: '2' });
+  assert.equal(sistema.colecoes.Assinatura[0].statusAdesao, 'ativa');
+  assert.equal(sistema.colecoes.Assinatura[0].assinadoEm, '2026-11-15T15:00:00.000Z');
+  assert.deepEqual(sistema.colecoes.CaixaClube.map((item) => [item.competencia, item.lote]), [['2026-12', '2026-12'], ['2027-01', '2027-01']]);
+  assert.deepEqual(sistema.colecoes.MensalidadeClube.map((item) => item.vencimentoContratual), ['2026-11-15', '2026-12-15']);
+});
+
+test('PAG-11: aprovação tardia da renovação adia postagem e não gera nova caixa no replay', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  sistema.adicionar('2', '2026-12-11T12:00:00-03:00', '2026-12-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-2' });
+  assert.equal(sistema.colecoes.CaixaClube[1].competencia, '2026-12');
+  assert.equal(sistema.colecoes.CaixaClube[1].lote, '2027-01');
+  sistema.colecoes.CaixaClube[1].statusPreparacao = 'preparando';
+  sistema.colecoes.CaixaClube[1].postagemPrevista = '2027-01-11';
+  await Promise.all(Array.from({ length: 4 }, () => sistema.processar({ tipo: 'subscription_authorized_payment', id: '2' })));
+  assert.equal(sistema.colecoes.CaixaClube.length, 2);
+  assert.equal(sistema.colecoes.MensalidadeClube.length, 2);
+  assert.equal(sistema.colecoes.CaixaClube[1].statusPreparacao, 'preparando');
+  assert.equal(sistema.colecoes.CaixaClube[1].postagemPrevista, '2027-01-11');
+});
+
+test('PAG-11: faturas fora de ordem no provedor mantêm a primeira caixa e os meses corretos', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('2', '2026-12-05T12:00:00-03:00');
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'subscription_authorized_payment', id: '2' });
+  await sistema.processar({ tipo: 'subscription_authorized_payment', id: '1' });
+  assert.deepEqual(sistema.colecoes.CaixaClube.map((item) => item.competencia), ['2026-11', '2026-12']);
+});
+
+test('PAG-11: autorização, pendência e recusa não ativam nem liberam postagem', async () => {
+  const sistema = montarRecorrencia();
+  await sistema.processar({ tipo: 'subscription_preapproval', id: 'acordo-123' });
+  for (const status of ['pending', 'rejected']) {
+    sistema.adicionar(status, null, '2026-11-05T12:00:00-03:00', status);
+  }
+  await sistema.processar({ tipo: 'subscription_preapproval', id: 'acordo-123' });
+  assert.equal(sistema.colecoes.Assinatura[0].statusAdesao, 'aguardando_pagamento');
+  assert.equal(sistema.colecoes.CaixaClube.length, 0);
+  assert.equal(sistema.colecoes.MensalidadeClube.length, 2);
+});
+
+test('PAG-11: reembolso e contestação bloqueiam expedição; versão antiga não desfaz bloqueio', async () => {
+  for (const status of ['refunded', 'charged_back', 'in_mediation']) {
+    const sistema = montarRecorrencia();
+    sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+    await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+    Object.assign(sistema.pagamentos['pag-1'], { status, date_last_updated: '2027-03-02T12:00:00Z' });
+    await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+    assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+    Object.assign(sistema.pagamentos['pag-1'], { status: 'approved', date_last_updated: '2027-03-01T12:00:00Z' });
+    await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+    assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+  }
+});
+
+test('PAG-11: falha na gravação reverte mensalidade, ativação e caixa e permite nova notificação', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  sistema.falharCaixa(true);
+  await assert.rejects(sistema.processar({ tipo: 'payment', id: 'pag-1' }));
+  assert.equal(sistema.colecoes.MensalidadeClube.length, 0);
+  assert.equal(sistema.colecoes.Assinatura[0].statusAdesao, 'aguardando_pagamento');
+  sistema.falharCaixa(false);
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.colecoes.CaixaClube.length, 1);
+});
+
+test('PAG-11: valor, moeda, cartão e vínculo são conferidos na API, antes de persistir', async () => {
+  for (const adulteracao of [{ transaction_amount: 0.01 }, { currency_id: 'USD' },
+    { payment_type_id: 'account_money' }, { id: 'outro-pagamento' }, { date_approved: 'inválida' }]) {
+    const sistema = montarRecorrencia();
+    sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+    Object.assign(sistema.pagamentos['pag-1'], adulteracao);
+    await assert.rejects(sistema.processar({ tipo: 'payment', id: 'pag-1' }));
+    assert.equal(sistema.colecoes.CaixaClube.length, 0);
+  }
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  sistema.faturas[0].preapproval_id = 'outra-assinatura';
+  await assert.rejects(sistema.processar({ tipo: 'subscription_preapproval', id: 'acordo-123' }));
+});
+
+test('PAG-11: calendário operacional ajusta dia sem alterar competência e exige administrador', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.colecoes.CaixaClube[0].postagemPrevista, undefined);
+  const body = { postagemPrevista: '2026-11-11', operacaoConfirmada: true };
+  const params = { mes: '2026-11' };
+  assert.equal((await sistema.enviar('put', '/admin/clube/calendario/:mes', body, { params, perfil: 'cliente' })).statusCode, 403);
+  assert.equal((await sistema.enviar('put', '/admin/clube/calendario/:mes', body, { params, clienteId: null })).statusCode, 401);
+  assert.equal((await sistema.enviar('put', '/admin/clube/calendario/:mes', { ...body, operacaoConfirmada: false }, { params })).statusCode, 400);
+  assert.equal((await sistema.enviar('put', '/admin/clube/calendario/:mes', body, { params })).statusCode, 200);
+  assert.equal(sistema.colecoes.CaixaClube[0].postagemPrevista, '2026-11-11');
+  assert.equal(sistema.colecoes.CaixaClube[0].competencia, '2026-11');
+  const propria = await sistema.enviar('get', '/api/clube/caixas', {}, { perfil: 'cliente' });
+  assert.equal(propria.dados.caixas.length, 1);
+  assert.equal(propria.dados.caixas[0].pagamentoId, undefined);
+  assert.equal((await sistema.enviar('get', '/api/clube/caixas', {}, { clienteId: 'outro-cliente', perfil: 'cliente' })).dados.caixas.length, 0);
+});
+
+test('PAG-11: caixa paga antes do cancelamento continua devida; posterior fica bloqueada', async () => {
+  const sistema = montarRecorrencia();
+  Object.assign(sistema.colecoes.Assinatura[0], { canceladoEm: '2026-12-01T12:00:00-03:00', statusAdesao: 'cancelada' });
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  sistema.adicionar('2', '2026-12-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.colecoes.Assinatura[0].statusAdesao, 'cancelada');
+  const expedir = await sistema.enviar('get', '/admin/clube/caixas');
+  assert.equal(expedir.dados.caixas.length, 1);
+  assert.equal(expedir.dados.caixas[0].competencia, '2026-11');
+  assert.equal(sistema.colecoes.CaixaClube[1].bloqueadaParaReembolso, true);
+});
+
+test('PAG-11: expedição exige pagamento, calendário e rastreio; ocorrência preservada no replay', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  const params = { id: sistema.colecoes.CaixaClube[0]._id };
+  assert.equal((await sistema.enviar('patch', '/admin/clube/caixas/:id', { statusPreparacao: 'preparando' }, { params })).statusCode, 200);
+  assert.equal((await sistema.enviar('patch', '/admin/clube/caixas/:id', { statusPreparacao: 'enviada', rastreio: 'BR123456789' }, { params })).statusCode, 409);
+  const ocorrencia = { motivo: 'Unidade sem operação.', novaPrevisao: '2026-11-11', clienteInformado: true };
+  assert.equal((await sistema.enviar('post', '/admin/clube/caixas/:id/ocorrencias', ocorrencia, { params })).statusCode, 200);
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.colecoes.CaixaClube[0].postagemPrevista, '2026-11-11');
+  assert.equal(sistema.colecoes.CaixaClube[0].ocorrencias.length, 1);
+  sistema.colecoes.CaixaClube[0].bloqueada = true;
+  assert.equal((await sistema.enviar('patch', '/admin/clube/caixas/:id', { statusPreparacao: 'enviada', rastreio: 'BR123456789' }, { params })).statusCode, 409);
+  sistema.colecoes.CaixaClube[0].bloqueada = false;
+  assert.equal((await sistema.enviar('patch', '/admin/clube/caixas/:id', { statusPreparacao: 'enviada', rastreio: 'BR123456789' }, { params })).statusCode, 200);
+  assert.equal(sistema.colecoes.CaixaClube[0].rastreio, 'BR123456789');
+});
+
+test('PAG-11: REST de faturas percorre páginas e falha com histórico truncado', async () => {
+  const urls = [];
+  const consulta = criarConsultaFaturas({ accessToken: 'teste', fetchImpl: async (url, opcoes) => {
+    urls.push(String(url));
+    assert.equal(opcoes.headers.Authorization, 'Bearer teste');
+    return { ok: true, json: async () => ({ paging: { total: 2 }, results: [{ id: urls.length }] }) };
+  } });
+  assert.equal((await consulta.buscar({ preapproval_id: 'acordo-123' })).length, 2);
+  assert.match(urls[1], /offset=1/);
+  const incompleta = criarConsultaFaturas({ accessToken: 'teste', fetchImpl: async () => ({ ok: true,
+    json: async () => ({ paging: { total: 1 }, results: [] }) }) });
+  await assert.rejects(incompleta.buscar({ preapproval_id: 'acordo-123' }));
+  await assert.rejects(consulta.obter('../injetado'));
+});
+
+test('PAG-11: tópicos recorrentes passam pelo HMAC; assinatura inválida não consulta provedor', async () => {
+  const chamadas = [];
+  const servidor = montarServidor(4990, undefined, { conciliacaoClube: async (evento) => chamadas.push(evento) });
+  for (const type of ['subscription_preapproval', 'subscription_authorized_payment']) {
+    assert.equal((await servidor.enviar('/api/webhook', { type, data: { id: 'fatura-1' } })).statusCode, 200);
+    assert.equal(chamadas.at(-1).tipo, type);
+    assert.equal((await servidor.enviar('/api/webhook', { type, data: { id: 'fatura-1' }, headers: {} })).statusCode, 401);
+  }
+  assert.equal(chamadas.length, 2);
+});
+
+test('PAG-11: nova tentativa de fatura recusada pode aprovar uma única caixa com histórico preservado', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', null, '2026-11-05T12:00:00-03:00', 'rejected');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  sistema.faturas[0].payment.id = 'pag-2';
+  sistema.pagamentos['pag-2'] = { ...sistema.pagamentos['pag-1'], id: 'pag-2', status: 'approved',
+    date_approved: '2026-11-06T12:00:00-03:00', date_last_updated: '2027-03-02T12:00:00Z' };
+  await sistema.processar({ tipo: 'payment', id: 'pag-2' });
+  await sistema.processar({ tipo: 'payment', id: 'pag-2' });
+  assert.equal(sistema.colecoes.MensalidadeClube.length, 1);
+  assert.equal(sistema.colecoes.CaixaClube.length, 1);
+  assert.equal(sistema.colecoes.MensalidadeClube[0].pagamentoId, 'pag-2');
+  assert.equal(sistema.colecoes.MensalidadeClube[0].tentativasAnteriores[0].pagamentoId, 'pag-1');
+});
+
+test('PAG-11: vencimento divergente do dia original fica identificado para conciliação administrativa', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2027-01-31T12:00:00-03:00');
+  sistema.adicionar('2', '2027-02-28T12:00:00-03:00');
+  sistema.adicionar('3', '2027-03-28T12:00:00-03:00');
+  await sistema.processar({ tipo: 'payment', id: 'pag-3' });
+  assert.equal(sistema.colecoes.Assinatura[0].diaCobrancaOriginal, 31);
+  assert.equal(sistema.colecoes.MensalidadeClube[1].cobrancaDivergente, false);
+  assert.equal(sistema.colecoes.MensalidadeClube[2].vencimentoContratual, '2027-03-31');
+  assert.equal(sistema.colecoes.MensalidadeClube[2].cobrancaDivergente, true);
+  const resposta = await sistema.enviar('get', '/admin/clube/mensalidades');
+  assert.equal(resposta.dados.mensalidades.length, 3);
+  assert.equal((await sistema.enviar('get', '/admin/clube/mensalidades', {}, { perfil: 'cliente' })).statusCode, 403);
+});
+
+test('PAG-11: índices únicos protegem mensalidade, pagamento e caixa; esquema não aceita fração de centavo', async () => {
+  const { MensalidadeClube, CaixaClube } = require('../backend/db/mongodb');
+  for (const modelo of [MensalidadeClube, CaixaClube]) {
+    assert.ok(modelo.schema.indexes().some(([campos, opcoes]) => campos.pagamentoId && opcoes.unique));
+    assert.ok(modelo.schema.indexes().some(([campos, opcoes]) => campos.assinaturaId && campos.competencia && opcoes.unique));
+  }
+  const base = { _id: 'fatura-1', assinaturaId: '507f1f77bcf86cd799439011', clienteId: '507f1f77bcf86cd799439012',
+    preapprovalId: 'acordo-123', valor: 9490, statusFinanceiro: 'aguardando_pagamento',
+    recebidoEm: new Date(), provedorAtualizadoEm: new Date(), vencimentoProvedor: new Date() };
+  await new MensalidadeClube(base).validate();
+  await assert.rejects(new MensalidadeClube({ ...base, valor: 9490.5 }).validate());
+});
+
+test('PAG-11: mesma versão com status conflitante falha sem liberar caixa bloqueada', async () => {
+  const sistema = montarRecorrencia();
+  sistema.adicionar('1', '2026-11-05T12:00:00-03:00', undefined, 'refunded');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  sistema.pagamentos['pag-1'].status = 'approved';
+  await assert.rejects(sistema.processar({ tipo: 'payment', id: 'pag-1' }));
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+});
+
+test('PAG-11: pagamento conhecido sem fatura visível solicita reenvio; desconhecido é ignorado', async () => {
+  const sistema = montarRecorrencia();
+  await assert.rejects(sistema.processar({ tipo: 'payment', id: 'pag-1', referencia: '507f1f77bcf86cd799439011' }));
+  assert.equal(await sistema.processar({ tipo: 'payment', id: 'outro' }), 'sem_vinculo');
+  assert.equal(sistema.colecoes.CaixaClube.length, 0);
+});
+
+test('PAG-11: resposta e timeout da adesão não regridem ativação já conciliada', async () => {
+  for (const falha of [false, true]) {
+    const servidor = montarServidor(4990, undefined, { clube: falha,
+      antesRespostaClube: async (adesao) => { adesao.statusAdesao = 'ativa'; adesao.assinadoEm = '2026-11-05T12:00:00-03:00'; } });
+    await servidor.enviar('/api/assinatura/criar', dadosAdesao());
+    assert.equal(servidor.adesoes[0].statusAdesao, 'ativa');
+    assert.equal(servidor.adesoes[0].assinadoEm, '2026-11-05T12:00:00-03:00');
   }
 });
