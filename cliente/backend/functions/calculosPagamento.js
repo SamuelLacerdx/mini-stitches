@@ -52,9 +52,25 @@ function calcularValorBaseCentavos(subtotalCentavos, freteCentavos) {
   return total;
 }
 
+function calcularPixCentavos(subtotalCentavos, freteCentavos) {
+  const subtotal = Number(subtotalCentavos);
+  const frete = Number(freteCentavos);
+  if (!Number.isSafeInteger(subtotal) || subtotal < 0 || !Number.isSafeInteger(frete) || frete < 0) {
+    throw new ErroCalculoPagamento("Os valores do Pix são inválidos.");
+  }
+  const produtosLiquidos = Math.round(subtotal * 0.95);
+  const desconto = subtotal - produtosLiquidos;
+  const total = produtosLiquidos + frete;
+  if (![produtosLiquidos, desconto, total].every(Number.isSafeInteger)) {
+    throw new ErroCalculoPagamento("O valor do Pix é inválido.");
+  }
+  return { produtosLiquidos, desconto, total };
+}
+
 module.exports = {
   ErroCalculoPagamento,
   calcularSubtotalCentavos,
   criarItensPedido,
   calcularValorBaseCentavos,
+  calcularPixCentavos,
 };

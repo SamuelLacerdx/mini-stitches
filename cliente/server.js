@@ -21,6 +21,7 @@ const {
   ErroCalculoPagamento,
   criarItensPedido,
   calcularValorBaseCentavos,
+  calcularPixCentavos,
 } = require("./backend/functions/calculosPagamento");
 const {
   Usuario,
@@ -222,7 +223,11 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       subtotalCentavos,
       obterFreteCentavos(req.body),
     );
-    const valorComDescontoCentavos = Math.round(valorBaseCentavos * 0.95);
+    const pix = calcularPixCentavos(
+      subtotalCentavos,
+      obterFreteCentavos(req.body),
+    );
+    const valorComDescontoCentavos = pix.total;
     const valorComDesconto = valorComDescontoCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
@@ -1600,8 +1605,9 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     );
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
-    const valorEsperado =
-      pagamento === "pix" ? Math.round(valorCheio * 0.95) : valorCheio;
+    const valorEsperado = pagamento === "pix"
+      ? calcularPixCentavos(subtotal, frete).total
+      : valorCheio;
 
     // Tolerância de 1 centavo para arredondamentos do desconto.
     if (

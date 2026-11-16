@@ -368,7 +368,9 @@ export default function FinalizarCompra() {
     opcoesFrete.find((opcao) => opcao.servicoId === freteSelecionadoId) || null;
   const valorFrete = freteSelecionado ? Number(freteSelecionado.preco || 0) : 0;
   const totalComFrete = subtotal + valorFrete;
-  const pixTotal = Math.round(totalComFrete * 0.95);
+  const pixProdutos = Math.round(subtotal * 0.95);
+  const pixDesconto = subtotal - pixProdutos;
+  const pixTotal = pixProdutos + valorFrete;
   const valorPedido = totalComFrete / 100;
   const opcoesParcelamento = Array.from({ length: 6 }, (_, index) => {
     const parcela = index + 1;
@@ -860,7 +862,7 @@ export default function FinalizarCompra() {
                 {pagamento === 'pix' && freteSelecionado && (
                   <div className="flex justify-between items-center gap-3 text-sm text-green-800">
                     <span>Desconto Pix (5%)</span>
-                    <span>− {formatarPreco(totalComFrete - pixTotal)}</span>
+                    <span>− {formatarPreco(pixDesconto)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center gap-3 border-t border-[#3E2417]/10 pt-3">
