@@ -1,5 +1,6 @@
 const { createHmac, timingSafeEqual } = require("crypto");
 const { resumirResposta } = require("./tentativasPagamento");
+const { estadosPedido, financeiroDoProvedor, projetarStatus } = require("./estadosPedido");
 
 function validarWebhook(req, secret) {
   const id = req.query?.["data.id"];
@@ -42,12 +43,18 @@ function criarProcessadorWebhook({ TentativaPagamento, Pedido, NotificacaoPagame
       throw new Error("Pagamento sem datas de conciliação válidas.");
     }
     const chave = `${paymentId}:${atualizadoEm.getTime()}`;
+    const totalProvedor = Math.round(Number(pagamento.transaction_amount) * 100);
+    if (pagamento.currency_id !== "BRL" || !Number.isSafeInteger(totalProvedor) || totalProvedor <= 0) throw new Error("Valor de pagamento inválido.");
+    const financeiro = financeiroDoProvedor(pagamento, totalProvedor);
     await NotificacaoPagamento.init();
 
     async function aplicar(session) {
       const processada = await NotificacaoPagamento.findById(chave, null, { session });
       if (processada) {
-        if (processada.statusProvedor !== pagamento.status) throw new Error("Versão de pagamento inconsistente.");
+        if (processada.statusProvedor !== pagamento.status ||
+          (processada.statusFinanceiro && (processada.statusFinanceiro !== financeiro.statusFinanceiro || processada.valorReembolsado !== financeiro.valorReembolsado))) {
+          throw new Error("Versão de pagamento inconsistente.");
+        }
         return "duplicada";
       }
       const referencia = String(pagamento.external_reference || "");
@@ -58,7 +65,7 @@ function criarProcessadorWebhook({ TentativaPagamento, Pedido, NotificacaoPagame
       if (!tentativa && !pedido) return "sem_vinculo";
       if (tentativa?.pagamentoId && tentativa.pagamentoId !== paymentId) throw new Error("Vínculo de pagamento inconsistente.");
       const valorEsperado = tentativa?.total ?? pedido.total;
-      if (pagamento.currency_id !== "BRL" || Math.round(Number(pagamento.transaction_amount) * 100) !== valorEsperado) {
+      if (totalProvedor !== valorEsperado) {
         throw new Error("Valor do pagamento não confere.");
       }
       const bases = [tentativa?.provedorAtualizadoEm, pedido?.pagamentoAtualizadoEm].filter(Boolean);
@@ -73,32 +80,40 @@ function criarProcessadorWebhook({ TentativaPagamento, Pedido, NotificacaoPagame
           pagamentoId: paymentId, estado: "resposta_recebida", statusProvedor: pagamento.status,
           respostaGateway: resumirResposta(pagamento), provedorAtualizadoEm: atualizadoEm,
           ...(aprovadoEm && { aprovadoEm }), ultimaNotificacaoEm: recebidoEm,
+          ...financeiro,
         } }, { session, runValidators: true });
       }
-      const cancelamento = ["cancelled", "rejected", "refunded", "charged_back"].includes(pagamento.status);
-      const novoStatus = pagamento.status === "approved" ? "pago" : cancelamento ? "cancelado" : null;
+      const encerrar = ["recusado", "cancelado", "reembolsado"].includes(financeiro.statusFinanceiro);
       if (pedido) {
-        const alteracao = { pagamentoAtualizadoEm: atualizadoEm,
+        const anteriores = estadosPedido(pedido);
+        let statusLogistico = anteriores.statusLogistico;
+        if (statusLogistico === "aguardando_liberacao" && financeiro.statusFinanceiro === "aprovado") statusLogistico = "pronto_para_preparo";
+        if (encerrar && ["aguardando_liberacao", "pronto_para_preparo", "em_separacao"].includes(statusLogistico)) statusLogistico = "cancelado";
+        const mudancaLogistica = statusLogistico !== anteriores.statusLogistico;
+        const mudancaFinanceira = !pedido.statusFinanceiro || anteriores.statusFinanceiro !== financeiro.statusFinanceiro || anteriores.valorReembolsado !== financeiro.valorReembolsado;
+        const status = projetarStatus(financeiro.statusFinanceiro, statusLogistico);
+        const alteracao = { ...financeiro, statusLogistico, status, pagamentoAtualizadoEm: atualizadoEm,
           ...(aprovadoEm && { pagamentoAprovadoEm: aprovadoEm }) };
-        const mudanca = pedido.status === "aguardando_pagamento" && novoStatus;
-        if (mudanca) {
-          alteracao.status = novoStatus;
-          if (novoStatus === "cancelado" && !pedido.tentativaId) alteracao.estoqueRestituicaoPendente = true;
-        }
+        if (mudancaLogistica && statusLogistico === "cancelado" && !pedido.tentativaId) alteracao.estoqueRestituicaoPendente = true;
+        const historicos = {
+          ...(mudancaFinanceira && { historicoFinanceiro: { status: financeiro.statusFinanceiro,
+            valorReembolsado: financeiro.valorReembolsado, em: financeiro.statusFinanceiro === "aprovado" ? aprovadoEm : atualizadoEm } }),
+          ...(mudancaLogistica && { historicoLogistico: { status: statusLogistico, em: atualizadoEm } }),
+          ...(status !== pedido.status && { historicoStatus: { status, em: status === "pago" ? aprovadoEm : atualizadoEm } }),
+        };
         await Pedido.updateOne({ _id: pedido._id }, {
           $set: alteracao,
-          ...(mudanca && { $push: { historicoStatus: {
-            status: novoStatus, em: novoStatus === "pago" ? aprovadoEm : atualizadoEm,
-          } } }),
+          ...(Object.keys(historicos).length && { $push: historicos }),
         }, { session, runValidators: true });
-        if (mudanca && novoStatus === "cancelado") {
+        if (mudancaLogistica && statusLogistico === "cancelado") {
           await reservasEstoque.liberarPedido({ _id: pedido._id, tentativaId: pedido.tentativaId }, session);
         }
       }
-      if (tentativa && !pedido && ["cancelled", "rejected"].includes(pagamento.status)) {
+      if (tentativa && !pedido && encerrar) {
         await reservasEstoque.liberar(tentativa._id, session);
       }
       await NotificacaoPagamento.create([{
+        ...financeiro,
         _id: chave, pagamentoId: paymentId, statusProvedor: pagamento.status,
         provedorAtualizadoEm: atualizadoEm, aprovadoEm, recebidoEm, requestId,
       }], { session });
@@ -109,7 +124,8 @@ function criarProcessadorWebhook({ TentativaPagamento, Pedido, NotificacaoPagame
     catch (erro) {
       if (erro.code === 11000) {
         const gravada = await NotificacaoPagamento.findById(chave);
-        if (gravada?.statusProvedor === pagamento.status) return "duplicada";
+        if (gravada?.statusProvedor === pagamento.status && gravada.statusFinanceiro === financeiro.statusFinanceiro &&
+          gravada.valorReembolsado === financeiro.valorReembolsado) return "duplicada";
       }
       throw erro;
     }

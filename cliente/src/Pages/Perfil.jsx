@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { financeiroPedido, situacaoFinanceira } from "../utils/pedido.mjs";
 
 const enderecoVazio = {
   apelido: "",
@@ -18,7 +19,7 @@ const STATUS_PEDIDO = {
     rotulo: "Aguardando pagamento",
     classe: "bg-yellow-100",
   },
-  pago: { rotulo: "Pago", classe: "bg-green-100" },
+  pago: { rotulo: "Aguardando preparo", classe: "bg-green-100" },
   em_separacao: { rotulo: "Em separação", classe: "bg-orange-100" },
   enviado: { rotulo: "Enviado", classe: "bg-blue-100" },
   entregue: { rotulo: "Entregue", classe: "bg-pink-200" },
@@ -796,7 +797,7 @@ export default function Perfil() {
               classe: "bg-stone-200",
             };
             const aguardandoPagamento =
-              pedido.status === "aguardando_pagamento";
+              financeiroPedido(pedido) === "aguardando_pagamento" && pedido.statusLogistico !== "cancelado";
             const conteudo = (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -818,6 +819,7 @@ export default function Perfil() {
                     .map((item) => `${item.quantidade}× ${item.nome}`)
                     .join(", ")}
                 </p>
+                <p className="font-semibold">{situacaoFinanceira(financeiroPedido(pedido)).titulo}</p>
 
               </>
             );

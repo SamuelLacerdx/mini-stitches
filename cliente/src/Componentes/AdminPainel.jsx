@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
+import { financeiroPedido, situacaoFinanceira } from "../utils/pedido.mjs";
 
 const STATUS_PEDIDO = {
   aguardando_pagamento: {
     rotulo: "Aguardando pagamento",
     cor: "bg-amber-100 text-amber-800",
   },
-  pago: { rotulo: "Pago", cor: "bg-green-100 text-green-800" },
+  pago: { rotulo: "Aguardando preparo", cor: "bg-green-100 text-green-800" },
   em_separacao: { rotulo: "Em separação", cor: "bg-blue-100 text-blue-800" },
   enviado: { rotulo: "Enviado", cor: "bg-indigo-100 text-indigo-800" },
   entregue: { rotulo: "Entregue", cor: "bg-emerald-100 text-emerald-800" },
   cancelado: { rotulo: "Cancelado", cor: "bg-red-100 text-red-700" },
 };
-
-// Status definidos só pelo Mercado Pago; o admin não pode atribuí-los.
-const STATUS_SO_GATEWAY = ["aguardando_pagamento", "pago"];
 
 const PAGAMENTO = { pix: "Pix", cartao: "Cartão", boleto: "Boleto" };
 
@@ -63,17 +61,19 @@ function useAdminFetch(url) {
   return { dados: estado.dados, erro: estado.erro, carregando, recarregar };
 }
 
-function BadgeStatus({ status }) {
+function BadgeStatus({ status, statusFinanceiro }) {
   const info = STATUS_PEDIDO[status] || {
     rotulo: status,
     cor: "bg-stone-100 text-stone-700",
   };
   return (
-    <span
+    <div><span
       className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold uppercase ${info.cor}`}
     >
       {info.rotulo}
     </span>
+      {statusFinanceiro && <p className="mt-1 text-xs">{situacaoFinanceira(statusFinanceiro).titulo}</p>}
+    </div>
   );
 }
 
@@ -124,7 +124,7 @@ export function VisaoGeral({ onVerPedidos }) {
         <CardMetrica
           titulo="FATURADO"
           valor={formatarReais(dados.faturado)}
-          detalhe="pedidos com pagamento aprovado"
+          detalhe="confirmados, descontados os reembolsos"
         />
         <CardMetrica
           titulo="TICKET MÉDIO"
@@ -192,7 +192,7 @@ export function VisaoGeral({ onVerPedidos }) {
                       {formatarReais(pedido.total)}
                     </td>
                     <td className="px-4 py-3">
-                      <BadgeStatus status={pedido.status} />
+                      <BadgeStatus status={pedido.status} statusFinanceiro={financeiroPedido(pedido)} />
                     </td>
                   </tr>
                 ))}
@@ -207,7 +207,9 @@ export function VisaoGeral({ onVerPedidos }) {
 
 function DetalhePedido({ pedido, onAtualizado }) {
   const [status, setStatus] = useState(pedido.status);
-  const aguardandoPagamento = pedido.status === "aguardando_pagamento";
+  const financeiro = financeiroPedido(pedido);
+  const transicoes = { pago: ['em_separacao', 'cancelado'], em_separacao: ['enviado', 'cancelado'], enviado: ['entregue'] };
+  const opcoesPermitidas = (transicoes[pedido.status] || []).filter((alvo) => financeiro === 'aprovado' || ['cancelado', 'entregue'].includes(alvo));
   const [rastreio, setRastreio] = useState(pedido.rastreio || "");
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
@@ -280,13 +282,15 @@ function DetalhePedido({ pedido, onAtualizado }) {
       </div>
 
       <div className="space-y-3">
+        <p className="font-semibold">{situacaoFinanceira(financeiro).titulo}</p>
+        {pedido.valorReembolsado > 0 && <p>Reembolso registrado: {formatarReais(pedido.valorReembolsado)}</p>}
         <p className="font-bold text-[#3E2417]">Atualizar pedido</p>
         <label className="flex flex-col gap-1 font-medium">
           Status
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            disabled={aguardandoPagamento}
+            disabled={opcoesPermitidas.length === 0}
             className="border border-stone-300 rounded-xl px-3 py-2 bg-white disabled:bg-stone-100 disabled:text-stone-500"
           >
             {Object.entries(STATUS_PEDIDO).map(([valor, info]) => (
@@ -294,7 +298,7 @@ function DetalhePedido({ pedido, onAtualizado }) {
                 key={valor}
                 value={valor}
                 disabled={
-                  STATUS_SO_GATEWAY.includes(valor) && valor !== pedido.status
+                  valor !== pedido.status && !opcoesPermitidas.includes(valor)
                 }
               >
                 {info.rotulo}
@@ -303,9 +307,9 @@ function DetalhePedido({ pedido, onAtualizado }) {
           </select>
         </label>
         <p className="text-xs text-stone-500">
-          {aguardandoPagamento
-            ? "O status muda automaticamente quando o pagamento for confirmado."
-            : "“Aguardando pagamento” e “Pago” são definidos apenas pelo pagamento."}
+          {financeiro === 'aprovado'
+            ? 'Esta alteração afeta a logística. Cancelar o pedido não estorna o pagamento.'
+            : 'Pendência financeira: avanço da expedição bloqueado. O estado financeiro vem do provedor.'}
         </p>
         <label className="flex flex-col gap-1 font-medium">
           Código de rastreio
@@ -434,7 +438,7 @@ export function PedidosAdmin() {
                 <span className="font-bold text-[#3E2417] whitespace-nowrap">
                   {formatarReais(pedido.total)}
                 </span>
-                <BadgeStatus status={pedido.status} />
+                <BadgeStatus status={pedido.status} statusFinanceiro={financeiroPedido(pedido)} />
               </button>
               {abertoId === pedido._id && (
                 <div className="px-4 pb-4">

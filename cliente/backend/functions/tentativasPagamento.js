@@ -1,4 +1,5 @@
 const { createHash } = require("crypto");
+const { financeiroDoProvedor } = require("./estadosPedido");
 
 class ErroIdempotencia extends Error {
   constructor(message, status = 409, tentativaId) {
@@ -26,6 +27,7 @@ function resumirResposta(resposta) {
   return {
     id: resposta.id, status: resposta.status, status_detail: resposta.status_detail,
     installments: resposta.installments,
+    transaction_amount_refunded: resposta.transaction_amount_refunded,
     barcode: { content: resposta.barcode?.content || "" },
     transaction_details: { external_resource_url: resposta.transaction_details?.external_resource_url || "" },
     point_of_interaction: { transaction_data: {
@@ -120,6 +122,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
     }
 
     const respostaGravada = await atualizar({
+      ...financeiroDoProvedor(resposta, total),
       estado: "resposta_recebida",
       pagamentoId: String(resposta.id),
       statusProvedor: String(resposta.status || "desconhecido").slice(0, 80),

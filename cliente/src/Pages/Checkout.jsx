@@ -1,4 +1,5 @@
 import { usePedido } from '../hooks/usePedido';
+import { financeiroPedido, situacaoFinanceira } from '../utils/pedido.mjs';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -74,10 +75,11 @@ export default function FinalizarCompra() {
   const chavePagamentoRef = useRef(null);
   const [resultado, setResultado] = useState(null); // Armazena sucesso, QR code, Link Boleto
   const { resultado: acompanhamento, tentarNovamente } = usePedido(resultado?.pedido?.numero, { somentePagamento: true });
-  const statusPagamento = acompanhamento?.pedido?.status || resultado?.pedido?.status;
-  const pagamentoAprovado = ['pago', 'em_separacao', 'enviado', 'entregue'].includes(statusPagamento)
-    || (!resultado?.pedido && resultado?.dados?.status === 'approved');
-  const pagamentoCancelado = statusPagamento === 'cancelado';
+  const pedidoAtual = acompanhamento?.pedido || resultado?.pedido || resultado?.dados;
+  const financeiroAtual = financeiroPedido(pedidoAtual);
+  const pagamentoAprovado = financeiroAtual === 'aprovado' && pedidoAtual?.statusLogistico !== 'cancelado';
+  const pagamentoCancelado = ['recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado', 'em_contestacao', 'contestado'].includes(financeiroAtual)
+    || pedidoAtual?.statusLogistico === 'cancelado';
   const [mpInstance, setMpInstance] = useState(null);
   const [cartItems, setCartItems] = useState([]);
   const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
@@ -943,7 +945,12 @@ export default function FinalizarCompra() {
                     </>
                   )}
                   {pagamentoCancelado && (
-                    <p role="status" className="text-sm text-red-700">Pagamento cancelado ou não aprovado. Consulte os detalhes do pedido antes de tentar novamente.</p>
+                    <div role="status" className="text-sm text-red-700">
+                      <p>{situacaoFinanceira(financeiroAtual).titulo}</p>
+                      <p>{situacaoFinanceira(financeiroAtual).descricao}</p>
+                      {pedidoAtual?.valorReembolsado > 0 && <p>Reembolso registrado: {formatarPreco(pedidoAtual.valorReembolsado)}</p>}
+                      {pedidoAtual?.statusLogistico === 'cancelado' && financeiroAtual === 'aprovado' && <p>Pedido cancelado na operação; o pagamento aguarda confirmação de estorno.</p>}
+                    </div>
                   )}
                   {resultado.pedido && !pagamentoAprovado && !pagamentoCancelado && (
                     <p role="status" className="text-xs text-[#3E2417]">Aguardando confirmação do pagamento. Esta tela será atualizada automaticamente.</p>

@@ -244,14 +244,58 @@ recebem HTTP 200. Erros não registram headers, assinatura ou dados completos
 do pagamento nos logs.
 
 Este fluxo trata o tópico `payment` das compras avulsas. O status financeiro
-mais recente fica registrado na tentativa; a separação completa entre estados
-financeiros e logísticos e a política após reembolso/contestação de pedidos já
-pagos continuam na PAG-09. A integração recorrente terá seus próprios tópicos
-nas etapas de assinatura.
+mais recente fica registrado na tentativa e no pedido, separadamente da logística
+(PAG-09). A integração recorrente terá seus próprios tópicos nas etapas de assinatura.
 
 Referência técnica: [notificações do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/payment-notifications).
 Os testes locais usam HMAC real e banco/gateway simulados; a homologação
 de notificações reais e concorrência no MongoDB continua necessária.
+
+### Estados financeiros e logísticos (PAG-09)
+
+O pedido possui `statusFinanceiro`, `statusLogistico` e `valorReembolsado` em
+centavos. `historicoFinanceiro` e `historicoLogistico` registram as mudanças
+separadamente. O campo antigo `status` permanece como projeção de compatibilidade,
+sem representar sozinho a situação financeira atual.
+
+| Situação consultada na Payments API | Estado financeiro |
+| --- | --- |
+| `pending`, `in_process`, `authorized` | `aguardando_pagamento` |
+| `approved`, sem reembolso | `aprovado` |
+| `approved`, com valor parcialmente reembolsado | `parcialmente_reembolsado` |
+| `refunded`, ou valor integral reembolsado | `reembolsado` |
+| `rejected` / `cancelled` | `recusado` / `cancelado` |
+| `in_mediation` / `charged_back` | `em_contestacao` / `contestado` |
+
+O webhook continua processando reembolsos e contestações após a aprovação.
+O total original do pedido não é alterado: o valor devolvido é registrado
+separadamente. Não são solicitados estornos automaticamente por essa etapa;
+o estado financeiro reflete o recurso consultado no provedor.
+
+A logística segue `aguardando_liberacao` → `pronto_para_preparo` →
+`em_separacao` → `enviado` → `entregue`. A aprovação libera o preparo.
+Pendência financeira, contestação ou reembolso parcial bloqueiam novos avanços
+para preparo/envio. Reembolso integral confirmado antes do envio cancela a
+logística e libera o estoque uma única vez. Após o envio, preserva a logística
+e não repõe estoque automaticamente: eventual retorno físico precisa ser
+tratado no pós-venda. A entrega de uma encomenda já enviada pode ser registrada
+mesmo se houver pendência financeira.
+
+O administrador só altera logística e rastreio. Transições para trás, reabertura
+de cancelamento e salto de etapas são rejeitados. O cancelamento operacional
+antes do envio repõe o estoque, mas não muda o pagamento para reembolsado.
+As alterações logísticas e os efeitos de estoque são transacionais.
+
+Checkout, perfil, acompanhamento e painel administrativo mostram a situação
+financeira separadamente. A API de status também a retorna. O painel calcula
+os valores confirmados descontando reembolsos e excluindo pagamentos contestados
+ou ainda não confirmados; essa métrica operacional não substitui conciliação
+contábil. Dados legados sem os novos campos são interpretados a partir do status
+anterior; um cancelamento legado não é apresentado como estorno confirmado.
+
+Referência técnica: [status de pagamentos na Payments API](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/response-handling/query-results).
+Os testes locais cobrem reembolso antes/depois do envio, reembolso parcial,
+contestação, cancelamento logístico, duplicidade e concorrência simulada.
 
 ## Estrutura principal
 

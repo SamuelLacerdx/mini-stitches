@@ -37,8 +37,11 @@ export function usePedido(id, { somentePagamento = false } = {}) {
         }
         if (!ativo) return;
         falhas = 0;
-        encerrado = ['entregue', 'cancelado'].includes(pedido.status)
-          || (somentePagamento && ['pago', 'em_separacao', 'enviado'].includes(pedido.status));
+        encerrado = pedido.statusFinanceiro
+          ? ['recusado', 'cancelado', 'reembolsado'].includes(pedido.statusFinanceiro)
+            && ['cancelado', 'entregue'].includes(pedido.statusLogistico)
+          : ['entregue', 'cancelado'].includes(pedido.status)
+            || (somentePagamento && ['pago', 'em_separacao', 'enviado'].includes(pedido.status));
         intervalo = pedido.status === 'aguardando_pagamento' ? 4000 : 60000;
         setResultado({ id, pedido, erro: null });
       } catch (erro) {

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { FINANCEIROS, LOGISTICOS } = require("../functions/estadosPedido");
 
 const enderecoSchema = new mongoose.Schema({
   apelido: { type: String, trim: true },
@@ -255,6 +256,8 @@ const tentativaPagamentoSchema = new mongoose.Schema({
   },
   pagamentoId: { type: String },
   statusProvedor: { type: String, maxlength: 80 },
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
   provedorAtualizadoEm: { type: Date },
   aprovadoEm: { type: Date },
   ultimaNotificacaoEm: { type: Date },
@@ -278,6 +281,18 @@ tentativaPagamentoSchema.pre("validate", function () {
 });
 
 const pedidoSchema = new mongoose.Schema({
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  statusLogistico: { type: String, enum: LOGISTICOS },
+  valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
+  historicoFinanceiro: [{
+    status: { type: String, enum: FINANCEIROS, required: true },
+    valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
+    em: { type: Date, required: true },
+  }],
+  historicoLogistico: [{
+    status: { type: String, enum: LOGISTICOS, required: true },
+    em: { type: Date, required: true },
+  }],
   pagamentoAtualizadoEm: { type: Date },
   pagamentoAprovadoEm: { type: Date },
   tentativaId: { type: mongoose.Schema.Types.ObjectId, ref: "TentativaPagamento" },
@@ -362,6 +377,13 @@ pedidoSchema.pre("validate", async function () {
 // validate() antes de save() não duplica o status inicial.
 // Mongoose 9 não passa mais `next` para hooks "pre": basta retornar.
 pedidoSchema.pre("save", function () {
+  if (this.statusFinanceiro && (this.isNew || this.isModified("statusFinanceiro") || this.isModified("valorReembolsado"))) {
+    this.historicoFinanceiro.push({ status: this.statusFinanceiro, valorReembolsado: this.valorReembolsado,
+      em: (this.statusFinanceiro === "aprovado" && this.pagamentoAprovadoEm) || this.pagamentoAtualizadoEm || new Date() });
+  }
+  if (this.statusLogistico && (this.isNew || this.isModified("statusLogistico"))) {
+    this.historicoLogistico.push({ status: this.statusLogistico, em: new Date() });
+  }
   if (this.isNew || this.isModified("status")) {
     const ultimo = this.historicoStatus[this.historicoStatus.length - 1];
     if (!ultimo || ultimo.status !== this.status) {
@@ -437,6 +459,8 @@ const notificacaoPagamentoSchema = new mongoose.Schema({
   _id: { type: String },
   pagamentoId: { type: String, required: true, index: true },
   statusProvedor: { type: String, required: true },
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
   provedorAtualizadoEm: { type: Date, required: true },
   aprovadoEm: { type: Date },
   recebidoEm: { type: Date, required: true },

@@ -10,6 +10,7 @@ const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
 const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia } = require("./backend/functions/tentativasPagamento");
 const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions/webhookPagamento");
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
+const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
   cotarFrete,
@@ -61,6 +62,8 @@ const reservasEstoque = criarReservasEstoque({
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
 });
 const cobrarComTentativa = criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque });
+const atualizarLogistica = criarAtualizadorLogistico({ Pedido, reservasEstoque,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
 const processarWebhook = criarProcessadorWebhook({
   TentativaPagamento, Pedido, NotificacaoPagamento, reservasEstoque,
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
@@ -197,7 +200,8 @@ function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
 }
 
 function formatarTentativa({ resposta, tentativaId, tentativa }) {
-  const comum = { sucesso: true, id_pagamento: resposta.id, tentativa_id: tentativaId, status: resposta.status };
+  const comum = { sucesso: true, id_pagamento: resposta.id, tentativa_id: tentativaId, status: resposta.status,
+    ...financeiroDoProvedor(resposta, tentativa.total) };
   if (tentativa.metodo === "pix") return {
     ...comum,
     valor_original: (tentativa.subtotal + tentativa.frete) / 100,
@@ -1761,6 +1765,11 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     }
 
     const total = pagamento === "pix" ? valorPago : valorCheio;
+    const financeiro = financeiroDoProvedor(pagamentoMP, total);
+    const estadosIniciais = { ...financeiro,
+      ...(Number.isFinite(Date.parse(pagamentoMP.date_last_updated)) && { pagamentoAtualizadoEm: new Date(pagamentoMP.date_last_updated) }),
+      ...(Number.isFinite(Date.parse(pagamentoMP.date_approved)) && { pagamentoAprovadoEm: new Date(pagamentoMP.date_approved) }),
+      statusLogistico: financeiro.statusFinanceiro === "aprovado" ? "pronto_para_preparo" : "aguardando_liberacao" };
     const clienteId = clienteIdDoCarrinho(req);
 
     let pedido;
@@ -1774,6 +1783,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       pedidoPendente.desconto = valorCheio - total;
       pedidoPendente.total = total;
       pedidoPendente.status = status;
+      Object.assign(pedidoPendente, estadosIniciais);
+      pedidoPendente.status = projetarStatus(estadosIniciais.statusFinanceiro, estadosIniciais.statusLogistico);
       pedidoPendente.cliente = { nome, email };
       pedidoPendente.entrega = { cep, endereco };
       try {
@@ -1798,7 +1809,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         frete,
         desconto: valorCheio - total,
         total,
-        status,
+        status: projetarStatus(estadosIniciais.statusFinanceiro, estadosIniciais.statusLogistico),
+        ...estadosIniciais,
         cliente: { nome, email },
         entrega: { cep, endereco },
         itens,
@@ -1834,8 +1846,6 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
-// Status controlados apenas pelo gateway de pagamento (webhook).
-const STATUS_SO_GATEWAY = ["aguardando_pagamento", "pago"];
 const STATUS_PEDIDO_ADMIN = [
   "aguardando_pagamento",
   ...STATUS_FATURADOS,
@@ -1849,6 +1859,8 @@ function respostaPedidoAdmin(pedido) {
     cliente: pedido.cliente,
     entrega: pedido.entrega,
     historicoStatus: pedido.historicoStatus || [],
+    historicoFinanceiro: pedido.historicoFinanceiro || [],
+    historicoLogistico: pedido.historicoLogistico || [],
   };
 }
 
@@ -1858,9 +1870,11 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
       Pedido.aggregate([
         {
           $group: {
-            _id: "$status",
+            _id: { status: "$status", financeiro: { $ifNull: ["$statusFinanceiro", {
+              $cond: [{ $in: ["$status", STATUS_FATURADOS] }, "aprovado", "desconhecido"],
+            }] } },
             quantidade: { $sum: 1 },
-            total: { $sum: "$total" },
+            total: { $sum: { $subtract: ["$total", { $ifNull: ["$valorReembolsado", 0] }] } },
           },
         },
       ]),
@@ -1876,9 +1890,9 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
     let pedidosFaturados = 0;
 
     for (const grupo of porStatus) {
-      statusPedidos[grupo._id] = grupo.quantidade;
+      statusPedidos[grupo._id.status] = (statusPedidos[grupo._id.status] || 0) + grupo.quantidade;
       totalPedidos += grupo.quantidade;
-      if (STATUS_FATURADOS.includes(grupo._id)) {
+      if (["aprovado", "parcialmente_reembolsado"].includes(grupo._id.financeiro)) {
         faturado += grupo.total;
         pedidosFaturados += grupo.quantidade;
       }
@@ -1905,6 +1919,7 @@ app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
     const filtro = {};
     const status = String(req.query.status || "");
     if (STATUS_PEDIDO_ADMIN.includes(status)) filtro.status = status;
+    if (FINANCEIROS.includes(req.query.statusFinanceiro)) filtro.statusFinanceiro = req.query.statusFinanceiro;
 
     const pedidos = await Pedido.find(filtro)
       .sort({ criadoEm: -1 })
@@ -1920,50 +1935,21 @@ app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
 app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const status = String(req.body?.status || "");
+    if (["statusFinanceiro", "valorReembolsado", "pagamentoId", "statusProvedor"].some((campo) => Object.hasOwn(req.body || {}, campo))) {
+      return res.status(403).json({ erro: "O estado financeiro é controlado pelo provedor de pagamento." });
+    }
+    const status = String(req.body?.statusLogistico ?? req.body?.status ?? "");
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ erro: "ID inválido." });
     }
-    if (!STATUS_PEDIDO_ADMIN.includes(status)) {
+    if (!STATUS_PEDIDO_ADMIN.includes(status) && !LOGISTICOS.includes(status)) {
       return res.status(400).json({ erro: "Status inválido." });
     }
 
-    const pedido = await Pedido.findById(id);
-    if (!pedido) {
-      return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    // "Aguardando pagamento" e "Pago" são definidos só pelo Mercado Pago
-    // (webhook): o admin não pode atribuí-los nem tirar um pedido de
-    // "Aguardando pagamento". Um pedido "Pago" pode avançar no fluxo.
-    if (status !== pedido.status) {
-      if (STATUS_SO_GATEWAY.includes(status)) {
-        return res.status(403).json({
-          erro: "Esse status é definido automaticamente pelo pagamento.",
-        });
-      }
-      if (pedido.status === "aguardando_pagamento") {
-        return res.status(403).json({
-          erro: "Pedido aguardando pagamento só muda pela confirmação do pagamento.",
-        });
-      }
-    }
-
-    if (status === "cancelado" && pedido.status !== "cancelado" && !pedido.tentativaId) {
-      pedido.estoqueRestituicaoPendente = true;
-    }
-    pedido.status = status;
-    if (req.body?.rastreio !== undefined) {
-      pedido.rastreio = String(req.body.rastreio || "").trim();
-    }
-    await pedido.save();
-
-    if (status === "cancelado") {
-      await reservasEstoque.liberarPedido(pedido);
-    }
-
-    res.json({ pedido: respostaPedidoAdmin(pedido.toObject()) });
+    const pedido = await atualizarLogistica({ id, status, rastreio: req.body?.rastreio });
+    res.json({ pedido: respostaPedidoAdmin(pedido) });
   } catch (error) {
+    if (error instanceof ErroEstadoPedido) return res.status(error.status).json({ erro: error.message });
     console.error(error);
     res.status(500).json({ erro: "Erro ao atualizar o pedido." });
   }

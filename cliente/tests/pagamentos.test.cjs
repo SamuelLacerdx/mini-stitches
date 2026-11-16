@@ -19,6 +19,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const consultas = [];
   const eventos = [];
   let reservas;
+  let atualizarLogistica;
   const estoques = falhas.estoques ?? { 'produto-teste': { estoque: 10, estoqueSeguranca: 0, ativo: true } };
   let transacaoAnterior = Promise.resolve();
   const executarTransacao = (operacao) => {
@@ -47,6 +48,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   } }], async populate() {}, async save() {} };
   if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/estadosPedido') {
+      const modulo = requerer(nome);
+      return { ...modulo, criarAtualizadorLogistico(opcoes) {
+        atualizarLogistica = modulo.criarAtualizadorLogistico(opcoes);
+        return atualizarLogistica;
+      } };
+    }
     if (nome === './backend/functions/reservasEstoque') {
       const modulo = requerer(nome);
       return { ...modulo, criarReservasEstoque(opcoes) {
@@ -58,7 +66,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       get(alvo, chave) {
         if (chave === 'connection') return { transaction: executarTransacao };
         if (chave === 'connect') return async () => {};
-        if (chave === 'isValidObjectId') return (id) => /^tentativa-\d+$/.test(String(id)) || alvo.isValidObjectId(id);
+        if (chave === 'isValidObjectId') return (id) => /^(tentativa-\d+|pedido-1)$/.test(String(id)) || alvo.isValidObjectId(id);
         return alvo[chave];
       },
     });
@@ -76,6 +84,14 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         },
       },
       Pedido: {
+        async findById(id) { return pedidos.find((pedido) => pedido._id === id) ?? null; },
+        async findOneAndUpdate(filtro, dados) {
+          const pedido = pedidos.find((item) => item._id === filtro._id);
+          if (!pedido) return null;
+          Object.assign(pedido, dados.$set);
+          for (const [campo, evento] of Object.entries(dados.$push || {})) (pedido[campo] ??= []).push(evento);
+          return pedido;
+        },
         async findOne(filtro) { return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null; },
         async create(dados) {
           if (falhas.pedido) throw new Error('Falha no registro do pedido');
@@ -87,7 +103,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           const pedido = pedidos.find((item) => item._id === filtro._id);
           if (!pedido) return { matchedCount: 0 };
           Object.assign(pedido, dados.$set);
-          if (dados.$push?.historicoStatus) (pedido.historicoStatus ??= []).push(dados.$push.historicoStatus);
+          for (const [campo, evento] of Object.entries(dados.$push || {})) (pedido[campo] ??= []).push(evento);
           return { matchedCount: 1 };
         },
       },
@@ -198,11 +214,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
 
   return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas,
     get reservas() { return reservas; },
+    get atualizarLogistica() { return atualizarLogistica; },
     async enviar(metodo, dados = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
       session: { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
+    req.params = { id: 'pedido-1' };
     req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
     req.body.chaveTentativa ??= randomUUID();
     if (dados.semChave) delete req.body.chaveTentativa;
@@ -220,7 +238,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         .update(`id:${id.toLowerCase()};request-id:${requestId};ts:${ts};`).digest('hex');
       req.headers = dados.headers ?? { 'x-request-id': requestId, 'x-signature': `ts=${ts},v1=${hash}` };
     }
-    await rotas.get(`post ${url}`)(req, res);
+    await rotas.get(`${dados.httpMethod ?? 'post'} ${url}`)(req, res);
     return res;
   } };
 }
@@ -708,5 +726,148 @@ test('PAG-08: recusa atrasada da criação não libera estoque após aprovação
   await servidor.enviar('pix');
   assert.equal(servidor.tentativas[0].statusProvedor, 'approved');
   assert.equal(servidor.tentativas[0].estoqueEstado, 'reservado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-09: criação e avanço logístico mantêm finanças independentes', async () => {
+  const servidor = montarServidor();
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'aprovado');
+  assert.equal(servidor.pedidos[0].statusLogistico, 'pronto_para_preparo');
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'em_separacao' });
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'enviado', rastreio: 'BR123' });
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'aprovado');
+  assert.equal(servidor.pedidos[0].statusLogistico, 'enviado');
+  assert.equal(servidor.pedidos[0].historicoLogistico.length, 2);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-09: reembolso após envio preserva logística e não repõe estoque', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'em_separacao' });
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'enviado' });
+  falhas.status = 'refunded';
+  falhas.pagamento = { date_last_updated: '2026-11-15T13:00:00.000Z' };
+  const evento = { type: 'payment', data: { id: '123' } };
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+  await servidor.enviar('/api/webhook', evento);
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'reembolsado');
+  assert.equal(servidor.pedidos[0].valorReembolsado, 6490);
+  assert.equal(servidor.pedidos[0].statusLogistico, 'enviado');
+  assert.equal(servidor.pedidos[0].status, 'enviado');
+  assert.equal(servidor.pedidos[0].historicoFinanceiro.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'entregue' });
+  assert.equal(servidor.pedidos[0].statusLogistico, 'entregue');
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'reembolsado');
+});
+
+test('PAG-09: reembolso integral antes do envio cancela logística e repõe uma vez', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('pix');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  falhas.status = 'refunded';
+  falhas.pagamento = { date_last_updated: '2026-11-15T13:00:00.000Z' };
+  const evento = { type: 'payment', data: { id: '123' } };
+  await servidor.enviar('/api/webhook', evento);
+  await servidor.enviar('/api/webhook', evento);
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'reembolsado');
+  assert.equal(servidor.pedidos[0].statusLogistico, 'cancelado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+});
+
+test('PAG-09: reembolso parcial permanece separado e bloqueia envio', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  falhas.pagamento = { status_detail: 'partially_refunded', transaction_amount_refunded: 10, date_last_updated: '2026-11-15T13:00:00.000Z' };
+  await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'parcialmente_reembolsado');
+  assert.equal(servidor.pedidos[0].valorReembolsado, 1000);
+  assert.equal(servidor.pedidos[0].total, 6490);
+  assert.equal(servidor.pedidos[0].statusLogistico, 'pronto_para_preparo');
+  await assert.rejects(servidor.atualizarLogistica({ id: 'pedido-1', status: 'em_separacao' }), { status: 403 });
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-09: mediação e chargeback após entrega preservam recebimento e estoque', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  for (const status of ['em_separacao', 'enviado', 'entregue']) await servidor.atualizarLogistica({ id: 'pedido-1', status });
+  for (const [status, esperado, hora] of [['in_mediation', 'em_contestacao', '13'], ['charged_back', 'contestado', '14']]) {
+    falhas.status = status;
+    falhas.pagamento = { date_last_updated: `2026-11-15T${hora}:00:00.000Z` };
+    await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+    assert.equal(servidor.pedidos[0].statusFinanceiro, esperado);
+    assert.equal(servidor.pedidos[0].statusLogistico, 'entregue');
+    assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  }
+});
+
+test('PAG-09: cancelamento logístico não forja estorno; não permite reabrir ou saltar etapas', async () => {
+  const servidor = montarServidor();
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  await assert.rejects(servidor.atualizarLogistica({ id: 'pedido-1', status: 'entregue' }), { status: 409 });
+  await servidor.atualizarLogistica({ id: 'pedido-1', status: 'cancelado' });
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'aprovado');
+  assert.equal(servidor.pedidos[0].valorReembolsado, 0);
+  assert.equal(servidor.pedidos[0].statusLogistico, 'cancelado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+  await assert.rejects(servidor.atualizarLogistica({ id: 'pedido-1', status: 'em_separacao' }), { status: 409 });
+  const resposta = await servidor.enviar('/admin/pedidos/:id/status', {
+    httpMethod: 'patch', status: 'cancelado', statusFinanceiro: 'reembolsado',
+  });
+  assert.equal(resposta.statusCode, 403);
+});
+
+test('PAG-09: API e textos distinguem finanças de logística sem expor dados do gateway', async () => {
+  const { respostaPedido } = require('../backend/functions/pedidosCliente');
+  const { financeiroPedido, situacaoFinanceira } = await import('../src/utils/pedido.mjs');
+  const pedido = respostaPedido({ status: 'entregue', statusFinanceiro: 'reembolsado', statusLogistico: 'entregue', valorReembolsado: 1000, pagamentoId: 'interno' });
+  assert.equal(pedido.statusLogistico, 'entregue');
+  assert.equal(pedido.bloqueadoParaExpedicao, true);
+  assert.equal('pagamentoId' in pedido, false);
+  assert.equal(financeiroPedido(pedido), 'reembolsado');
+  assert.equal(situacaoFinanceira(financeiroPedido(pedido)).titulo, 'Pagamento reembolsado');
+  assert.equal(financeiroPedido({ status: 'cancelado' }), 'desconhecido');
+});
+
+test('PAG-09: reembolso concorrente com preparação mantém estado coerente e estoque correto', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  falhas.status = 'refunded';
+  falhas.pagamento = { date_last_updated: '2026-11-15T13:00:00.000Z' };
+  await Promise.allSettled([
+    servidor.atualizarLogistica({ id: 'pedido-1', status: 'em_separacao' }),
+    servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } }),
+  ]);
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'reembolsado');
+  assert.equal(servidor.pedidos[0].statusLogistico, 'cancelado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+});
+
+test('PAG-09: falha transacional não deixa reembolso e histórico aplicados pela metade', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  falhas.status = 'refunded';
+  falhas.pagamento = { date_last_updated: '2026-11-15T13:00:00.000Z' };
+  falhas.notificacao = true;
+  assert.equal((await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } })).statusCode, 503);
+  assert.equal(servidor.pedidos[0].statusFinanceiro, 'aprovado');
+  assert.equal(servidor.pedidos[0].statusLogistico, 'pronto_para_preparo');
+  assert.equal(servidor.pedidos[0].historicoFinanceiro?.length || 0, 0);
   assert.equal(servidor.estoques['produto-teste'].estoque, 9);
 });
