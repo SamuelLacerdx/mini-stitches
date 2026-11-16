@@ -22,6 +22,7 @@ const {
   criarItensPedido,
   calcularValorBaseCentavos,
   calcularPixCentavos,
+  calcularParcelasCentavos,
   calcularFreteAplicavelCentavos,
 } = require("./backend/functions/calculosPagamento");
 const {
@@ -387,7 +388,12 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
 
     const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
     const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
-    const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
+    const totalCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
+    const quantidadeParcelas = parcelas === undefined ? 1
+      : typeof parcelas === "string" && /^[1-6]$/.test(parcelas) ? Number(parcelas)
+        : typeof parcelas === "number" ? parcelas : NaN;
+    const valoresParcelas = calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
+    const valorTotal = totalCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -395,7 +401,7 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
         token,
         payment_method_id,
         transaction_amount: Number(valorTotal),
-        installments: Number(parcelas || 1),
+        installments: quantidadeParcelas,
         payer: {
           email,
           identification: {
@@ -413,7 +419,8 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       status: resposta.status,
       status_detail: resposta.status_detail,
       parcelas: resposta.installments,
-      valor_parcela: Number(valorTotal) / Number(parcelas || 1),
+      valor_parcela: valoresParcelas[0] / 100,
+      valores_parcelas_centavos: valoresParcelas,
       mensagem:
         resposta.status === "approved"
           ? "Pagamento aprovado."

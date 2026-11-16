@@ -371,18 +371,24 @@ export default function FinalizarCompra() {
   const pixProdutos = Math.round(subtotal * 0.95);
   const pixDesconto = subtotal - pixProdutos;
   const pixTotal = pixProdutos + valorFrete;
-  const valorPedido = totalComFrete / 100;
   const opcoesParcelamento = Array.from({ length: 6 }, (_, index) => {
     const parcela = index + 1;
-    const valorParcela = Number((valorPedido / parcela).toFixed(2));
+    const base = Math.floor(totalComFrete / parcela);
+    if (parcela > 1 && base < 4000) return null;
+    const resto = totalComFrete % parcela;
+    const valores = Array.from({ length: parcela }, (_, indice) => base + (indice < resto ? 1 : 0));
+    const label = resto === 0
+      ? `${parcela}x de ${formatarPreco(base)} sem juros`
+      : `${parcela}x sem juros: ${valores.map(formatarPreco).join(' + ')}`;
 
     return {
       parcela,
-      valorParcela,
-      label: `${parcela}x de ${formatarPreco(valorParcela * 100)} sem juros`,
+      label,
       value: String(parcela),
     };
-  });
+  }).filter(Boolean);
+  const parcelasSelecionadas = opcoesParcelamento.some((opcao) => opcao.value === formData.parcelas)
+    ? formData.parcelas : '1';
 
   // Registra o pedido no servidor depois que o pagamento foi criado, para ele
   // aparecer em "Meus pedidos". O pagamento já existe neste ponto, então uma
@@ -516,7 +522,7 @@ export default function FinalizarCompra() {
       else if (pagamento === 'cartao') {
         if (!mpInstance) throw new Error('Mercado Pago não inicializado.');
 
-        const { numeroCartao, nomeCartao, validade, cvv, parcelas, cpfTitular } = formData;
+        const { numeroCartao, nomeCartao, validade, cvv, cpfTitular } = formData;
         const [month, year] = validade.split('/');
         const fullYear = year?.length === 2 ? `20${year}` : year;
         const cpfTitularLimpo = cpfTitular.replace(/\D/g, '');
@@ -543,7 +549,7 @@ export default function FinalizarCompra() {
             token: cardToken.id,
             payment_method_id: formData.bandeira || bandeiraDetectada,
             freteCentavos: valorFrete,
-            parcelas,
+            parcelas: parcelasSelecionadas,
             email,
             cpf: cpfLimpo,
           }),
@@ -816,7 +822,7 @@ export default function FinalizarCompra() {
                       <select
                         required={pagamento === 'cartao'}
                         name="parcelas"
-                        value={formData.parcelas}
+                        value={parcelasSelecionadas}
                         onChange={handleChange}
                         className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm"
                       >

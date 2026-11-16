@@ -38,4 +38,5 @@ node_modules
 .continue/agents/new-config.yaml
 
 # Testes locais
-cliente/tests/
+cliente/tests/*
+!cliente/tests/parcelamento.test.cjs

@@ -81,7 +81,23 @@ function calcularFreteAplicavelCentavos(subtotalCentavos, freteCotadoCentavos) {
     : freteCotadoCentavos;
 }
 
+function calcularParcelasCentavos(totalCentavos, quantidade) {
+  if (!Number.isSafeInteger(totalCentavos) || totalCentavos <= 0) {
+    throw new ErroCalculoPagamento("O total do cartão deve ser positivo e inteiro em centavos.");
+  }
+  if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 6) {
+    throw new ErroCalculoPagamento("Escolha de 1 a 6 parcelas.");
+  }
+  const base = Math.floor(totalCentavos / quantidade);
+  if (quantidade > 1 && base < 4000) {
+    throw new ErroCalculoPagamento("Cada parcela deve ter pelo menos R$ 40,00.");
+  }
+  const resto = totalCentavos % quantidade;
+  return Array.from({ length: quantidade }, (_, indice) => base + (indice < resto ? 1 : 0));
+}
+
 module.exports = {
+  calcularParcelasCentavos,
   ErroCalculoPagamento,
   calcularSubtotalCentavos,
   criarItensPedido,
