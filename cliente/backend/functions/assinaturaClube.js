@@ -1,6 +1,7 @@
 const PLANO_CLUBE = Object.freeze({ codigo: "SUB-02", nome: "Pequenos Criadores", tipo: "mensal",
   valor: 9490, frete: 0, criancas: 1, moeda: "BRL" });
 const { validarCorpoSeguro, validarTokenCartao } = require('./segurancaPagamento');
+const { loggerOperacional } = require('./logOperacional');
 
 class ErroAssinatura extends Error {
   constructor(message, status = 400, assinaturaId) {
@@ -27,7 +28,7 @@ function urlRetorno(env) {
   return new URL("/clube?retorno=assinatura", url.origin).href;
 }
 
-function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, logger = console, aposAutorizacao }) {
+function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, logger = loggerOperacional, aposAutorizacao }) {
   return async function contratar(clienteId, body) {
     if (!clienteId) throw new ErroAssinatura("Entre na sua conta para contratar o Clube.", 401);
     validarCorpoSeguro(body);
@@ -91,7 +92,7 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
     } catch {
       try { await Assinatura.updateOne({ _id: assinatura._id,
         statusAdesao: { $in: ['iniciando', 'resultado_desconhecido'] } }, { $set: { statusAdesao: "resultado_desconhecido" } }); }
-      catch { logger.error("[clube] contratacao requer conciliacao", { assinaturaId: id }); }
+      catch { logger.error('clube.contratacao_pendente', { assinaturaId: id }); }
       throw new ErroAssinatura("Não foi possível confirmar a contratação. Consulte o atendimento antes de repetir.", 503, id);
     }
     // Autorizar a recorrência não comprova aprovação da primeira mensalidade.
@@ -111,7 +112,7 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
         return assinaturaPublica(atual);
       }
     }
-    catch { logger.error("[clube] autorizacao requer conciliacao", { assinaturaId: id }); }
+    catch { logger.error('clube.autorizacao_pendente', { assinaturaId: id }); }
     return assinaturaPublica({ ...assinatura.toObject(), ...dados });
   };
 }

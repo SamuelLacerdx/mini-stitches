@@ -1,4 +1,5 @@
 const { createHash } = require("crypto");
+const { loggerOperacional } = require('./logOperacional');
 const { financeiroDoProvedor } = require("./estadosPedido");
 const { validarCorpoSeguro, validarTokenCartao } = require('./segurancaPagamento');
 
@@ -43,7 +44,7 @@ function resumirResposta(resposta) {
   };
 }
 
-function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque, logger = console }) {
+function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque, logger = loggerOperacional }) {
   async function reutilizar(tentativa, hashRequisicao) {
     const tentativaId = String(tentativa._id);
     if (tentativa.hashRequisicao !== hashRequisicao) {
@@ -111,7 +112,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
       } catch {
         // A tentativa inicial e external_reference permitem conciliação posterior.
         // Não transforma uma cobrança já criada em erro que induza nova cobrança.
-        logger.error("[pagamento] tentativa requer conciliacao", { tentativaId });
+        logger.error('pagamento.persistencia_pendente', { tentativaId });
         return false;
       }
     }
@@ -126,6 +127,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
     } catch {
       // Timeout não comprova que a cobrança deixou de ser criada no provedor.
       await atualizar({ estado: "resultado_desconhecido" });
+      logger.error('pagamento.resultado_desconhecido', { tentativaId });
       const erro = new Error("Não foi possível confirmar a cobrança. Consulte o pagamento antes de tentar novamente.");
       erro.tentativaId = tentativaId;
       throw erro;
@@ -146,7 +148,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
       try {
         await reservasEstoque.liberar(tentativa._id, undefined, { statusProvedor: resposta.status });
       } catch {
-        logger.error("[pagamento] reserva requer conciliacao", { tentativaId });
+        logger.error('pagamento.reserva_pendente', { tentativaId });
       }
     }
     return { resposta, tentativaId, tentativa };

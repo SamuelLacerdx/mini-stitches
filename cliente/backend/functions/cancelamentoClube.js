@@ -1,4 +1,5 @@
 const { createHash, randomUUID, timingSafeEqual } = require('crypto');
+const { loggerOperacional } = require('./logOperacional');
 const { assinaturaPublica, ErroAssinatura, PLANO_CLUBE } = require('./assinaturaClube');
 const { financeiroDoProvedor } = require('./estadosPedido');
 const { instante } = require('./calendarioClube');
@@ -9,7 +10,7 @@ function chaveOperacao(tipo, id) {
 }
 
 function criarCancelamentoClube({ Assinatura, MensalidadeClube, CaixaClube, OperacaoClube,
-  preApprovalModule, paymentModule, refundModule, executarTransacao, agora = () => new Date(), logger = console }) {
+  preApprovalModule, paymentModule, refundModule, executarTransacao, agora = () => new Date(), logger = loggerOperacional }) {
   async function agendar(tipo, assinatura, pagamentoId, identificadoEm, session) {
     const id = `${tipo}:${pagamentoId || assinatura._id}`;
     await OperacaoClube.updateOne({ _id: id }, { $setOnInsert: {
@@ -161,10 +162,11 @@ function criarCancelamentoClube({ Assinatura, MensalidadeClube, CaixaClube, Oper
       await CaixaClube.updateMany({ assinaturaId: assinatura._id, pagamentoId: operacao.pagamentoId },
         { $set: { bloqueada: true, reembolsoEstado: 'solicitado', reembolsoSolicitadoEm: operacao.solicitadoEm || agora() } }, { runValidators: true });
     } catch {
+      logger.error('clube.operacao_pendente', { operacaoId: id, assinaturaId: operacao.assinaturaId ? String(operacao.assinaturaId) : undefined,
+        pagamentoId: operacao.pagamentoId });
       await OperacaoClube.updateOne({ _id: id, lockToken: operacao.lockToken }, { $set: {
         estado: 'pendente', lockAte: null, proximaExecucaoEm: new Date(agora().getTime() + 60000),
       } }, { runValidators: true });
-      logger.error('[clube] operacao requer conciliacao', { operacaoId: id });
     }
   }
 

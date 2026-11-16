@@ -1,4 +1,5 @@
 const { estadosPedido } = require("./estadosPedido");
+const { loggerOperacional: logger } = require('./logOperacional');
 
 function respostaPedido(pedido) {
   return {
@@ -44,7 +45,7 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
         .sort({ criadoEm: -1 }).limit(50).lean();
       res.json({ pedidos: pedidos.map(respostaPedido) });
     } catch {
-      console.error('[pedidos] falha ao listar');
+      logger.error('pedido.listagem_falhou');
       res.status(500).json({ erro: 'Não foi possível carregar os pedidos.' });
     }
   });
@@ -56,7 +57,7 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
       if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado.' });
       return res.json({ status: pedido.status, ...estadosPedido(pedido) });
     } catch {
-      console.error('[pedidos] falha ao consultar status');
+      logger.error('pedido.status_falhou');
       return res.status(500).json({ erro: 'Não foi possível carregar o status do pedido.' });
     }
   });
@@ -79,7 +80,7 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
         },
       });
     } catch {
-      console.error('[pedidos] falha ao consultar pedido');
+      logger.error('pedido.consulta_falhou');
       return res.status(500).json({ erro: 'Não foi possível carregar o pedido.' });
     }
   });

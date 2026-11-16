@@ -14,6 +14,111 @@ const { criarAutenticacao } = require('../backend/functions/autenticacao');
 const { criarReferenciaCartao } = require('../backend/functions/cartoesPerfil');
 const { segredosAplicacao } = require('../backend/functions/segurancaPagamento');
 const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('../backend/functions/conciliacaoAdmin');
+const { criarLoggerOperacional, referenciaOperacional } = require('../backend/functions/logOperacional');
+
+test('PAG-18: logs JSON têm esquema estável e descartam dados pessoais, cartão e credenciais', () => {
+  const linhas = [];
+  const saida = Object.fromEntries(['log', 'warn', 'error'].map((nivel) => [nivel, (linha) => linhas.push(linha)]));
+  const logger = criarLoggerOperacional({ saida, agora: () => new Date('2026-11-16T15:00:00Z') });
+  for (const nivel of ['info', 'warn', 'error']) logger[nivel]('webhook.pendente', {
+    pagamentoId: '123', token: 'token-proibido', cpf: 'cpf-proibido', email: 'privado@example.com',
+    cvv: '123', card_number: '4111111111111111', req: { headers: { authorization: 'Bearer secreto' } },
+    erro: new Error('token-sensivel'), respostaGateway: { token: 'segredo' },
+  });
+  assert.equal(linhas.length, 3);
+  for (const [indice, linha] of linhas.entries()) {
+    const registro = JSON.parse(linha);
+    assert.deepEqual(Object.keys(registro), ['versao', 'em', 'nivel', 'evento', 'pagamentoRef']);
+    assert.equal(registro.versao, 1);
+    assert.equal(registro.em, '2026-11-16T15:00:00.000Z');
+    assert.equal(registro.nivel, ['info', 'warn', 'error'][indice]);
+    assert.equal(registro.pagamentoRef, referenciaOperacional('pagamentoId', '123'));
+    for (const proibido of ['token-proibido', 'cpf-proibido', 'privado@example.com', '4111111111111111', 'secreto', 'token-sensivel']) assert.equal(linha.includes(proibido), false);
+  }
+});
+
+test('PAG-18: referências são estáveis por tipo e não expõem identificadores brutos', () => {
+  const ref = referenciaOperacional('tentativaId', 'identificador-interno');
+  assert.match(ref, /^[a-f\d]{64}$/);
+  assert.equal(ref, referenciaOperacional('tentativaId', 'identificador-interno'));
+  assert.notEqual(ref, referenciaOperacional('pagamentoId', 'identificador-interno'));
+  assert.equal(referenciaOperacional('token', 'segredo'), undefined);
+  assert.equal(referenciaOperacional('pagamentoId', 'x'.repeat(257)), undefined);
+  assert.equal(referenciaOperacional('pagamentoId', {}), undefined);
+});
+
+test('PAG-18: mensagens livres e injeção de linhas não entram no evento', () => {
+  const linhas = [];
+  const logger = criarLoggerOperacional({ saida: { error: (linha) => linhas.push(linha) } });
+  logger.error('segredo\n{"evento":"falso"}', { pagamentoId: '123' });
+  logger.error(new Error('token-sensivel'));
+  assert.equal(linhas.length, 2);
+  for (const linha of linhas) {
+    assert.equal(JSON.parse(linha).evento, 'registro.descartado');
+    assert.equal(linha.includes('\n'), false);
+    assert.equal(linha.includes('segredo'), false);
+    assert.equal(linha.includes('token-sensivel'), false);
+    assert.equal(JSON.parse(linha).pagamentoRef, undefined);
+  }
+});
+
+test('PAG-18: objetos cíclicos, getters e campos extras não são serializados', () => {
+  const linhas = [];
+  let acessos = 0;
+  const contexto = { resultado: 'duplicada', httpStatus: 503, configurada: false };
+  contexto.circular = contexto;
+  Object.defineProperty(contexto, 'pagamentoId', { get() { acessos++; throw new Error('segredo'); } });
+  criarLoggerOperacional({ saida: { log: (linha) => linhas.push(linha) } }).info('webhook.conciliado', contexto);
+  assert.equal(acessos, 0);
+  assert.equal(JSON.parse(linhas[0]).resultado, 'duplicada');
+  assert.equal(JSON.parse(linhas[0]).httpStatus, 503);
+  assert.equal(JSON.parse(linhas[0]).configurada, false);
+  assert.equal(JSON.parse(linhas[0]).pagamentoRef, undefined);
+});
+
+test('PAG-18: enumerações e tipos inválidos são descartados', () => {
+  const linhas = [];
+  const logger = criarLoggerOperacional({ saida: { log: (linha) => linhas.push(linha) } });
+  for (const httpStatus of [-1, 600, '503', null]) logger.info('webhook.conciliado', { httpStatus, resultado: 'token-sensivel', configurada: 'segredo' });
+  for (const linha of linhas) {
+    assert.deepEqual(Object.keys(JSON.parse(linha)), ['versao', 'em', 'nivel', 'evento']);
+  }
+});
+
+test('PAG-18: timeout real do handler registra referência sem repetir cobrança ou expor erro', async () => {
+  const servidor = montarServidor(4990, undefined, { gateway: true });
+  const res = await servidor.enviar('pix');
+  assert.equal(res.statusCode, 500);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.tentativas[0].estado, 'resultado_desconhecido');
+  const eventos = servidor.logs.map(([linha]) => JSON.parse(linha));
+  const timeout = eventos.find((r) => r.evento === 'pagamento.resultado_desconhecido');
+  assert.equal(timeout.tentativaRef, referenciaOperacional('tentativaId', String(servidor.tentativas[0]._id)));
+  assert.equal(JSON.stringify(eventos).includes('token-sensivel'), false);
+});
+
+test('PAG-18: falha no destino de logs não altera o pagamento nem cria outra tentativa', async () => {
+  const servidor = montarServidor(4990, undefined, { gateway: true, logIndisponivel: true });
+  const res = await servidor.enviar('pix');
+  assert.equal(res.statusCode, 500);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.tentativas.length, 1);
+  assert.equal(servidor.tentativas[0].estado, 'resultado_desconhecido');
+});
+
+test('PAG-18: webhook válido, duplicado e inválido produzem eventos sem imprimir assinatura', async () => {
+  const servidor = montarServidor();
+  await servidor.enviar('pix');
+  const evento = { type: 'payment', data: { id: '123' } };
+  await servidor.enviar('/api/webhook', evento);
+  await servidor.enviar('/api/webhook', evento);
+  assert.equal((await servidor.enviar('/api/webhook', { ...evento, headers: { 'x-signature': 'assinatura-secreta', 'x-request-id': 'privado' } })).statusCode, 401);
+  const eventos = servidor.logs.map(([linha]) => JSON.parse(linha));
+  assert.ok(eventos.some((e) => e.evento === 'webhook.conciliado' && e.resultado === 'processada'));
+  assert.ok(eventos.some((e) => e.evento === 'webhook.conciliado' && e.resultado === 'duplicada'));
+  assert.ok(eventos.some((e) => e.evento === 'webhook.invalido' && !e.pagamentoRef));
+  assert.equal(JSON.stringify(eventos).includes('assinatura-secreta'), false);
+});
 
 function painelConciliacao(alteracoes = {}) {
   const clienteId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
@@ -223,6 +328,11 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const consultas = [];
   const eventos = [];
   const logs = [];
+  const saidaLogs = Object.fromEntries(['log', 'warn', 'error'].map((nivel) => [nivel, (linha) => {
+    if (falhas.logIndisponivel) throw new Error('Destino de logs indisponível');
+    logs.push([linha]);
+  }]));
+  const loggerTeste = criarLoggerOperacional({ saida: saidaLogs });
   const consultasConta = [];
   let reservas;
   let resumoCheckout;
@@ -258,6 +368,11 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   } }], async populate() {}, async save() {} };
   if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/logOperacional') return { loggerOperacional: loggerTeste };
+    if (nome === './backend/functions/tentativasPagamento') {
+      const modulo = requerer(nome);
+      return { ...modulo, criarCobrancaComTentativa: (opcoes) => modulo.criarCobrancaComTentativa({ ...opcoes, logger: loggerTeste }) };
+    }
     if (nome === './backend/functions/resumoCheckout') {
       const modulo = requerer(nome);
       return { ...modulo, criarResumoCheckout(opcoes) {

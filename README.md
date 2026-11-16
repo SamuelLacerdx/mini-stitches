@@ -459,7 +459,8 @@ enviada ao Mercado Pago. Para reembolso, o corpo é salvo antes do POST e não
 com token impede processadores simultâneos de assumirem a mesma operação;
 uma execução interrompida pode ser retomada após expirar o bloqueio de 2 minutos.
 O índice `_id` impede enfileiramento duplicado. Falhas mantêm as operações no
-banco para nova tentativa após 1 minuto e registram apenas o identificador da operação.
+banco para nova tentativa após 1 minuto e registram a referência operacional
+derivada do identificador, conforme a padronização da PAG-18.
 
 A solicitação de reembolso ocorre imediatamente após a identificação da aprovação
 posterior. Como limite interno conservador, registra 48 horas corridas após essa
@@ -770,6 +771,22 @@ entrega, cancelamento antes/depois da aprovação, prazo de solicitação, pagin
 legados, filtros inválidos, autorização e ausência de campos sensíveis. A
 homologação visual no navegador e a conciliação com MongoDB/provedor reais
 permanecem necessárias; não foram realizadas cobranças reais.
+
+## PAG-18 — Procedimentos operacionais e logs
+
+O [guia de operação de pagamentos](docs/operacao-pagamentos.md) descreve a
+conciliação, recuperação de compras, retomada de cancelamentos/reembolsos,
+verificações de implantação, investigação e encerramento de ocorrências.
+Inclui limitações dos endpoints e as evidências externas ainda necessárias.
+
+Os logs existentes do servidor e módulos de pagamentos/pedidos/frete agora usam
+JSON com catálogo de eventos, horário UTC, nível e referências operacionais
+derivadas por SHA-256. Não serializam corpos, cabeçalhos, erros completos,
+mensagens livres, contatos, endereço, CPF, dados de cartão ou identificadores
+brutos. O banco/provedor
+continuam sendo a fonte para confirmar efeitos financeiros; falha do coletor
+não altera a operação. A etapa não instala agendador, coletor, alertas, política
+de retenção ou infraestrutura de backup.
 
 ## Estrutura principal
 
