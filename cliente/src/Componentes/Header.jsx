@@ -13,18 +13,19 @@ import {
 } from "lucide-react";
 
 export default function Header() {
+  const location = useLocation();
+  return <ConteudoHeader key={location.key} />;
+}
+
+function ConteudoHeader() {
   const [usuario, setUsuario] = useState(null);
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
   const [menuAberto, setMenuAberto] = useState(false);
   const inputRef = useRef(null);
-  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    setBuscaAberta(false);
-    setTermoBusca("");
-    setMenuAberto(false);
     let ativo = true;
 
     fetch("/api/perfil", { credentials: "include" })
@@ -54,7 +55,7 @@ export default function Header() {
     return () => {
       ativo = false;
     };
-  }, [location]);
+  }, []);
 
   // Foco automático ao abrir a busca
   useEffect(() => {

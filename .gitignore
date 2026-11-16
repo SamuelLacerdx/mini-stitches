@@ -32,6 +32,8 @@ tmp
 .$Diagrama_Mini_Sitches.drawio.bkp
 
 .env
+.env.homologacao
+.env.homologacao.*
 
 node_modules
 
