@@ -600,6 +600,82 @@ A concorrência real no MongoDB e os pagamentos, renovações, cancelamentos e
 reembolsos no provedor continuam exigindo homologação. Por isso, a PAG-14 ainda
 não está integralmente concluída em ambiente integrado.
 
+### Resumo oficial e invalidação das cotações (PAG-15)
+
+O checkout consulta `POST /api/checkout/resumo`, com autenticação e resposta
+`private, no-store`. O servidor carrega os produtos do carrinho, valida todos
+os itens e calcula subtotal, desconto Pix, frete, total e parcelas em centavos
+conforme RN02–RN04 e UC03 da especificação revisada. O navegador formata esses
+valores para exibição; não calcula descontos, totais ou distribuição de parcelas.
+Sem CEP, a resposta mostra os produtos e subtotal, mas deixa frete, total e
+cotação indisponíveis, impedindo pagamento antes de concluir a entrega.
+
+Com CEP válido, a API consulta o frete e fornece serviços e opções de parcelas.
+Quando necessário, uma seleção de parcelas que deixou de atender ao mínimo
+de R$ 40 é substituída por 1x no resumo, para nova conferência do cliente.
+Preços, totais e itens enviados pelo navegador não definem os valores cobrados.
+Itens inativos/ausentes não são removidos silenciosamente do cálculo: impedem
+a confirmação e precisam ser corrigidos no carrinho.
+
+A resposta inclui `cotacao`, assinada com HS256 e audiência própria de checkout,
+e `validoAte`, com validade técnica de 5 minutos. O conteúdo assinado guarda
+um hash dos dados relevantes e um identificador aleatório; não contém cartão
+nem dados pessoais da entrega em texto aberto. O vínculo inclui cliente,
+origem do pedido, itens, quantidades, preços, CEP, endereço confirmado, serviço,
+frete, forma de pagamento, parcelas, desconto e total.
+
+Novas chamadas a `/api/pagamento/pix`, `/boleto` e `/cartao` precisam enviar
+essa `cotacao` juntamente com a chave de tentativa e os demais dados da operação.
+O servidor recalcula os valores e consulta novamente o frete antes de validar
+a cotação. Ausência retorna 400; assinatura inválida, expiração ou divergência
+do resumo retornam 409, com `resumo_invalido: true`. Um frete reajustado também
+impede a cobrança e invalida o resumo. Nenhuma reserva/cobrança é criada por
+uma cotação inválida. Falhas de disponibilidade de frete continuam bloqueando
+o pagamento pelas regras anteriores.
+
+O identificador da cotação é salvo na tentativa, protegido por índice único
+parcial `cotacaoId`. A mesma cotação não pode criar outra tentativa com uma
+chave diferente, inclusive em solicitações concorrentes. Antes do uso em
+produção, confirme a criação desse índice no MongoDB. Tentativas legadas sem
+esse campo permanecem legíveis. A cotação completa não é salva na tentativa.
+
+A idempotência continua anterior à validação de uma nova cotação: uma repetição
+da mesma tentativa e dos mesmos dados recupera o pagamento original, mesmo
+após expirar a cotação ou esvaziar o carrinho. Alterar endereço ou origem do
+pedido na repetição produz conflito. A resposta do pagamento inclui `resumo`
+calculado a partir da tentativa efetivamente cobrada. A tela de confirmação e
+o registro do pedido usam esse snapshot, preservando frete/endereço/total
+originais quando o carrinho já tem preços diferentes. O registro rejeita a
+troca do endereço confirmado depois da cobrança.
+
+No frontend, mudanças em CEP, endereço, serviço, método ou parcelas tornam
+o resumo anterior indisponível imediatamente. A consulta é agrupada com pequeno
+atraso para digitação, cancela a anterior e descarta respostas fora de ordem.
+Alterações no carrinho notificam a aba atual e outras abas por um marcador
+aleatório sem dados do cliente. Foco, retorno à página, retomada de visibilidade,
+expiração e atualização manual também solicitam novo resumo. O botão de pagar
+fica bloqueado enquanto a consulta não termina, em erro ou sem cotação válida.
+Os campos são bloqueados durante o processamento e após gerar o pagamento.
+Erros permitem atualizar o resumo; recusas definitivas exigem nova cotação.
+
+Quando há `pedidoNumero`, produtos/quantidades vêm do pedido pendente do próprio
+cliente e preços vêm do cadastro atual, nunca de `location.state`. Pedido que
+já possui pagamento ou tentativa vinculada não recebe outra cotação pagável:
+a tela direciona ao acompanhamento da cobrança existente, evitando pagamento
+duplicado. Essa proteção não substitui a recuperação completa prevista na PAG-16.
+
+Publique frontend e backend desta etapa juntos: clientes antigos sem o resumo
+oficial não podem iniciar novos pagamentos. A página pode ser atualizada para
+obter a cotação exigida. A assinatura do Clube mantém seu fluxo separado e
+não participa do subtotal/frete/desconto das compras avulsas.
+
+Os testes locais incluem expiração, adulteração, troca dos dados relevantes,
+isolamento entre contas, uso único concorrente, replay com resumo original,
+resposta atrasada e execução do handler real do checkout com transporte/SDK
+simulados. Homologue a interação completa no navegador, a concorrência do índice
+no MongoDB e as chamadas reais de frete/pagamento em ambiente de testes antes
+de produção. Não houve cobrança real nesta validação.
+
 ## Estrutura principal
 
 ```text

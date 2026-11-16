@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { notificarAlteracaoCarrinho } from '../utils/resumoCheckout.mjs';
 
 const formatarPreco = (valor) => {
   const numero = Number(valor ?? 0);
@@ -65,6 +66,7 @@ export default function Materiais() {
         throw new Error(dados.erro || "Não foi possível adicionar ao carrinho.");
       }
 
+      notificarAlteracaoCarrinho();
       setMensagens((prev) => ({
         ...prev,
         [item._id]: {

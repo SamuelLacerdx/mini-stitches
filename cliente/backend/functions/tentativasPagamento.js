@@ -22,6 +22,8 @@ function identificarRequisicao(req, metodo) {
     body.cep, body.freteCentavos, body.servicoId, String(body.parcelas ?? 1),
     metodo === "cartao" ? body.payment_method_id : null,
     body.endereco?.rua, body.endereco?.numero, body.endereco?.bairro, body.endereco?.cidade, body.endereco?.estado];
+  if (body.pedidoNumero) dados.push(body.pedidoNumero);
+  if (body.entrega?.endereco) dados.push(body.entrega.endereco);
   return { chaveTentativa: body.chaveTentativa,
     hashRequisicao: createHash("sha256").update(JSON.stringify(dados)).digest("hex") };
 }
@@ -59,7 +61,7 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
   }
 
   async function cobrar({ clienteId, metodo, itens, subtotal, frete, desconto, total,
-    parcelas = 1, cep, servicoId, body, chaveTentativa, hashRequisicao }) {
+    parcelas = 1, cep, servicoId, body, chaveTentativa, hashRequisicao, cotacaoId, enderecoConfirmado }) {
     const existente = await buscar({ clienteId, chaveTentativa, hashRequisicao });
     if (existente) return existente;
     let tentativa;
@@ -67,12 +69,16 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
       tentativa = await TentativaPagamento.create({
         clienteId, metodo, itens, subtotal, frete, desconto, total, parcelas, cep, servicoId,
         estado: "registrada",
-        chaveTentativa, hashRequisicao,
+        chaveTentativa, hashRequisicao, ...(cotacaoId && { cotacaoId }), enderecoConfirmado,
       });
     } catch (erro) {
       if (erro.code === 11000) {
         const repetida = await buscar({ clienteId, chaveTentativa, hashRequisicao });
         if (repetida) return repetida;
+        if (cotacaoId) {
+          const vinculada = await TentativaPagamento.findOne({ clienteId, cotacaoId });
+          if (vinculada) throw new ErroIdempotencia('Este resumo já foi utilizado. Consulte a tentativa original antes de pagar novamente.', 409, String(vinculada._id));
+        }
       }
       throw new Error("Não foi possível registrar a tentativa. Nenhuma cobrança foi solicitada.");
     }

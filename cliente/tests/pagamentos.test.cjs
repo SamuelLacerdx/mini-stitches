@@ -31,6 +31,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const logs = [];
   const consultasConta = [];
   let reservas;
+  let resumoCheckout;
   let atualizarLogistica;
   const estoques = falhas.estoques ?? { 'produto-teste': { estoque: 10, estoqueSeguranca: 0, ativo: true } };
   let transacaoAnterior = Promise.resolve();
@@ -63,6 +64,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   } }], async populate() {}, async save() {} };
   if (falhas.itens) carrinho.itens = falhas.itens;
   const require = (nome) => {
+    if (nome === './backend/functions/resumoCheckout') {
+      const modulo = requerer(nome);
+      return { ...modulo, criarResumoCheckout(opcoes) {
+        resumoCheckout = modulo.criarResumoCheckout({ ...opcoes, agora: () => new Date(falhas.horaResumo ?? Date.now()) });
+        return resumoCheckout;
+      } };
+    }
     if (nome === './backend/functions/cancelamentoClube' && falhas.retomaCancelamento) {
       return { ...requerer(nome), criarCancelamentoClube: () => ({ processarPendentes: falhas.retomaCancelamento }) };
     }
@@ -147,7 +155,10 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           for (const [campo, evento] of Object.entries(dados.$push || {})) (pedido[campo] ??= []).push(evento);
           return pedido;
         },
-        async findOne(filtro) { return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null; },
+        async findOne(filtro) {
+          if (filtro.numero) return falhas.pedidoResumo?.numero === filtro.numero && falhas.pedidoResumo.clienteId === filtro.clienteId ? falhas.pedidoResumo : null;
+          return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null;
+        },
         async create(dados) {
           if (falhas.pedido) throw new Error('Falha no registro do pedido');
           const pedido = { _id: 'pedido-1', numero: 'MS-1001', ...dados };
@@ -190,7 +201,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         async create(dados) {
           eventos.push('registro');
           if (falhas.registro) throw new Error('Banco indisponível');
-          if (tentativas.some((item) => item.clienteId === dados.clienteId && item.chaveTentativa === dados.chaveTentativa)) {
+          if (tentativas.some((item) => (item.clienteId === dados.clienteId && item.chaveTentativa === dados.chaveTentativa) || (dados.cotacaoId && item.cotacaoId === dados.cotacaoId))) {
             throw Object.assign(new Error('Chave duplicada'), { code: 11000 });
           }
           const tentativa = { _id: `tentativa-${tentativas.length + 1}`, estoqueEstado: 'nao_reservado', ...JSON.parse(JSON.stringify(dados)) };
@@ -292,10 +303,23 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     if (dados.semChave) delete req.body.chaveTentativa;
     req.body.entrega ??= { cep: req.body.cep, endereco: 'Rua Teste, 1' };
     const res = { statusCode: 200, status(valor) { this.statusCode = valor; return this; },
-      set() { return this; },
+      set(nome, valor) { (this.headers ||= {})[nome] = valor; return this; },
       send(valor) { this.dados = valor; return this; },
       json(valor) { this.dados = valor; return this; } };
     const url = metodo.startsWith('/') ? metodo : `/api/pagamento/${metodo}`;
+    if (url.startsWith('/api/pagamento/') && !Object.hasOwn(dados, 'cotacao') && !dados.semCotacao) {
+      // Fixtures anteriores à PAG-15 recebem uma cotação de teste, emitida
+      // pelo serviço real. Não existe esse preenchimento automático na API.
+      try {
+        const calculo = criarItensPedido(carrinho.itens);
+        const meio = url.split('/').at(-1);
+        req.body.cotacao = resumoCheckout.emitir({ clienteId: req.session.usuarioId, calculo,
+          cep: String(req.body.cep).replace(/\D/g, ''), metodo: meio,
+          frete: calculo.subtotal > 39990 ? 0 : Number(req.body.freteCentavos),
+          servicoId: calculo.subtotal > 39990 ? 0 : Number(req.body.servicoId),
+          parcelas: meio === 'cartao' ? Number(req.body.parcelas ?? 1) : 1, entrega: req.body.entrega }).cotacao;
+      } catch { /* O handler continua validando o cenário inválido. */ }
+    }
     if (url === '/api/webhook') {
       const id = String(dados.data?.id ?? '123');
       req.query = dados.query ?? { 'data.id': id, type: 'payment' };
@@ -2068,4 +2092,247 @@ test('PAG-14: repetição antes do intervalo não chama novamente o provedor nem
   sistema.definirHora('2026-11-10T16:01:00Z');
   await sistema.cancelamento.processarPendentes();
   assert.equal(sistema.chamadasCancelamento.length, 2);
+});
+
+async function obterResumoTeste(servidor, dados = {}) {
+  const resposta = await servidor.enviar('/api/checkout/resumo', { metodo: 'cartao', ...dados, testarAutenticacao: true });
+  assert.equal(resposta.statusCode, 200, JSON.stringify(resposta.dados));
+  return resposta.dados.resumo;
+}
+
+test('PAG-15: resumo exige conta autenticada, não permite cache e ignora valores do navegador', async () => {
+  const visitante = montarServidor(4990, undefined, { semSessao: true });
+  assert.equal((await visitante.enviar('/api/checkout/resumo', { testarAutenticacao: true })).statusCode, 401);
+  const servidor = montarServidor();
+  const resposta = await servidor.enviar('/api/checkout/resumo', { metodo: 'pix', subtotal: 1, frete: 0,
+    total: 1, desconto: 99999, itens: [{ preco: 1 }], testarAutenticacao: true });
+  assert.equal(resposta.statusCode, 200);
+  assert.equal(resposta.headers['Cache-Control'], 'private, no-store');
+  const resumo = resposta.dados.resumo;
+  assert.deepEqual([resumo.subtotal, resumo.desconto, resumo.frete, resumo.total], [4990, 249, 1500, 6241]);
+  assert.equal(resumo.itens[0].precoUnit, 4990);
+  assert.equal(typeof resumo.cotacao, 'string');
+  assert.equal(servidor.cobrancas.length + servidor.tentativas.length, 0);
+});
+
+test('PAG-15: sem CEP o servidor mostra produtos, mas não inventa frete, total ou cotação pagável', async () => {
+  const resumo = await obterResumoTeste(montarServidor(), { cep: '' });
+  assert.equal(resumo.subtotal, 4990);
+  assert.equal(resumo.frete, null);
+  assert.equal(resumo.total, null);
+  assert.equal(resumo.cotacao, null);
+  assert.equal(resumo.opcoesFrete.length, 0);
+});
+
+test('PAG-15: servidor entrega limites de frete e centavos de cada parcela', async () => {
+  for (const preco of [39990, 39991]) {
+    const resumo = await obterResumoTeste(montarServidor(preco), { metodo: 'pix' });
+    assert.equal(resumo.frete, preco > 39990 ? 0 : 1500);
+    assert.equal(resumo.servicoId, preco > 39990 ? 0 : 1);
+  }
+  const resumo = await obterResumoTeste(montarServidor(10501), { parcelas: 3 });
+  assert.equal(resumo.total, 12001);
+  assert.deepEqual(Array.from(resumo.valoresParcelas), [4001, 4000, 4000]);
+  assert.equal(resumo.opcoesParcelas.length, 3);
+  const simples = await obterResumoTeste(montarServidor(10501), { parcelas: 6 });
+  assert.equal(simples.parcelas, 1);
+});
+
+test('PAG-15: nova cobrança requer cotação válida, mesmo quando os valores enviados estão corretos', async () => {
+  for (const metodo of ['pix', 'boleto', 'cartao']) {
+    const servidor = montarServidor();
+    const sem = await servidor.enviar(metodo, { semCotacao: true });
+    assert.equal(sem.statusCode, 400);
+    assert.equal(sem.dados.resumo_invalido, true);
+    const falsa = await servidor.enviar(metodo, { cotacao: 'cotacao-adulterada' });
+    assert.equal(falsa.statusCode, 409);
+    assert.equal(servidor.tentativas.length + servidor.cobrancas.length, 0);
+  }
+});
+
+test('PAG-15: cotação expira após cinco minutos, mas replay recupera pagamento já criado', async () => {
+  const opcoes = { horaResumo: Date.parse('2026-11-16T12:00:00Z') };
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const resumo = await obterResumoTeste(servidor);
+  assert.equal(resumo.validoAte, '2026-11-16T12:05:00.000Z');
+  const chaveTentativa = randomUUID();
+  const primeira = await servidor.enviar('cartao', { cotacao: resumo.cotacao, chaveTentativa });
+  assert.equal(primeira.statusCode, 200);
+  opcoes.horaResumo += 300000;
+  assert.deepEqual((await servidor.enviar('cartao', { cotacao: resumo.cotacao, chaveTentativa })).dados, primeira.dados);
+  assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao })).statusCode, 409);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-15: alterar itens, preço, quantidade, CEP, endereço, método ou parcelas invalida a cotação', async () => {
+  const casos = [
+    (servidor) => { servidor.carrinho.itens[0].produtoId.preco = 5990; return {}; },
+    (servidor) => { servidor.carrinho.itens[0].quantidade = 2; return {}; },
+    (servidor) => { servidor.carrinho.itens[0].produtoId._id = 'outro-produto'; return {}; },
+    () => ({ cep: '01310100' }),
+    () => ({ entrega: { cep: '01001000', endereco: 'Outro endereço, 99' } }),
+  ];
+  for (const alterar of casos) {
+    const servidor = montarServidor();
+    const resumo = await obterResumoTeste(servidor);
+    assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao, ...alterar(servidor) })).statusCode, 409);
+    assert.equal(servidor.tentativas.length + servidor.cobrancas.length, 0);
+  }
+  const servidor = montarServidor(15000);
+  const resumo = await obterResumoTeste(servidor, { parcelas: 2 });
+  assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao, parcelas: 3 })).statusCode, 409);
+  assert.equal((await servidor.enviar('pix', { cotacao: resumo.cotacao })).statusCode, 409);
+});
+
+test('PAG-15: serviço de mesmo preço e frete reajustado não reutilizam cotação antiga', async () => {
+  let preco = 1500;
+  const servidor = montarServidor(4990, async () => [{ servicoId: 1, preco }, { servicoId: 2, preco }]);
+  const resumo = await obterResumoTeste(servidor);
+  assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao, servicoId: 2 })).statusCode, 409);
+  preco = 1600;
+  const alterado = await servidor.enviar('cartao', { cotacao: resumo.cotacao });
+  assert.equal(alterado.statusCode, 400);
+  assert.equal(alterado.dados.resumo_invalido, true);
+  assert.equal(servidor.cobrancas.length, 0);
+});
+
+test('PAG-15: cotação não é transferível entre contas e produto inativo não é omitido silenciosamente', async () => {
+  const opcoes = {};
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const resumo = await obterResumoTeste(servidor);
+  opcoes.clienteId = 'outro-cliente';
+  assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao })).statusCode, 409);
+  opcoes.clienteId = 'cliente-teste';
+  servidor.carrinho.itens[0].produtoId.ativo = false;
+  assert.equal((await servidor.enviar('cartao', { cotacao: resumo.cotacao })).statusCode, 400);
+  assert.equal((await servidor.enviar('/api/checkout/resumo')).statusCode, 400);
+  assert.equal(servidor.cobrancas.length, 0);
+});
+
+test('PAG-15: a mesma cotação não cria duas tentativas mesmo com chaves concorrentes diferentes', async () => {
+  const servidor = montarServidor();
+  const resumo = await obterResumoTeste(servidor);
+  const respostas = await Promise.all([servidor.enviar('cartao', { cotacao: resumo.cotacao }), servidor.enviar('cartao', { cotacao: resumo.cotacao })]);
+  assert.deepEqual(respostas.map((res) => res.statusCode).sort(), [200, 409]);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.tentativas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  const { TentativaPagamento } = require('../backend/db/mongodb');
+  assert.ok(TentativaPagamento.schema.indexes().some(([campos, opcoes]) => campos.cotacaoId && opcoes.unique));
+});
+
+test('PAG-15: replay devolve resumo efetivamente cobrado e endereço confirmado não pode ser trocado no registro', async () => {
+  const servidor = montarServidor();
+  const resumo = await obterResumoTeste(servidor);
+  const chaveTentativa = randomUUID();
+  const pagamento = await servidor.enviar('cartao', { chaveTentativa, cotacao: resumo.cotacao });
+  servidor.carrinho.itens[0].produtoId.preco = 9990;
+  const novo = await obterResumoTeste(servidor);
+  assert.equal(novo.total, 11490);
+  const replay = await servidor.enviar('cartao', { chaveTentativa, cotacao: novo.cotacao });
+  assert.equal(replay.dados.resumo.total, 6490);
+  assert.deepEqual(replay.dados.resumo, pagamento.dados.resumo);
+  const pedido = await servidor.enviar('/api/pedidos', { pagamentoId: '123', entrega: { cep: '01001000', endereco: 'Endereço alterado' } });
+  assert.equal(pedido.statusCode, 400);
+  assert.equal(servidor.pedidos.length, 0);
+});
+
+test('PAG-15: pedido pendente usa cadastro do servidor e exige propriedade', async () => {
+  const pedidoResumo = { numero: 'MS-PENDENTE', clienteId: 'cliente-teste', status: 'aguardando_pagamento',
+    itens: [{ produtoId: { _id: 'produto-teste', nome: 'Kit atual', slug: 'kit', preco: 9990, ativo: true }, quantidade: 2 }],
+    async populate() {} };
+  const servidor = montarServidor(1, undefined, { pedidoResumo });
+  const resumo = await obterResumoTeste(servidor, { pedidoNumero: pedidoResumo.numero, itens: [{ precoUnit: 1 }] });
+  assert.equal(resumo.subtotal, 19980);
+  assert.equal((await servidor.enviar('/api/checkout/resumo', { pedidoNumero: 'pedido-alheio' })).statusCode, 404);
+  pedidoResumo.pagamentoId = '123';
+  assert.equal((await servidor.enviar('/api/checkout/resumo', { pedidoNumero: pedidoResumo.numero })).statusCode, 409);
+  assert.equal(servidor.cobrancas.length, 0);
+});
+
+test('PAG-15: cliente descarta resposta atrasada de resumo e ignora resposta após invalidar', async () => {
+  const { criarConsultaResumo } = await import('../src/utils/resumoCheckout.mjs');
+  const pendentes = [];
+  const controle = criarConsultaResumo(async (_url, opcoes) => new Promise((resolve) => pendentes.push({ resolve, opcoes })));
+  const primeiro = controle.consultar({ cep: '01001000' });
+  const segundo = controle.consultar({ cep: '01310100' });
+  pendentes[1].resolve({ ok: true, json: async () => ({ resumo: { total: 2500 } }) });
+  assert.deepEqual(await segundo, { total: 2500 });
+  pendentes[0].resolve({ ok: true, json: async () => ({ resumo: { total: 1 } }) });
+  assert.equal(await primeiro, null);
+  assert.equal(pendentes[0].opcoes.signal.aborted, true);
+  const terceiro = controle.consultar({ cep: '20000000' });
+  controle.cancelar();
+  pendentes[2].resolve({ ok: true, json: async () => ({ resumo: { total: 9999 } }) });
+  assert.equal(await terceiro, null);
+});
+
+test('PAG-15: erro do resumo atual não reaproveita valor antigo nem envia campos de cartão', async () => {
+  const { criarConsultaResumo } = await import('../src/utils/resumoCheckout.mjs');
+  const chamadas = [];
+  const controle = criarConsultaResumo(async (url, opcoes) => {
+    chamadas.push({ url, opcoes });
+    return { ok: false, json: async () => ({ erro: 'Frete indisponível.' }) };
+  });
+  await assert.rejects(controle.consultar({ cep: '01001000', metodo: 'pix', parcelas: 1 }), /Frete indisponível/);
+  assert.equal(chamadas[0].opcoes.credentials, 'include');
+  assert.equal(chamadas[0].opcoes.cache, 'no-store');
+  assert.equal(JSON.stringify(chamadas).includes('cvv'), false);
+});
+
+function executarCheckoutTeste(variaveis) {
+  const fonte = readFileSync(resolve(__dirname, '../src/Pages/Checkout.jsx'), 'utf8');
+  const inicio = fonte.indexOf('  const handleFinalizarPedido =');
+  const handler = fonte.slice(inicio, fonte.indexOf('\n  return (', inicio));
+  return runInNewContext(handler + '\nhandleFinalizarPedido({ preventDefault() {} });', variaveis);
+}
+
+test('PAG-15: handler do checkout envia cotação e token, e recebe o resumo oficial efetivamente cobrado', async () => {
+  const servidor = montarServidor();
+  const resumo = await obterResumoTeste(servidor);
+  const envios = [];
+  let confirmado;
+  const valores = { resumo, cartItems: resumo.itens, subtotal: resumo.subtotal, valorFrete: resumo.frete,
+    freteSelecionado: resumo.opcoesFrete[0], freteSelecionadoId: resumo.servicoId,
+    parcelasSelecionadas: '1', pagamento: 'cartao', cep: '01001000', pedidoPendente: null,
+    entregaResumo: { cep: '01001000', endereco: 'Rua Teste, 1' },
+    formData: { email: 'teste@example.com', cpf: '00000000000', nome: 'Cliente Teste', endereco: 'Rua Teste', numero: '1',
+      bairro: 'Centro', cidade: 'São Paulo', estado: 'SP', numeroCartao: '4111111111111111', nomeCartao: 'Nome Teste',
+      validade: '12/30', cvv: '123', cpfTitular: '00000000000', bandeira: 'visa' },
+    envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null },
+    sessionStorage: { getItem: () => null, setItem() {} }, crypto: { randomUUID },
+    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert(mensagem) { assert.fail(mensagem); },
+    detectarBandeiraCartao: () => 'visa', mpInstance: { createCardToken: async () => ({ id: 'token-teste' }) },
+    lerRespostaPagamento: async (resposta) => resposta.json(),
+    concluirPagamento: async (_tipo, dados) => { confirmado = dados.resumo; },
+    fetch: async (url, opcoes) => {
+      const body = JSON.parse(opcoes.body);
+      envios.push(body);
+      const resposta = await servidor.enviar(url, { ...body, testarAutenticacao: true });
+      return { json: async () => resposta.dados };
+    },
+  };
+  await executarCheckoutTeste(valores);
+  assert.equal(envios.length, 1);
+  assert.equal(envios[0].cotacao, resumo.cotacao);
+  assert.equal(envios[0].token, 'token-teste');
+  assert.equal(JSON.stringify(envios).includes('4111111111111111'), false);
+  assert.equal(Object.hasOwn(envios[0], 'cvv'), false);
+  assert.equal(confirmado.total, 6490);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-15: handler do checkout bloqueia resumo ausente ou expirado antes de tokenizar ou cobrar', async () => {
+  for (const resumo of [null, { cotacao: 'expirada', validoAte: '2020-01-01' }]) {
+    let tokenizacoes = 0;
+    let atualizacoes = 0;
+    await executarCheckoutTeste({ resumo, cartItems: [{}], subtotal: 4990, freteSelecionado: {},
+      formData: { email: 'teste@example.com', cpf: '00000000000', nome: 'Cliente Teste' },
+      envioPagamentoRef: { current: false }, setLoading() {}, setResultado() {}, alert() {},
+      atualizarResumo() { atualizacoes++; },
+      mpInstance: { createCardToken: async () => { tokenizacoes++; } },
+    });
+    assert.equal(tokenizacoes, 0);
+    assert.equal(atualizacoes, 1);
+  }
 });

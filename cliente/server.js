@@ -15,6 +15,7 @@ const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = req
 const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backend/functions/cancelamentoClube');
 const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredosAplicacao } = require('./backend/functions/segurancaPagamento');
 const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
+const { criarResumoCheckout, ErroResumoCheckout } = require('./backend/functions/resumoCheckout');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -58,6 +59,7 @@ const isDirectRun = require.main === module;
 const session = require("express-session");
 
 const { sessionSecret, jwtSecret } = segredosAplicacao(process.env);
+const resumoCheckout = criarResumoCheckout({ secret: jwtSecret });
 const mpPublicKey = process.env.MP_PUBLIC_KEY || "";
 const mpAccessToken = process.env.MP_ACCESS_TOKEN || "";
 const mpClient = mpAccessToken
@@ -198,18 +200,29 @@ const sohTextos = (...valores) =>
   valores.every((valor) => typeof valor === "string");
 
 async function obterCalculoCarrinho(req) {
+  if (req.body?.pedidoNumero) {
+    const numero = req.body.pedidoNumero;
+    if (typeof numero !== 'string' || numero.length > 100) throw new ErroResumoCheckout('Pedido inválido.', 400);
+    const pedido = await Pedido.findOne({ numero, clienteId: req.session.usuarioId });
+    if (!pedido || pedido.status !== 'aguardando_pagamento') throw new ErroResumoCheckout('Pedido pendente não encontrado.', 404);
+    if (pedido.pagamentoId || pedido.tentativaId) throw new ErroResumoCheckout('Este pedido já possui uma cobrança. Acompanhe sua situação antes de pagar novamente.');
+    await pedido.populate('itens.produtoId', 'nome preco ativo slug');
+    return criarItensPedido(pedido.itens);
+  }
   const carrinho = await obterCarrinho(req);
   await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-  const itensValidos = carrinho.itens.filter(
-    (item) => item.produtoId && item.produtoId.ativo !== false,
-  );
-  return criarItensPedido(itensValidos);
+  return criarItensPedido(carrinho.itens);
 }
 
 function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
   const cep = normalizarCEP(req.body?.entrega?.cep ?? req.body?.cep);
   if (!cep) throw new ErroCalculoPagamento("Informe um CEP válido para a tentativa.");
+  const servicoId = calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS ? 0 : Number(req.body.servicoId);
+  const cotacaoId = resumoCheckout.validar({ cotacao: req.body.cotacao, clienteId: req.session.usuarioId,
+    calculo, cep, servicoId, frete, metodo, parcelas, pedidoNumero: req.body.pedidoNumero || '', entrega: req.body.entrega });
   return {
+    cotacaoId,
+    enderecoConfirmado: req.body.entrega?.endereco || '',
     ...req.identidadePagamento,
     clienteId: req.session.usuarioId,
     metodo,
@@ -220,12 +233,20 @@ function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
     total,
     parcelas,
     cep,
-    servicoId: calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS ? 0 : Number(req.body.servicoId),
+    servicoId,
   };
 }
 
 function formatarTentativa({ resposta, tentativaId, tentativa }) {
   const comum = { sucesso: true, id_pagamento: resposta.id, tentativa_id: tentativaId, status: resposta.status,
+    resumo: { itens: tentativa.itens.map(({ produtoId, nome, slug, quantidade, precoUnit }) => ({ produtoId: String(produtoId), nome, slug, quantidade, precoUnit })),
+      quantidadeItens: tentativa.itens.reduce((soma, item) => soma + item.quantidade, 0),
+      subtotal: tentativa.subtotal, desconto: tentativa.desconto, frete: tentativa.frete, total: tentativa.total,
+      metodo: tentativa.metodo, parcelas: tentativa.parcelas, servicoId: tentativa.servicoId,
+      cep: tentativa.cep, enderecoConfirmado: tentativa.enderecoConfirmado,
+      valoresParcelas: tentativa.metodo === 'cartao' ? calcularParcelasCentavos(tentativa.total, tentativa.parcelas) : [],
+      opcoesParcelas: [], opcoesFrete: [{ servicoId: tentativa.servicoId, servico: 'Frete contratado', preco: tentativa.frete }],
+      cotacao: null },
     ...financeiroDoProvedor(resposta, tentativa.total) };
   if (tentativa.metodo === "pix") return {
     ...comum,
@@ -300,6 +321,40 @@ app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
 
+app.post('/api/checkout/resumo', autenticar, async (req, res) => {
+  try {
+    validarCorpoSeguro(req.body || {});
+    if (req.body.entrega && (typeof req.body.entrega.endereco !== 'string' || req.body.entrega.endereco.length > 1000)) {
+      throw new ErroResumoCheckout('Endereço de entrega inválido.', 400);
+    }
+    const calculo = await obterCalculoCarrinho(req);
+    const metodo = req.body.metodo || 'cartao';
+    const informado = req.body.cep;
+    const cep = informado ? normalizarCEP(informado) : null;
+    if (informado && !cep) throw new ErroResumoCheckout('Informe um CEP válido.', 400);
+    let opcoesFrete = [];
+    let selecionado;
+    if (cep) {
+      const itens = calculo.itensPedido.map((item) => ({ quantidade: item.quantidade, produtoId: { _id: item.produtoId, preco: item.precoUnit } }));
+      const opcoes = calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS
+        ? [{ servicoId: 0, servico: 'Frete grátis', transportadora: 'Mini Stitches', preco: 0, prazoMin: 0, prazoMax: 0 }]
+        : await cotarFrete({ cepDestino: cep, itens });
+      opcoesFrete = opcoes.filter((opcao) => Number.isSafeInteger(opcao.servicoId) && opcao.servicoId >= 0 && Number.isSafeInteger(opcao.preco) && opcao.preco >= 0)
+        .map(({ servicoId, servico, transportadora, logo, preco, prazoMin, prazoMax }) => ({ servicoId, servico, transportadora, logo, preco, prazoMin, prazoMax }))
+        .sort((a, b) => a.preco - b.preco);
+      selecionado = req.body.servicoId === undefined || req.body.servicoId === null || calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS
+        ? opcoesFrete[0] : opcoesFrete.find((opcao) => opcao.servicoId === Number(req.body.servicoId));
+      if (!selecionado) throw new ErroResumoCheckout('O serviço de frete não está disponível. Atualize o resumo.');
+    }
+    res.json({ resumo: resumoCheckout.emitir({ clienteId: req.session.usuarioId, calculo, metodo, cep,
+      parcelas: Number(req.body.parcelas || 1), servicoId: selecionado?.servicoId, frete: selecionado?.preco,
+      opcoesFrete, pedidoNumero: req.body.pedidoNumero || '', entrega: req.body.entrega }) });
+  } catch (erro) {
+    const conhecido = erro instanceof ErroResumoCheckout || erro instanceof ErroCalculoPagamento || erro instanceof ErroFrete || erro instanceof ErroSegurancaPagamento;
+    res.status(conhecido ? erro.status || 400 : 503).json({ erro: conhecido ? erro.message : 'Não foi possível calcular o resumo.' });
+  }
+});
+
 app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
     const existente = await recuperarTentativa(req, "pix");
@@ -362,6 +417,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
@@ -370,7 +426,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
@@ -460,6 +516,7 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
@@ -468,7 +525,7 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
@@ -538,6 +595,7 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
@@ -546,7 +604,7 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
@@ -1538,6 +1596,9 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     }
     if (tentativa.cep !== cep || tentativa.frete !== freteInformado) {
       return res.status(400).json({ erro: "A entrega não confere com a tentativa de pagamento." });
+    }
+    if (tentativa.enderecoConfirmado && tentativa.enderecoConfirmado !== endereco) {
+      return res.status(400).json({ erro: 'O endereço mudou após a confirmação do resumo.' });
     }
     itens = tentativa.itens.map((item) => ({
       produtoId: item.produtoId, nome: item.nome, slug: item.slug,

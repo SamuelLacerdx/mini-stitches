@@ -332,6 +332,8 @@ const historicoStatusSchema = new mongoose.Schema(
 // Registro anterior à chamada externa. Não armazena payload do gateway,
 // token de cartão, CPF, número de cartão ou CVV.
 const tentativaPagamentoSchema = new mongoose.Schema({
+  cotacaoId: { type: String },
+  enderecoConfirmado: { type: String, maxlength: 1000 },
   clienteId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, index: true },
   metodo: { type: String, enum: ["pix", "boleto", "cartao"], required: true },
   chaveTentativa: { type: String, maxlength: 80 },
@@ -371,6 +373,8 @@ tentativaPagamentoSchema.index({ clienteId: 1, chaveTentativa: 1 }, {
   unique: true,
   partialFilterExpression: { chaveTentativa: { $type: "string" } },
 });
+tentativaPagamentoSchema.index({ cotacaoId: 1 }, { unique: true,
+  partialFilterExpression: { cotacaoId: { $type: 'string' } } });
 
 tentativaPagamentoSchema.pre("validate", function () {
   const subtotal = this.itens.reduce((soma, item) => soma + item.precoUnit * item.quantidade, 0);

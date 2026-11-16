@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { notificarAlteracaoCarrinho } from '../utils/resumoCheckout.mjs';
 
 const formatarPreco = (valor) => {
   const numero = Number(valor ?? 0);
@@ -100,6 +101,7 @@ export default function DetalheProd() {
       }
 
       setMensagemCarrinho(`${produto.nome} foi adicionado ao carrinho.`);
+      notificarAlteracaoCarrinho();
       setItemAdicionado(true);
     } catch (error) {
       setMensagemCarrinho(

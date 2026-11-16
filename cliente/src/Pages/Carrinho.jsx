@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { notificarAlteracaoCarrinho } from '../utils/resumoCheckout.mjs';
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat("pt-BR", {
@@ -66,6 +67,7 @@ export default function Carrinho() {
       }
 
       setItens(dados.itens || []);
+      notificarAlteracaoCarrinho();
     } catch (error) {
       setErro(error.message || "Não foi possível atualizar o carrinho.");
     } finally {
