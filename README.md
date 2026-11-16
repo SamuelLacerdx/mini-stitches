@@ -122,6 +122,27 @@ O checkout já conta com cálculo de frete pelo Melhor Envio e com as rotas de p
 
 As páginas de contato, newsletter, clube e solicitação de troca ainda não estão integradas por completo a operações de servidor.
 
+### Tentativas de pagamento (PAG-05)
+
+Antes de solicitar cobranças avulsas por Pix, boleto ou cartão, a API grava uma
+`TentativaPagamento` com o cliente autenticado, a cópia dos itens e preços,
+subtotal, desconto, frete validado, total, parcelas e CEP. Se esse registro
+falhar, nenhuma cobrança é solicitada. O identificador é enviado ao Mercado
+Pago em `external_reference` e devolvido pela API como `tentativa_id`.
+
+Uma resposta identificada do gateway registra `resposta_recebida`, o ID do
+pagamento e seu status. Erros e timeouts registram `resultado_desconhecido`,
+pois não comprovam que a cobrança deixou de ser criada. Se a atualização do
+banco falhar após a cobrança, a resposta do gateway é preservada e a tentativa
+inicial continua disponível para conciliação pela referência externa. O registro
+não guarda token, CPF, número do cartão, CVV ou o payload completo do gateway.
+
+O pedido comercial continua sendo registrado pelo fluxo de `/api/pedidos`.
+Esta etapa não implementa reserva antecipada de estoque (PAG-06), idempotência
+entre requisições (PAG-07) ou conciliação automática de tentativas inconclusivas.
+Os testes locais estão disponíveis em `npm run test:pagamentos`, na pasta
+`cliente`; arquivos ignorados em `cliente/tests/` precisam existir localmente.
+
 ## Estrutura principal
 
 ```text

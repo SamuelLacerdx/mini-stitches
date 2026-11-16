@@ -228,6 +228,41 @@ const historicoStatusSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Registro anterior à chamada externa. Não armazena payload do gateway,
+// token de cartão, CPF, número de cartão ou CVV.
+const tentativaPagamentoSchema = new mongoose.Schema({
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, index: true },
+  metodo: { type: String, enum: ["pix", "boleto", "cartao"], required: true },
+  itens: {
+    type: [itemPedidoSchema],
+    required: true,
+    validate: { validator: (itens) => itens.length > 0, message: "A tentativa precisa ter itens." },
+  },
+  subtotal: { type: Number, required: true, min: 0, validate: inteiro },
+  frete: { type: Number, required: true, min: 0, validate: inteiro },
+  desconto: { type: Number, required: true, min: 0, validate: inteiro },
+  total: { type: Number, required: true, min: 1, validate: inteiro },
+  parcelas: { type: Number, required: true, min: 1, max: 6, validate: inteiro },
+  cep: { type: String, required: true, match: /^\d{8}$/ },
+  servicoId: { type: Number, min: 0, validate: inteiro },
+  estado: {
+    type: String,
+    enum: ["registrada", "resposta_recebida", "resultado_desconhecido"],
+    default: "registrada",
+    required: true,
+  },
+  pagamentoId: { type: String },
+  statusProvedor: { type: String, maxlength: 80 },
+}, { timestamps: { createdAt: "criadoEm", updatedAt: "atualizadoEm" } });
+
+tentativaPagamentoSchema.pre("validate", function () {
+  const subtotal = this.itens.reduce((soma, item) => soma + item.precoUnit * item.quantidade, 0);
+  if (!Number.isSafeInteger(subtotal) || this.subtotal !== subtotal ||
+    !Number.isSafeInteger(this.total) || this.total !== this.subtotal + this.frete - this.desconto) {
+    throw new Error("Os valores da tentativa não conferem com os itens.");
+  }
+});
+
 const pedidoSchema = new mongoose.Schema({
   numero: { type: String, unique: true, trim: true }, // MS-1001
 
@@ -384,6 +419,7 @@ const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
 const Produto = mongoose.model("Produto", produtoSchema);
 const Contador = mongoose.model("Contador", contadorSchema);
 const Pedido = mongoose.model("Pedido", pedidoSchema);
+const TentativaPagamento = mongoose.model("TentativaPagamento", tentativaPagamentoSchema);
 const Troca = mongoose.model("Troca", trocaSchema);
 const Carrinho = mongoose.model("Carrinho", carrinhoSchema);
 
@@ -394,6 +430,7 @@ module.exports = {
   Produto,
   Contador,
   Pedido,
+  TentativaPagamento,
   Troca,
   Carrinho,
 };
