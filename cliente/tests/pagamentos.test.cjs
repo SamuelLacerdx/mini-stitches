@@ -5,7 +5,8 @@ const { resolve } = require('node:path');
 const { createRequire } = require('node:module');
 const { runInNewContext } = require('node:vm');
 const { randomUUID, createHmac } = require('node:crypto');
-const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
+const { calcularPixCentavos, calcularFreteAplicavelCentavos, calcularSubtotalCentavos, criarItensPedido,
+  calcularValorBaseCentavos, calcularParcelasCentavos, ErroCalculoPagamento } = require('../backend/functions/calculosPagamento');
 const { primeiraCompetencia, loteElegivel, vencimentoMensal, validarPostagem } = require('../backend/functions/calendarioClube');
 const { criarConciliadorClube, criarConsultaFaturas, registrarRotasClube } = require('../backend/functions/recorrenciaClube');
 const { criarCancelamentoClube, registrarRotasCancelamento } = require('../backend/functions/cancelamentoClube');
@@ -277,6 +278,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   }, { filename: arquivo });
 
   return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas, adesoes, autorizacoes, logs, consultasConta,
+    get carrinho() { return carrinho; },
     get reservas() { return reservas; },
     get atualizarLogistica() { return atualizarLogistica; },
     async enviar(metodo, dados = {}) {
@@ -1073,6 +1075,7 @@ function montarRecorrencia(opcoes = {}) {
   const modelos = {};
   for (const [nome, lista] of Object.entries(colecoes)) {
     const atualizar = (filtro, dados, opcoes = {}) => {
+      if (contexto.antesAtualizar) contexto.antesAtualizar(nome, filtro, dados, contexto);
       if (nome === 'CaixaClube' && contexto.falhaCaixa) throw new Error('Falha de persistência');
       if (nome === 'OperacaoClube' && contexto.falhaOperacao) throw new Error('Falha ao salvar operação');
       let item = lista.find((valor) => corresponde(valor, filtro));
@@ -1167,6 +1170,7 @@ function montarRecorrencia(opcoes = {}) {
   registrarRotasClube({ app, autenticar, autenticarAdmin, ...modelos, executarTransacao });
   registrarRotasCancelamento({ app, autenticar, autenticarAdmin, ...modelos, cancelamento, processarRecorrencia: processar, cronSecret: 'segredo-cron-testes' });
   return { ...contexto, acordo, modelos, processar, cancelamento, chamadasCancelamento, chamadasReembolso, reembolsos,
+    interceptarAtualizacao(callback) { contexto.antesAtualizar = callback; },
     definirHora(valor) { hora = new Date(valor); },
     falharOperacao(valor) { contexto.falhaOperacao = valor; },
     falharCaixa(valor) { contexto.falhaCaixa = valor; },
@@ -1864,4 +1868,204 @@ test('PAG-13: esquema de cartão descarta PAN, CVV e token de gateway não utili
   assert.equal(salvo.includes('4111111111111111'), false);
   assert.equal(salvo.includes('token-nao-persistir'), false);
   assert.equal(salvo.includes('cvv'), false);
+});
+
+test('PAG-14: cadastro e subtotal válidos geram snapshot sem usar o preço do navegador', () => {
+  const produto = { _id: 'produto-1', slug: 'kit', nome: 'Kit', preco: 12990, ativo: true };
+  const itens = [{ produtoId: produto, quantidade: 2, preco: 1 },
+    { produtoId: { ...produto, _id: 'produto-2', preco: 499 }, quantidade: 1 }];
+  const resultado = criarItensPedido(itens);
+  assert.equal(resultado.subtotal, 26479);
+  assert.equal(resultado.itensPedido[0].precoUnit, 12990);
+  produto.preco = 100;
+  assert.equal(resultado.itensPedido[0].precoUnit, 12990);
+});
+
+test('PAG-14: carrinho vazio, produto inativo, cadastro inválido e quantidade adulterada são recusados', () => {
+  const produto = { _id: 'produto-1', preco: 1000, ativo: true };
+  assert.throws(() => calcularSubtotalCentavos([]), ErroCalculoPagamento);
+  assert.throws(() => calcularSubtotalCentavos([{ produtoId: { ...produto, ativo: false }, quantidade: 1 }]), ErroCalculoPagamento);
+  for (const preco of [null, true, '', '1000', 10.5, -1, NaN, Infinity]) {
+    assert.throws(() => calcularSubtotalCentavos([{ produtoId: { ...produto, preco }, quantidade: 1 }]), ErroCalculoPagamento, `preço ${String(preco)}`);
+  }
+  for (const quantidade of [null, true, '', '1', 0, -1, 1.5, NaN, Infinity]) {
+    assert.throws(() => calcularSubtotalCentavos([{ produtoId: produto, quantidade }]), ErroCalculoPagamento, `quantidade ${String(quantidade)}`);
+  }
+});
+
+test('PAG-14: multiplicação, acúmulo e soma com frete não ultrapassam o inteiro seguro', () => {
+  const maximo = Number.MAX_SAFE_INTEGER;
+  const item = (preco, quantidade = 1) => ({ produtoId: { _id: 'p', preco, ativo: true }, quantidade });
+  assert.equal(calcularSubtotalCentavos([item(maximo)]), maximo);
+  assert.throws(() => calcularSubtotalCentavos([item(maximo, 2)]), ErroCalculoPagamento);
+  assert.throws(() => calcularSubtotalCentavos([item(maximo), item(1)]), ErroCalculoPagamento);
+  assert.equal(calcularValorBaseCentavos(maximo - 1500, 1500), maximo);
+  assert.throws(() => calcularValorBaseCentavos(maximo, 1), ErroCalculoPagamento);
+});
+
+test('PAG-14: Pix usa arredondamento exato inclusive próximo ao maior inteiro seguro', () => {
+  const subtotal = 9007199254731003;
+  assert.equal(calcularPixCentavos(subtotal, 0).produtosLiquidos, 8556839291994453);
+  assert.deepEqual(calcularPixCentavos(4990, 1500), { produtosLiquidos: 4741, desconto: 249, total: 6241 });
+});
+
+test('PAG-14: Pix conserva subtotal, desconto e frete em 5000 amostras determinísticas', () => {
+  let estado = 20261116n;
+  const modulo = BigInt(Number.MAX_SAFE_INTEGER);
+  for (let indice = 0; indice < 5000; indice++) {
+    estado = (estado * 6364136223846793005n + 1442695040888963407n) % modulo;
+    const subtotal = Number(estado);
+    const frete = indice % 10000;
+    const esperado = Number((estado * 95n + 50n) / 100n);
+    const resultado = calcularPixCentavos(subtotal, frete);
+    assert.equal(resultado.produtosLiquidos, esperado, `amostra ${indice}, subtotal ${subtotal}`);
+    assert.equal(resultado.desconto + resultado.produtosLiquidos, subtotal);
+    assert.equal(resultado.total, esperado + frete);
+    assert.ok(Object.values(resultado).every(Number.isSafeInteger));
+  }
+});
+
+test('PAG-14: Pix e frete recusam tipos/valores inválidos e soma final insegura', () => {
+  for (const valor of [null, true, '', '1000', [], {}, -1, 1.5, NaN, Infinity]) {
+    assert.throws(() => calcularPixCentavos(valor, 0), ErroCalculoPagamento);
+    assert.throws(() => calcularPixCentavos(1000, valor), ErroCalculoPagamento);
+    assert.throws(() => calcularValorBaseCentavos(1000, valor), ErroCalculoPagamento);
+    assert.throws(() => calcularFreteAplicavelCentavos(1000, valor), ErroCalculoPagamento);
+  }
+  assert.throws(() => calcularPixCentavos(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER), ErroCalculoPagamento);
+});
+
+test('PAG-14: frete usa limite estrito anterior ao Pix e parcelas cobrem todos os restos de 1x a 6x', () => {
+  for (const subtotal of [39989, 39990, 39991]) {
+    const frete = calcularFreteAplicavelCentavos(subtotal, 1500);
+    assert.equal(frete, subtotal > 39990 ? 0 : 1500);
+    assert.equal(calcularPixCentavos(subtotal, frete).total, Number((BigInt(subtotal) * 95n + 50n) / 100n) + frete);
+  }
+  for (let parcelas = 1; parcelas <= 6; parcelas++) {
+    for (let resto = 0; resto < parcelas; resto++) {
+      const total = 4000 * parcelas + resto;
+      const valores = calcularParcelasCentavos(total, parcelas);
+      assert.deepEqual(valores, Array.from({ length: parcelas }, (_, indice) => indice < resto ? 4001 : 4000));
+      assert.equal(valores.reduce((soma, valor) => soma + valor, 0), total);
+    }
+    if (parcelas > 1) assert.throws(() => calcularParcelasCentavos(4000 * parcelas - 1, parcelas), ErroCalculoPagamento);
+  }
+});
+
+test('PAG-14: novo preço vale para nova tentativa e replay preserva preço já cobrado', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  const original = await servidor.enviar('cartao', { chaveTentativa });
+  servidor.carrinho.itens[0].produtoId.preco = 9990;
+  assert.deepEqual((await servidor.enviar('cartao', { chaveTentativa })).dados, original.dados);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal((await servidor.enviar('cartao')).statusCode, 200);
+  assert.equal(servidor.cobrancas[1].transaction_amount, 114.9);
+  servidor.carrinho.itens[0].produtoId.ativo = false;
+  assert.equal((await servidor.enviar('cartao')).statusCode, 400);
+  assert.equal(servidor.cobrancas.length, 2);
+});
+
+test('PAG-14: vinte tentativas disputam três unidades sem consumir margem de segurança (simulado)', async () => {
+  const servidor = montarServidor(4990, undefined, { estoques: {
+    'produto-teste': { estoque: 5, estoqueSeguranca: 2, ativo: true },
+  } });
+  const respostas = await Promise.all(Array.from({ length: 20 }, () => servidor.enviar('cartao')));
+  assert.equal(respostas.filter((res) => res.statusCode === 200).length, 3);
+  assert.equal(respostas.filter((res) => res.statusCode === 409).length, 17);
+  assert.equal(servidor.cobrancas.length, 3);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 2);
+  assert.equal(servidor.tentativas.filter((item) => item.estoqueEstado === 'reservado').length, 3);
+});
+
+test('PAG-14: cobrança aprovada no timeout é recuperada por webhook sem segunda cobrança', async () => {
+  const opcoes = { gateway: true };
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const chaveTentativa = randomUUID();
+  assert.equal((await servidor.enviar('cartao', { chaveTentativa })).statusCode, 500);
+  const evento = { type: 'payment', data: { id: '123' } };
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+  opcoes.gateway = false;
+  assert.equal((await servidor.enviar('cartao', { chaveTentativa })).statusCode, 200);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-14: bloqueio de operação interrompida só permite retomada após expiração', async () => {
+  const opcoes = { cancelamento: true, falhaCancelar: true };
+  const sistema = montarRecorrencia(opcoes);
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  const operacao = sistema.colecoes.OperacaoClube[0];
+  Object.assign(operacao, { estado: 'processando', lockToken: 'processo-interrompido',
+    lockAte: '2026-11-10T16:02:00Z', proximaExecucaoEm: '2026-11-10T16:00:00Z' });
+  opcoes.falhaCancelar = false;
+  await sistema.cancelamento.processarPendentes({ forcar: true });
+  assert.equal(sistema.chamadasCancelamento.length, 1);
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasCancelamento.length, 2);
+  assert.equal(operacao.estado, 'concluida');
+});
+
+test('PAG-14: vinte processadores de reembolso concorrentes produzem uma devolução (simulado)', async () => {
+  const opcoes = { cancelamento: true, falhaReembolso: true };
+  const sistema = montarRecorrencia(opcoes);
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  opcoes.falhaReembolso = false;
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await Promise.all(Array.from({ length: 20 }, () => sistema.cancelamento.processarPendentes()));
+  assert.equal(sistema.reembolsos.size, 1);
+  assert.equal(sistema.chamadasReembolso.length, 2); // Um timeout anterior + uma execução bem-sucedida.
+  assert.equal(sistema.colecoes.CaixaClube.length, 1);
+});
+
+test('PAG-14: perder a posse da operação impede enviar POST de reembolso', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  sistema.interceptarAtualizacao((nome, filtro, dados, contexto) => {
+    if (nome === 'OperacaoClube' && dados.$set?.valorSolicitado) {
+      contexto.colecoes.OperacaoClube.find((item) => item._id === filtro._id).lockToken = 'outro-processador';
+    }
+  });
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  assert.equal(sistema.chamadasReembolso.length, 0);
+  assert.equal(sistema.colecoes.CaixaClube[0].bloqueada, true);
+});
+
+test('PAG-14: falha no banco após resposta do reembolso recupera efeito sem outro POST', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  sistema.adicionar('1', '2026-11-10T16:01:00Z');
+  sistema.definirHora('2026-11-10T16:02:00Z');
+  let falhou = false;
+  sistema.interceptarAtualizacao((nome, _filtro, dados) => {
+    if (nome === 'OperacaoClube' && dados.$set?.estado === 'aguardando_provedor' && !falhou) {
+      falhou = true;
+      throw new Error('Banco indisponível após efeito remoto');
+    }
+  });
+  await sistema.processar({ tipo: 'payment', id: 'pag-1' });
+  sistema.definirHora('2026-11-10T16:04:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasReembolso.length, 1);
+  assert.equal(sistema.colecoes.CaixaClube[0].reembolsoEstado, 'concluido');
+});
+
+test('PAG-14: repetição antes do intervalo não chama novamente o provedor nem altera a identificação', async () => {
+  const sistema = montarRecorrencia({ cancelamento: true, falhaCancelar: true });
+  await sistema.cancelamento.solicitar('cliente-a', assinaturaTesteId);
+  const operacao = sistema.colecoes.OperacaoClube[0];
+  const identificadoEm = operacao.identificadoEm;
+  sistema.definirHora('2026-11-10T16:00:59Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasCancelamento.length, 1);
+  assert.equal(operacao.identificadoEm, identificadoEm);
+  sistema.definirHora('2026-11-10T16:01:00Z');
+  await sistema.cancelamento.processarPendentes();
+  assert.equal(sistema.chamadasCancelamento.length, 2);
 });

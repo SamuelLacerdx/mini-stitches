@@ -578,6 +578,28 @@ Referências técnicas: [geração do token de cartão](https://www.mercadopago.
 [cuidados com logs](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
 e [gestão de sessão](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
+### Regressão dos cálculos e fluxos financeiros (PAG-14)
+
+O [relatório da PAG-14](docs/relatorio-pag-14.md) registra a base documental,
+os cenários, as falhas corrigidas e os limites da validação.
+
+`npm run test:pagamentos`, na pasta `cliente`, executa somente os dois arquivos
+de teste financeiros já versionados. Não depende do arquivo local ignorado
+`calculosPagamento.test.mjs`; os cálculos básicos passaram a integrar os cenários
+da suíte principal. A política de ignorar novos arquivos de teste foi preservada.
+
+O Pix usa aritmética inteira no cálculo intermediário para manter RN03 inclusive
+próximo ao maior inteiro seguro do JavaScript. Preços, quantidades, subtotal e
+frete devem ser números inteiros válidos; entradas de outros tipos não são
+convertidas silenciosamente nesses cálculos. A nova cobertura inclui 5.000
+amostras determinísticas, limites de frete/parcelas, overflow, preço alterado,
+replay, timeout, concorrência simulada e recuperação de operações interrompidas.
+
+A execução local aprovou 126 testes financeiros e 8 testes HTTP de pedidos.
+A concorrência real no MongoDB e os pagamentos, renovações, cancelamentos e
+reembolsos no provedor continuam exigindo homologação. Por isso, a PAG-14 ainda
+não está integralmente concluída em ambiente integrado.
+
 ## Estrutura principal
 
 ```text
