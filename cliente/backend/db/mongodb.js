@@ -255,6 +255,9 @@ const tentativaPagamentoSchema = new mongoose.Schema({
   },
   pagamentoId: { type: String },
   statusProvedor: { type: String, maxlength: 80 },
+  provedorAtualizadoEm: { type: Date },
+  aprovadoEm: { type: Date },
+  ultimaNotificacaoEm: { type: Date },
   respostaGateway: { type: mongoose.Schema.Types.Mixed, select: false },
   estoqueEstado: {
     type: String, enum: ["nao_reservado", "reservado", "liberado"], default: "nao_reservado",
@@ -275,6 +278,8 @@ tentativaPagamentoSchema.pre("validate", function () {
 });
 
 const pedidoSchema = new mongoose.Schema({
+  pagamentoAtualizadoEm: { type: Date },
+  pagamentoAprovadoEm: { type: Date },
   tentativaId: { type: mongoose.Schema.Types.ObjectId, ref: "TentativaPagamento" },
   estoqueRestituido: { type: Boolean, default: false },
   estoqueRestituicaoPendente: { type: Boolean, default: false },
@@ -428,6 +433,16 @@ carrinhoSchema.index(
 );
 
 const Usuario = mongoose.model("Usuario", usuarioSchema);
+const notificacaoPagamentoSchema = new mongoose.Schema({
+  _id: { type: String },
+  pagamentoId: { type: String, required: true, index: true },
+  statusProvedor: { type: String, required: true },
+  provedorAtualizadoEm: { type: Date, required: true },
+  aprovadoEm: { type: Date },
+  recebidoEm: { type: Date, required: true },
+  requestId: { type: String, required: true },
+});
+const NotificacaoPagamento = mongoose.model("NotificacaoPagamento", notificacaoPagamentoSchema);
 const Plano = mongoose.model("Plano", planoSchema);
 const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
 const Produto = mongoose.model("Produto", produtoSchema);
@@ -445,6 +460,7 @@ module.exports = {
   Contador,
   Pedido,
   TentativaPagamento,
+  NotificacaoPagamento,
   Troca,
   Carrinho,
 };

@@ -36,26 +36,30 @@ function criarReservasEstoque({ Produto, TentativaPagamento, Pedido, executarTra
     }
   }
 
-  async function liberar(tentativaId) {
-    await executarTransacao(async (session) => {
+  async function liberar(tentativaId, sessionExistente, condicoes = {}) {
+    const operacao = async (session) => {
       const tentativa = await TentativaPagamento.findOneAndUpdate(
-        { _id: tentativaId, estoqueEstado: "reservado" },
+        { _id: tentativaId, estoqueEstado: "reservado", ...condicoes },
         { $set: { estoqueEstado: "liberado" } }, { session, new: true },
       );
       if (tentativa) await repor(tentativa.itens, session);
-    });
+    };
+    if (sessionExistente) return operacao(sessionExistente);
+    return executarTransacao(operacao);
   }
 
-  async function liberarPedido(pedido) {
-    if (pedido.tentativaId) return liberar(pedido.tentativaId);
+  async function liberarPedido(pedido, sessionExistente) {
+    if (pedido.tentativaId) return liberar(pedido.tentativaId, sessionExistente);
     // Pedidos anteriores à PAG-06 também precisam de proteção contra reposição dupla.
-    await executarTransacao(async (session) => {
+    const operacao = async (session) => {
       const anterior = await Pedido.findOneAndUpdate(
         { _id: pedido._id, estoqueRestituicaoPendente: true, estoqueRestituido: { $ne: true } },
         { $set: { estoqueRestituido: true, estoqueRestituicaoPendente: false } }, { session, new: true },
       );
       if (anterior) await repor(anterior.itens, session);
-    });
+    };
+    if (sessionExistente) return operacao(sessionExistente);
+    return executarTransacao(operacao);
   }
 
   return { reservar, liberar, liberarPedido };

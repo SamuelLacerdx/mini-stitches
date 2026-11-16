@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { createRequire } = require('node:module');
 const { runInNewContext } = require('node:vm');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHmac } = require('node:crypto');
 const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
@@ -15,18 +15,22 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const cobrancas = [];
   const tentativas = [];
   const pedidos = [];
+  const notificacoes = [];
+  const consultas = [];
   const eventos = [];
   let reservas;
   const estoques = falhas.estoques ?? { 'produto-teste': { estoque: 10, estoqueSeguranca: 0, ativo: true } };
   let transacaoAnterior = Promise.resolve();
   const executarTransacao = (operacao) => {
     const atual = transacaoAnterior.then(async () => {
-      const copia = JSON.parse(JSON.stringify({ estoques, tentativas }));
+      const copia = JSON.parse(JSON.stringify({ estoques, tentativas, pedidos, notificacoes }));
       try { return await operacao({ transacaoTeste: true }); }
       catch (erro) {
         for (const chave of Object.keys(estoques)) delete estoques[chave];
         Object.assign(estoques, copia.estoques);
         tentativas.splice(0, tentativas.length, ...copia.tentativas);
+        pedidos.splice(0, pedidos.length, ...copia.pedidos);
+        notificacoes.splice(0, notificacoes.length, ...copia.notificacoes);
         throw erro;
       }
     });
@@ -60,6 +64,17 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     });
     if (nome === './backend/db/mongodb') return {
       ...requerer(nome),
+      NotificacaoPagamento: {
+        async init() {},
+        async findById(id) { return notificacoes.find((item) => item._id === id) ?? null; },
+        async create(dados) {
+          if (falhas.notificacao) throw new Error('Falha ao registrar notificação');
+          if (notificacoes.some((item) => item._id === dados[0]._id)) {
+            throw Object.assign(new Error('Notificação duplicada'), { code: 11000 });
+          }
+          notificacoes.push(...dados);
+        },
+      },
       Pedido: {
         async findOne(filtro) { return pedidos.find((pedido) => pedido.pagamentoId === filtro.pagamentoId) ?? null; },
         async create(dados) {
@@ -67,6 +82,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           const pedido = { _id: 'pedido-1', numero: 'MS-1001', ...dados };
           pedidos.push(pedido);
           return pedido;
+        },
+        async updateOne(filtro, dados) {
+          const pedido = pedidos.find((item) => item._id === filtro._id);
+          if (!pedido) return { matchedCount: 0 };
+          Object.assign(pedido, dados.$set);
+          if (dados.$push?.historicoStatus) (pedido.historicoStatus ??= []).push(dados.$push.historicoStatus);
+          return { matchedCount: 1 };
         },
       },
       Produto: {
@@ -107,14 +129,21 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         async updateOne(filtro, atualizacao) {
           eventos.push('atualizacao');
           if (falhas.atualizacao) throw new Error('Banco indisponível');
-          const tentativa = tentativas.find((item) => item._id === filtro._id);
+          const tentativa = tentativas.find((item) => {
+            if (item._id !== filtro._id || (filtro.estado && item.estado !== filtro.estado)) return false;
+            if (filtro.provedorAtualizadoEm?.$exists === false && item.provedorAtualizadoEm) return false;
+            if (filtro.$or && item.provedorAtualizadoEm &&
+              !(new Date(item.provedorAtualizadoEm) < filtro.$or[1].provedorAtualizadoEm.$lt)) return false;
+            return true;
+          });
           if (tentativa) Object.assign(tentativa, atualizacao.$set);
           return { matchedCount: tentativa ? 1 : 0 };
         },
         async findOneAndUpdate(filtro, atualizacao, { session }) {
           assert.ok(session.transacaoTeste);
           eventos.push(atualizacao.$set.estoqueEstado === 'reservado' ? 'reserva' : 'liberacao');
-          const tentativa = tentativas.find((item) => item._id === String(filtro._id) && item.estoqueEstado === filtro.estoqueEstado);
+          const tentativa = tentativas.find((item) => item._id === String(filtro._id) && item.estoqueEstado === filtro.estoqueEstado &&
+            (!filtro.statusProvedor || item.statusProvedor === filtro.statusProvedor));
           if (!tentativa) return null;
           Object.assign(tentativa, atualizacao.$set);
           return tentativa;
@@ -135,10 +164,15 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       MercadoPagoConfig: class {}, PreApproval: class {},
       Payment: class {
         async get() {
+          consultas.push('get');
+          if (falhas.consulta) throw new Error('Falha no provedor');
           const body = cobrancas.at(-1);
           return { id: 123, status: falhas.status ?? 'approved', external_reference: body.external_reference,
+            currency_id: 'BRL', date_last_updated: '2026-11-15T12:00:00.000Z',
+            date_approved: '2026-11-15T11:59:00.000Z',
             transaction_amount: body.transaction_amount, payment_method_id: body.payment_method_id,
-            payment_type_id: body.payment_method_id === 'bolbradesco' ? 'ticket' : 'credit_card' };
+            payment_type_id: body.payment_method_id === 'bolbradesco' ? 'ticket' : 'credit_card',
+            ...falhas.pagamento };
         }
         async create({ body, requestOptions }) {
           eventos.push('gateway');
@@ -146,6 +180,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           assert.ok(tentativas.some((item) => item._id === body.external_reference && item.estado === 'registrada'));
           assert.equal(tentativas.find((item) => item._id === body.external_reference).estoqueEstado, 'reservado');
           cobrancas.push(body);
+          if (falhas.antesResposta) await falhas.antesResposta();
           if (falhas.gateway) throw new Error('Timeout com token-sensivel');
           return { id: 123, status: falhas.status ?? 'approved', installments: body.installments,
             point_of_interaction: { transaction_data: {} } };
@@ -156,11 +191,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   };
   runInNewContext(readFileSync(arquivo, 'utf8'), {
     require, module: { exports: {} },
-    process: { env: { MP_ACCESS_TOKEN: 'credencial-ficticia-dos-testes' } },
+    process: { env: { MP_ACCESS_TOKEN: 'credencial-ficticia-dos-testes',
+      MP_WEBHOOK_SECRET: falhas.semSecret ? '' : 'segredo-webhook-testes' } },
     console: { log() {}, error() {} },
   }, { filename: arquivo });
 
-  return { cobrancas, tentativas, eventos, estoques, pedidos, get reservas() { return reservas; },
+  return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas,
+    get reservas() { return reservas; },
     async enviar(metodo, dados = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
@@ -174,6 +211,15 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       send(valor) { this.dados = valor; return this; },
       json(valor) { this.dados = valor; return this; } };
     const url = metodo.startsWith('/') ? metodo : `/api/pagamento/${metodo}`;
+    if (url === '/api/webhook') {
+      const id = String(dados.data?.id ?? '123');
+      req.query = dados.query ?? { 'data.id': id, type: 'payment' };
+      const ts = String(Math.floor(Date.now() / 1000));
+      const requestId = randomUUID();
+      const hash = createHmac('sha256', 'segredo-webhook-testes')
+        .update(`id:${id.toLowerCase()};request-id:${requestId};ts:${ts};`).digest('hex');
+      req.headers = dados.headers ?? { 'x-request-id': requestId, 'x-signature': `ts=${ts},v1=${hash}` };
+    }
     await rotas.get(`post ${url}`)(req, res);
     return res;
   } };
@@ -529,4 +575,138 @@ test('PAG-07: falha na inicialização do índice impede cobrança', async () =>
   assert.equal((await servidor.enviar('pix')).statusCode, 500);
   assert.equal(servidor.tentativas.length, 0);
   assert.equal(servidor.cobrancas.length, 0);
+});
+
+test('PAG-08: assinatura ausente, malformada ou incorreta é rejeitada antes da API', async () => {
+  const servidor = montarServidor();
+  const casos = [{}, { 'x-request-id': 'id-teste', 'x-signature': 'ts=123,v1=ab' },
+    { 'x-request-id': 'id-teste', 'x-signature': `ts=123,v1=${'0'.repeat(64)}` },
+    { 'x-request-id': 'id-teste', 'x-signature': `ts=123,ts=123,v1=${'0'.repeat(64)}` }];
+  for (const headers of casos) {
+    assert.equal((await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' }, headers })).statusCode, 401);
+  }
+  assert.equal(servidor.consultas.length, 0);
+  assert.equal(servidor.notificacoes.length, 0);
+});
+
+test('PAG-08: ID assinado da URL não pode ser substituído pelo ID do corpo', async () => {
+  const servidor = montarServidor();
+  const req = { query: { 'data.id': 'ABC123' }, body: { data: { id: 'abc123' } }, headers: {
+    'x-request-id': 'id-teste', 'x-signature': `ts=123,v1=${createHmac('sha256', 'segredo')
+      .update('id:abc123;request-id:id-teste;ts:123;').digest('hex')}`,
+  } };
+  const { validarWebhook } = require('../backend/functions/webhookPagamento');
+  assert.equal(validarWebhook(req, 'segredo').paymentId, 'abc123');
+  req.body.data.id = '999';
+  assert.equal(validarWebhook(req, 'segredo'), null);
+  assert.equal((await servidor.enviar('/api/webhook', {
+    type: 'payment', data: { id: '999' }, query: { 'data.id': '123' },
+  })).statusCode, 401);
+  assert.equal(servidor.consultas.length, 0);
+});
+
+test('PAG-08: secret ausente bloqueia processamento', async () => {
+  const servidor = montarServidor(4990, undefined, { semSecret: true });
+  assert.equal((await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } })).statusCode, 503);
+  assert.equal(servidor.consultas.length, 0);
+});
+
+test('PAG-08: corpo não define status; notificações simultâneas não duplicam histórico', async () => {
+  const falhas = { status: 'pending' };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('boleto');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  const evento = { type: 'payment', data: { id: '123' }, status: 'approved' };
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+  assert.equal(servidor.pedidos[0].status, 'aguardando_pagamento');
+  falhas.status = 'approved';
+  falhas.pagamento = { date_last_updated: '2026-11-15T12:01:00.000Z' };
+  const respostas = await Promise.all([servidor.enviar('/api/webhook', evento), servidor.enviar('/api/webhook', evento)]);
+  assert.ok(respostas.every((resposta) => resposta.statusCode === 200));
+  assert.equal(servidor.pedidos[0].status, 'pago');
+  assert.equal(servidor.pedidos[0].historicoStatus.length, 1);
+  assert.equal(servidor.notificacoes.length, 2);
+  assert.equal(new Date(servidor.tentativas[0].aprovadoEm).toISOString(), '2026-11-15T11:59:00.000Z');
+  assert.notEqual(new Date(servidor.notificacoes[1].recebidoEm).getTime(), new Date(servidor.tentativas[0].aprovadoEm).getTime());
+});
+
+test('PAG-08: versão antiga não regride aprovação nem libera estoque', async () => {
+  const falhas = { status: 'pending' };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('pix');
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  const evento = { type: 'payment', data: { id: '123' } };
+  falhas.status = 'approved';
+  falhas.pagamento = { date_last_updated: '2026-11-15T13:00:00.000Z' };
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+  for (const status of ['pending', 'rejected']) {
+    falhas.status = status;
+    falhas.pagamento = { date_last_updated: '2026-11-15T12:00:00.000Z' };
+    assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+    assert.equal(servidor.tentativas[0].statusProvedor, 'approved');
+    assert.equal(servidor.pedidos[0].status, 'pago');
+    assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  }
+  assert.equal(servidor.notificacoes.length, 1);
+});
+
+test('PAG-08: falha após liberar estoque desfaz tudo e permite repetir a notificação', async () => {
+  const falhas = { status: 'pending', notificacao: true };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('pix');
+  falhas.status = 'rejected';
+  const evento = { type: 'payment', data: { id: '123' } };
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 503);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'reservado');
+  assert.equal(servidor.notificacoes.length, 0);
+  falhas.notificacao = false;
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 200);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+  assert.equal(servidor.notificacoes.length, 1);
+});
+
+test('PAG-08: falha do provedor, ID, moeda, valor ou datas inválidos não aplicam efeitos', async () => {
+  const falhas = { status: 'pending' };
+  const servidor = montarServidor(4990, undefined, falhas);
+  await servidor.enviar('pix');
+  const evento = { type: 'payment', data: { id: '123' } };
+  falhas.consulta = true;
+  assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 503);
+  falhas.consulta = false;
+  for (const pagamento of [{ id: 999 }, { currency_id: 'USD' }, { transaction_amount: 0.01 },
+    { date_last_updated: null }, { status: 'approved', date_approved: null }]) {
+    falhas.pagamento = pagamento;
+    assert.equal((await servidor.enviar('/api/webhook', evento)).statusCode, 503);
+  }
+  assert.equal(servidor.notificacoes.length, 0);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-08: resposta atrasada da criação não sobrescreve webhook mais novo', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  falhas.antesResposta = async () => {
+    falhas.status = 'rejected';
+    await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+    falhas.status = 'pending';
+  };
+  await servidor.enviar('pix');
+  assert.equal(servidor.tentativas[0].statusProvedor, 'rejected');
+  assert.equal(servidor.tentativas[0].respostaGateway.status, 'rejected');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+});
+
+test('PAG-08: recusa atrasada da criação não libera estoque após aprovação mais nova', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  falhas.antesResposta = async () => {
+    falhas.status = 'approved';
+    await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+    falhas.status = 'rejected';
+  };
+  await servidor.enviar('pix');
+  assert.equal(servidor.tentativas[0].statusProvedor, 'approved');
+  assert.equal(servidor.tentativas[0].estoqueEstado, 'reservado');
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
 });

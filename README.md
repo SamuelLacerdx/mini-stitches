@@ -75,6 +75,7 @@ FRETE_COMPRIMENTO_CM=25
 # Mercado Pago (pagamentos)
 MP_PUBLIC_KEY=
 MP_ACCESS_TOKEN=
+MP_WEBHOOK_SECRET=
 ```
 
 As dimensões e o peso do pacote (`FRETE_PESO_KG`, `FRETE_ALTURA_CM`, `FRETE_LARGURA_CM` e `FRETE_COMPRIMENTO_CM`) são obrigatórias para cotar o frete; o token, o contato e o `CEP_ORIGEM` também. `MELHOR_ENVIO_SANDBOX=true` usa o ambiente de testes do Melhor Envio.
@@ -200,8 +201,8 @@ Requisições em processamento ou com resultado desconhecido retornam HTTP 409
 com `tentativa_id` e não fazem outra chamada de cobrança. Não crie outra chave
 para contornar timeout. O webhook consulta o pagamento na API do provedor e
 registra a resposta na tentativa; após a conciliação, repetir a mesma chave
-recupera essa resposta. A autenticação do webhook e o tratamento completo de
-eventos fora de ordem ainda pertencem à PAG-08. Uma tentativa interrompida
+recupera essa resposta. A autenticação e o controle de versões do webhook
+estão descritos na PAG-08 abaixo. Uma tentativa interrompida
 antes de chegar ao gateway permanece bloqueada para conferência operacional;
 não há reenvio automático após expiração de prazo.
 
@@ -210,6 +211,47 @@ estoque sem cobrança. Após registrar o pedido, remove a chave do armazenamento
 da aba, mantendo a referência em memória enquanto a tela permanece aberta.
 Os testes locais simulam concorrência e persistência; ainda é necessária
 homologação com o índice real e a idempotência do gateway em sandbox.
+
+### Webhook autenticado e conciliação (PAG-08)
+
+Configure `MP_WEBHOOK_SECRET` com a chave secreta de Webhooks da aplicação
+no painel Mercado Pago; ela é diferente do access token. Sem essa chave ou
+sem o cliente do gateway, `/api/webhook` responde HTTP 503 e não processa o
+evento. Não há bypass de assinatura para desenvolvimento: a homologação
+também precisa enviar notificações assinadas.
+
+A assinatura `x-signature` é verificada com HMAC-SHA256, usando `data.id` da
+URL, `x-request-id` e `ts`, com comparação em tempo constante. O ID do corpo,
+quando presente, precisa corresponder ao ID assinado. Assinaturas ausentes,
+inválidas ou ambíguas recebem HTTP 401 antes de qualquer consulta externa.
+O timestamp participa da assinatura; a ordenação dos pagamentos usa a data
+do recurso consultado, e não a data de chegada ou o conteúdo do evento.
+
+Após validar a assinatura, a API consulta o pagamento no Mercado Pago e
+confere seu identificador, moeda, valor e vínculo com os registros locais.
+`date_last_updated` determina a versão. `date_approved` é armazenada como
+data efetiva de aprovação, separada de `recebidoEm`. A coleção
+`NotificacaoPagamento` registra cada combinação de pagamento e versão uma
+única vez. Notificações repetidas não duplicam histórico ou reposição de estoque;
+versões anteriores não sobrescrevem versões posteriores. Respostas atrasadas
+da criação da cobrança também respeitam a versão já conciliada.
+
+A tentativa, a atualização do pedido, a liberação aplicável do estoque e o
+registro da notificação são processados na mesma transação MongoDB. Falhas
+recebem HTTP 503 e desfazem os efeitos, permitindo o reenvio do provedor.
+Notificações válidas processadas, repetidas, antigas ou sem vínculo local
+recebem HTTP 200. Erros não registram headers, assinatura ou dados completos
+do pagamento nos logs.
+
+Este fluxo trata o tópico `payment` das compras avulsas. O status financeiro
+mais recente fica registrado na tentativa; a separação completa entre estados
+financeiros e logísticos e a política após reembolso/contestação de pedidos já
+pagos continuam na PAG-09. A integração recorrente terá seus próprios tópicos
+nas etapas de assinatura.
+
+Referência técnica: [notificações do Mercado Pago](https://www.mercadopago.com.br/developers/pt/docs/checkout-pro-preferences/payment-notifications).
+Os testes locais usam HMAC real e banco/gateway simulados; a homologação
+de notificações reais e concorrência no MongoDB continua necessária.
 
 ## Estrutura principal
 

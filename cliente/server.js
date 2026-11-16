@@ -7,7 +7,8 @@ const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
-const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia, resumirResposta } = require("./backend/functions/tentativasPagamento");
+const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia } = require("./backend/functions/tentativasPagamento");
+const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions/webhookPagamento");
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -35,6 +36,7 @@ const {
   Carrinho,
   Pedido,
   TentativaPagamento,
+  NotificacaoPagamento,
   Troca,
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
@@ -59,6 +61,11 @@ const reservasEstoque = criarReservasEstoque({
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
 });
 const cobrarComTentativa = criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque });
+const processarWebhook = criarProcessadorWebhook({
+  TentativaPagamento, Pedido, NotificacaoPagamento, reservasEstoque,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
+  isValidObjectId: mongoose.isValidObjectId,
+});
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
@@ -105,61 +112,22 @@ function estoqueDisponivel(produto) {
 }
 
 app.post("/api/webhook", async (req, res) => {
+  const secret = String(process.env.MP_WEBHOOK_SECRET || "").trim();
+  if (!secret || !paymentModule) return res.status(503).send("Webhook indisponível");
+  const assinatura = validarWebhook(req, secret);
+  if (!assinatura) return res.status(401).send("Notificação inválida");
+  const tipo = req.body?.type || req.query?.type;
+  if (tipo !== "payment" && !/^payment\./.test(String(req.body?.action || ""))) {
+    return res.status(200).send("Evento não tratado");
+  }
+  const recebidoEm = new Date();
   try {
-    const body = req.body || {};
-    const eventType = String(body?.type || body?.action || "");
-    const paymentId =
-      body?.data?.id ?? req.query?.["data.id"] ?? req.query?.id ?? null;
-
-    console.log("[webhook] recebido:", { eventType, paymentId });
-
-    const deveProcessarPagamento =
-      paymentId && (eventType === "payment" || eventType.includes("payment"));
-
-    if (deveProcessarPagamento && paymentModule) {
-      const pagamento = await paymentModule.get({ id: paymentId });
-      console.log(
-        "[webhook] pagamento atualizado:",
-        paymentId,
-        pagamento?.status || "status-indisponivel",
-      );
-
-      // O webhook é registrado antes do middleware que conecta ao banco.
-      await conectarBanco();
-      const pedido = await Pedido.findOne({ pagamentoId: String(paymentId) });
-      const referencia = String(pagamento?.external_reference || "");
-      const tentativa = mongoose.isValidObjectId(referencia)
-        ? await TentativaPagamento.findById(referencia)
-        : await TentativaPagamento.findOne({ pagamentoId: String(paymentId) });
-      if (tentativa) {
-        await TentativaPagamento.updateOne({ _id: tentativa._id }, { $set: {
-          pagamentoId: String(paymentId), estado: "resposta_recebida",
-          statusProvedor: String(pagamento.status), respostaGateway: resumirResposta(pagamento),
-        } });
-      }
-      if (["cancelled", "rejected"].includes(pagamento?.status) && tentativa) {
-        await reservasEstoque.liberar(tentativa._id);
-      }
-      if (pedido && pedido.status === "aguardando_pagamento") {
-        if (pagamento?.status === "approved") {
-          pedido.status = "pago";
-          await pedido.save();
-        } else if (
-          ["cancelled", "rejected", "refunded", "charged_back"].includes(
-            pagamento?.status,
-          )
-        ) {
-          pedido.status = "cancelado";
-          if (!pedido.tentativaId) pedido.estoqueRestituicaoPendente = true;
-          await pedido.save();
-        }
-      }
-      if (pedido?.status === "cancelado") await reservasEstoque.liberarPedido(pedido);
-    }
-
+    const pagamento = await paymentModule.get({ id: assinatura.paymentId });
+    await conectarBanco();
+    await processarWebhook({ pagamento, ...assinatura, recebidoEm });
     return res.status(200).send("OK");
-  } catch (erro) {
-    console.error("[webhook] erro:", erro.message || erro);
+  } catch {
+    console.error("[webhook] processamento pendente", { pagamentoId: assinatura.paymentId });
     return res.status(503).send("Tente novamente");
   }
 });

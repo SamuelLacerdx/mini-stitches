@@ -82,14 +82,25 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
 
     async function atualizar(dados) {
       try {
+        const filtro = { _id: tentativa._id };
+        if (dados.estado === "resultado_desconhecido") filtro.estado = "registrada";
+        if (dados.provedorAtualizadoEm) {
+          filtro.$or = [
+            { provedorAtualizadoEm: { $exists: false } },
+            { provedorAtualizadoEm: { $lt: dados.provedorAtualizadoEm } },
+          ];
+        } else if (dados.estado === "resposta_recebida") {
+          filtro.provedorAtualizadoEm = { $exists: false };
+        }
         const resultado = await TentativaPagamento.updateOne(
-          { _id: tentativa._id }, { $set: dados }, { runValidators: true },
+          filtro, { $set: dados }, { runValidators: true },
         );
-        if (resultado.matchedCount !== 1) throw new Error("Tentativa não localizada.");
+        return resultado.matchedCount === 1; // Um webhook já pode ter gravado uma versão mais recente.
       } catch {
         // A tentativa inicial e external_reference permitem conciliação posterior.
         // Não transforma uma cobrança já criada em erro que induza nova cobrança.
         logger.error("[pagamento] tentativa requer conciliacao", { tentativaId });
+        return false;
       }
     }
 
@@ -108,15 +119,19 @@ function criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservas
       throw erro;
     }
 
-    await atualizar({
+    const respostaGravada = await atualizar({
       estado: "resposta_recebida",
       pagamentoId: String(resposta.id),
       statusProvedor: String(resposta.status || "desconhecido").slice(0, 80),
       respostaGateway: resumirResposta(resposta),
+      ...(Number.isFinite(Date.parse(resposta.date_last_updated)) && {
+        provedorAtualizadoEm: new Date(resposta.date_last_updated),
+      }),
+      ...(Number.isFinite(Date.parse(resposta.date_approved)) && { aprovadoEm: new Date(resposta.date_approved) }),
     });
-    if (["rejected", "cancelled"].includes(resposta.status)) {
+    if (respostaGravada && ["rejected", "cancelled"].includes(resposta.status)) {
       try {
-        await reservasEstoque.liberar(tentativa._id);
+        await reservasEstoque.liberar(tentativa._id, undefined, { statusProvedor: resposta.status });
       } catch {
         logger.error("[pagamento] reserva requer conciliacao", { tentativaId });
       }
