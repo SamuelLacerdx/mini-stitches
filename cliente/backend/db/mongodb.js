@@ -15,6 +15,8 @@ const enderecoSchema = new mongoose.Schema({
 });
 
 const cartaoSchema = new mongoose.Schema({
+  provedorCardId: String,
+  paymentMethodId: String,
   titular: String,
   finalCartao: { type: String, minLength: 4, maxLength: 4 },
   validade: String,
@@ -42,6 +44,7 @@ const usuarioSchema = new mongoose.Schema({
 
   enderecos: { type: [enderecoSchema], default: [] },
   cartoes: { type: [cartaoSchema], default: [] },
+  provedorCustomerId: String,
 });
 
 const planoSchema = new mongoose.Schema({

@@ -788,6 +788,44 @@ continuam sendo a fonte para confirmar efeitos financeiros; falha do coletor
 não altera a operação. A etapa não instala agendador, coletor, alertas, política
 de retenção ou infraestrutura de backup.
 
+## Checkout — Escolha de endereços e cartões do perfil
+
+O checkout permite escolher um endereço da própria conta ou informar outro.
+Selecionar um endereço substitui todos os campos da entrega, inclusive complemento
+e CEP, invalida a cotação anterior e recalcula o frete pelo resumo oficial.
+Editar os campos desfaz a indicação de endereço salvo. O endereço principal
+continua sendo a seleção inicial; salvar pela tela atualiza as opções disponíveis.
+
+Para cartões, o cadastro no perfil agora associa o token ao cliente/cartão da
+carteira do Mercado Pago (`Customer.create`/`createCard`). A loja persiste somente
+referências do provedor e metadados mascarados, sem PAN, CVV ou token temporário.
+O vínculo de cliente é gravado condicionalmente para preservar a referência
+canônica em solicitações concorrentes. Não se associa automaticamente um cliente
+remoto encontrado apenas por e-mail. Falhas de criação/vínculo exigem conferir
+o provedor antes de novo cadastro; não representam criação de cobrança.
+
+Cartões antigos possuem apenas final/bandeira/validade e precisam ser cadastrados
+novamente no perfil para reutilização. A tela identifica esses cartões e os
+vencidos como indisponíveis. É possível usar outro cartão pelo formulário normal.
+Escolher outro cartão limpa os dados sensíveis em memória e renova o resumo.
+
+Ao usar cartão salvo, o navegador solicita novo CVV e chama o SDK com `cardId`
+e `securityCode`. Somente o token gerado e o ID local da seleção seguem para
+`POST /api/pagamento/cartao`. Antes de reservar estoque ou cobrar, o servidor
+confere a propriedade local, o vínculo remoto com o cliente, validade, bandeira
+e token ativo correspondente ao cartão escolhido. O pagador da cobrança usa
+`type: customer` e o identificador persistido no servidor. A identidade da
+tentativa inclui a seleção do cartão; repetir uma tentativa concluída recupera
+a cobrança original, sem cobrar novamente. Remover o cartão do perfil impede
+novas seleções pela loja; esta etapa não altera a exclusão remota da carteira.
+
+Referências técnicas: [tokenização no SDK oficial](https://github.com/mercadopago/sdk-js/blob/main/docs/core-methods.md)
+e [contrato de cartão salvo na Payments API](https://www.mercadopago.com.br/developers/en/docs/checkout-api-orders/resources/migrate-payments-to-orders).
+O fluxo de assinatura continua separado; esta funcionalidade atende às compras
+avulsas. É necessário homologar cadastro e uso da carteira em sandbox, incluindo
+CVV inválido, cartão excluído no provedor, falha após salvar remotamente e acesso
+por outra conta. Os testes locais simulam banco e provedor e não criam cobranças reais.
+
 ## Estrutura principal
 
 ```text

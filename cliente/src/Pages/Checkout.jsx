@@ -2,6 +2,7 @@ import { usePedido } from '../hooks/usePedido';
 import { useResumoCheckout } from '../hooks/useResumoCheckout';
 import RecuperarPagamento from '../Componentes/RecuperarPagamento';
 import { origemRecuperacao } from '../utils/recuperacaoPagamento.mjs';
+import { dadosEnderecoCheckout, cartaoDisponivelCheckout } from '../utils/perfilCheckout.mjs';
 import { financeiroPedido, situacaoFinanceira } from '../utils/pedido.mjs';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -98,6 +99,12 @@ function FinalizarCompra({ onRetomar }) {
     || pedidoAtual?.statusLogistico === 'cancelado';
   const [mpInstance, setMpInstance] = useState(null);
   const [salvandoEndereco, setSalvandoEndereco] = useState(false);
+  const [enderecosSalvos, setEnderecosSalvos] = useState([]);
+  const [enderecoSalvoId, setEnderecoSalvoId] = useState('');
+  const [cartoesSalvos, setCartoesSalvos] = useState([]);
+  const [cartaoSalvoId, setCartaoSalvoId] = useState('');
+  const cartaoSalvo = cartoesSalvos.find((cartao) => String(cartao._id) === cartaoSalvoId);
+  const [erroPerfil, setErroPerfil] = useState('');
 
   // Estados do Formulário
   const [formData, setFormData] = useState({
@@ -140,6 +147,7 @@ function FinalizarCompra({ onRetomar }) {
 
   // Inicializa o Mercado Pago ao montar o componente
   useEffect(() => {
+    let ativo = true;
     const carregarPerfil = async () => {
       try {
         const resposta = await fetch('/api/perfil', { credentials: 'include' });
@@ -147,15 +155,19 @@ function FinalizarCompra({ onRetomar }) {
           navigate(`/login?redirect=${encodeURIComponent('/checkout')}`, { replace: true });
           return;
         }
-        if (!resposta.ok) return;
+        if (!resposta.ok) throw new Error('Perfil indisponível.');
 
         const dados = await resposta.json();
         const usuario = dados.usuario || {};
+        if (!ativo) return;
         const enderecos = Array.isArray(usuario.enderecos) ? usuario.enderecos : [];
+        setEnderecosSalvos(enderecos);
+        setCartoesSalvos(Array.isArray(usuario.cartoes) ? usuario.cartoes : []);
         const enderecoPrincipal =
           enderecos.find((item) => item?.principal && enderecoTemDadosValidos(item)) ||
           enderecos.find((item) => enderecoTemDadosValidos(item)) ||
           null;
+        setEnderecoSalvoId(enderecoPrincipal?._id ? String(enderecoPrincipal._id) : '');
 
         const enderecoAtual = enderecoPrincipal && enderecoTemDadosValidos(enderecoPrincipal)
           ? {
@@ -192,8 +204,8 @@ function FinalizarCompra({ onRetomar }) {
         }));
 
         setCep(formatarCep(enderecoAtual.cep));
-      } catch (error) {
-        console.error('Não foi possível carregar o perfil do usuário:', error);
+      } catch {
+        if (ativo) setErroPerfil('Não foi possível carregar os dados salvos. Preencha os dados ou recarregue a página.');
       }
     };
 
@@ -213,13 +225,32 @@ function FinalizarCompra({ onRetomar }) {
 
     carregarPerfil();
     inicializarMercadoPago();
+    return () => { ativo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Manipulador de inputs
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (['endereco', 'numero', 'complemento', 'bairro', 'cidade', 'estado'].includes(name)) setEnderecoSalvoId('');
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const escolherEndereco = (id) => {
+    const selecionado = enderecosSalvos.find((item) => String(item._id) === id);
+    const dados = dadosEnderecoCheckout(selecionado);
+    setEnderecoSalvoId(id);
+    setFormData((anterior) => ({ ...anterior, ...dados }));
+    setCep(formatarCep(dados.cep));
+    cepAtualRef.current = dados.cep;
+    limparFrete();
+    atualizarResumo();
+  };
+
+  const escolherCartao = (id) => {
+    setCartaoSalvoId(id);
+    setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '', bandeira: '' }));
+    atualizarResumo();
   };
 
   const salvarEnderecoPrincipal = async () => {
@@ -256,6 +287,8 @@ function FinalizarCompra({ onRetomar }) {
       }
 
       alert('Endereço salvo como principal.');
+      setEnderecosSalvos(dados.enderecos || []);
+      setEnderecoSalvoId(String(dados.enderecos?.find((item) => item.principal)?._id || ''));
     } catch (erro) {
       alert(erro.message || 'Não foi possível salvar o endereço.');
     } finally {
@@ -286,6 +319,7 @@ function FinalizarCompra({ onRetomar }) {
   };
 
   const handleCepChange = (e) => {
+    setEnderecoSalvoId('');
     const novoCep = formatarCep(e.target.value);
     cepAtualRef.current = novoCep.replace(/\D/g, '');
     setCep(novoCep);
@@ -505,7 +539,10 @@ function FinalizarCompra({ onRetomar }) {
 
         // Criar Token do Cartão
         let cardToken;
-        try { cardToken = await mpInstance.createCardToken({
+        if (cartaoSalvoId && !cartaoDisponivelCheckout(cartaoSalvo)) throw new Error('Selecione um cartão disponível ou cadastre-o novamente no perfil.');
+        try { cardToken = await mpInstance.createCardToken(cartaoSalvo ? {
+          cardId: cartaoSalvo.provedorCardId, securityCode: cvv,
+        } : {
           cardNumber: numeroCartao.replace(/\s+/g, ''),
           cardholderName: nomeCartao,
           cardExpirationMonth: month,
@@ -531,7 +568,8 @@ function FinalizarCompra({ onRetomar }) {
             entrega: entregaResumo,
             ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
             token: cardToken.id,
-            payment_method_id: formData.bandeira || bandeiraDetectada,
+            ...(cartaoSalvo && { cartaoSalvoId }),
+            payment_method_id: cartaoSalvo?.paymentMethodId || formData.bandeira || bandeiraDetectada,
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -640,6 +678,13 @@ function FinalizarCompra({ onRetomar }) {
 
             {/* ETAPA 2: ENDEREÇO */}
             <section className="space-y-6">
+              {erroPerfil && <p role="alert" className="text-sm text-red-700">{erroPerfil}</p>}
+              {enderecosSalvos.length > 0 && <label className="block space-y-2 text-sm">Endereço do perfil
+                <select value={enderecoSalvoId} onChange={(e) => escolherEndereco(e.target.value)} className="w-full rounded-md border border-[#C58752]/50 bg-white p-3">
+                  <option value="">Informar outro endereço</option>
+                  {enderecosSalvos.map((item) => <option key={item._id} value={String(item._id)}>{item.apelido || 'Endereço'}{item.principal ? ' (principal)' : ''} — {item.rua}, {item.numero} — {item.cidade}/{item.estado}</option>)}
+                </select>
+              </label>}
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
                   <span className="w-8 h-8 rounded-full bg-[#F7C6E5] text-[#3E2417] font-bold text-sm flex items-center justify-center">2</span>
@@ -786,7 +831,14 @@ function FinalizarCompra({ onRetomar }) {
                 {/* FORM CARTÃO */}
                 {pagamento === 'cartao' && (
                   <div className="space-y-5 pt-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {cartoesSalvos.length > 0 && <label className="block space-y-2 text-sm">Cartão do perfil
+                      <select value={cartaoSalvoId} onChange={(e) => escolherCartao(e.target.value)} className="w-full rounded-md border border-[#C58752]/50 bg-white p-3">
+                        <option value="">Usar outro cartão</option>
+                        {cartoesSalvos.map((item) => <option key={item._id} value={String(item._id)} disabled={!cartaoDisponivelCheckout(item)}>{item.bandeira} •••• {item.finalCartao} — {item.validade}{!cartaoDisponivelCheckout(item) ? ' — cadastre novamente no perfil' : ''}</option>)}
+                      </select>
+                    </label>}
+                    {cartaoSalvo && <p className="text-sm">Confirme o CVV do cartão selecionado para esta compra.</p>}
+                    {!cartaoSalvo && <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">Número do cartão *</label>
                         <input required={pagamento === 'cartao'} name="numeroCartao" value={formData.numeroCartao} onChange={handleChange} type="text" placeholder="0000 0000 0000 0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
@@ -795,20 +847,20 @@ function FinalizarCompra({ onRetomar }) {
                         <label className="block text-sm font-medium text-[#3E2417]">Nome impresso no cartão *</label>
                         <input required={pagamento === 'cartao'} name="nomeCartao" value={formData.nomeCartao} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
                       </div>
-                    </div>
+                    </div>}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <div className="space-y-1.5">
+                      {!cartaoSalvo && <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">Validade *</label>
                         <input required={pagamento === 'cartao'} name="validade" value={formData.validade} onChange={handleChange} type="text" placeholder="MM/AA" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
-                      </div>
+                      </div>}
                       <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">CVV *</label>
                         <input required={pagamento === 'cartao'} name="cvv" value={formData.cvv} onChange={handleChange} type="password" maxLength="4" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
                       </div>
-                      <div className="space-y-1.5">
+                      {!cartaoSalvo && <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">CPF do titular *</label>
                         <input required={pagamento === 'cartao'} name="cpfTitular" value={formData.cpfTitular} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
-                      </div>
+                      </div>}
                     </div>
                     <div className="space-y-1.5">
                       <label className="block text-sm font-medium text-[#3E2417]">Parcelamento *</label>

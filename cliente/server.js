@@ -15,6 +15,7 @@ const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = req
 const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backend/functions/cancelamentoClube');
 const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredosAplicacao } = require('./backend/functions/segurancaPagamento');
 const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
+const { criarCartaoCheckout } = require('./backend/functions/cartaoCheckout');
 const { criarResumoCheckout, ErroResumoCheckout } = require('./backend/functions/resumoCheckout');
 const { criarRecuperacaoPagamento, registrarRotasRecuperacao } = require('./backend/functions/recuperacaoPagamento');
 const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('./backend/functions/conciliacaoAdmin');
@@ -55,7 +56,7 @@ const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const { loggerOperacional: logger } = require('./backend/functions/logOperacional');
-const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund, CardToken } = require("mercadopago");
+const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund, CardToken, Customer } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
 
@@ -69,7 +70,10 @@ const mpClient = mpAccessToken
   ? new MercadoPagoConfig({ accessToken: mpAccessToken })
   : null;
 const paymentModule = mpClient ? new Payment(mpClient) : null;
-const salvarReferenciaCartao = criarReferenciaCartao({ Usuario, cardTokenModule: mpClient ? new CardToken(mpClient) : null });
+const customerModule = mpClient ? new Customer(mpClient) : null;
+const cardTokenModule = mpClient ? new CardToken(mpClient) : null;
+const salvarReferenciaCartao = criarReferenciaCartao({ Usuario, cardTokenModule, customerModule });
+const resolverCartaoCheckout = criarCartaoCheckout({ Usuario, cardTokenModule, customerModule });
 const reservasEstoque = criarReservasEstoque({
   Produto, TentativaPagamento, Pedido,
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
@@ -573,6 +577,10 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       });
     }
     validarTokenCartao(token);
+    const cartaoSalvo = req.body.cartaoSalvoId ? await resolverCartaoCheckout(req.session.usuarioId, req.body.cartaoSalvoId, token) : null;
+    if (cartaoSalvo && cartaoSalvo.payment_method_id !== payment_method_id) {
+      throw new ErroSegurancaPagamento('O cartão selecionado não corresponde ao meio de pagamento.');
+    }
     if (!['visa', 'master', 'elo', 'amex', 'hipercard', 'diners'].includes(payment_method_id)) {
       return res.status(400).json({ sucesso: false, mensagem: 'Meio de pagamento de cartão inválido.' });
     }
@@ -602,7 +610,9 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
         payment_method_id,
         transaction_amount: Number(valorTotal),
         installments: quantidadeParcelas,
+        ...(cartaoSalvo?.issuer_id && { issuer_id: cartaoSalvo.issuer_id }),
         payer: {
+          ...(cartaoSalvo?.payer || {}),
           email,
           identification: {
             type: "CPF",

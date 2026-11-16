@@ -16,6 +16,180 @@ const { segredosAplicacao } = require('../backend/functions/segurancaPagamento')
 const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('../backend/functions/conciliacaoAdmin');
 const { criarLoggerOperacional, referenciaOperacional } = require('../backend/functions/logOperacional');
 
+function carteiraCheckoutTeste() {
+  const cartao = { _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', status: true, provedorCardId: 'card-remoto-1',
+    paymentMethodId: 'visa', bandeira: 'visa', finalCartao: '1111', validade: '12/30', reutilizavel: true };
+  return { cartoes: [cartao], provedorCustomerId: 'customer-proprio',
+    cartaoRemoto: { id: cartao.provedorCardId, customer_id: 'customer-proprio', last_four_digits: '1111',
+      expiration_month: 12, expiration_year: 2030, payment_method: { id: 'visa', payment_type_id: 'credit_card' } },
+    tokenSalvo: { id: 'token-teste', card_id: cartao.provedorCardId, status: 'active', security_code_length: 3,
+      date_due: new Date(Date.now() + 60000).toISOString() } };
+}
+
+test('checkout com cartão salvo valida dono, token e provedor antes de criar a cobrança', async () => {
+  const carteira = carteiraCheckoutTeste();
+  const servidor = montarServidor(4990, undefined, carteira);
+  const body = { cartaoSalvoId: carteira.cartoes[0]._id, chaveTentativa: randomUUID() };
+  assert.equal((await servidor.enviar('cartao', body)).statusCode, 200);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.cobrancas[0].payer.type, 'customer');
+  assert.equal(servidor.cobrancas[0].payer.id, 'customer-proprio');
+  assert.equal(servidor.cobrancas[0].transaction_amount, 64.9);
+  carteira.cartoes.splice(0);
+  assert.equal((await servidor.enviar('cartao', body)).statusCode, 200);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('checkout recusa cartão alheio, removido, inativo, legado, expirado e token incompatível sem reservar estoque', async () => {
+  const mudancas = [
+    (c) => { c.cartoes = []; }, (c) => { c.cartoes[0].status = false; },
+    (c) => { delete c.cartoes[0].provedorCardId; }, (c) => { c.cartaoRemoto.customer_id = 'outro-cliente'; },
+    (c) => { c.cartaoRemoto.id = 'outro-cartao'; }, (c) => { c.cartaoRemoto.expiration_year = 2020; },
+    (c) => { c.tokenSalvo.card_id = 'outro-cartao'; }, (c) => { c.tokenSalvo.status = 'used'; },
+    (c) => { c.tokenSalvo.date_due = '2020-01-01'; }, (c) => { c.tokenSalvo.security_code_length = 0; },
+    (c) => { c.cartaoRemoto = null; }, (c) => { c.tokenSalvo = null; },
+  ];
+  for (const mudar of mudancas) {
+    const carteira = carteiraCheckoutTeste();
+    mudar(carteira);
+    const servidor = montarServidor(4990, undefined, carteira);
+    const resposta = await servidor.enviar('cartao', { cartaoSalvoId: 'aaaaaaaaaaaaaaaaaaaaaaaa' });
+    assert.equal(resposta.statusCode, 400);
+    assert.equal(servidor.cobrancas.length, 0);
+    assert.equal(servidor.tentativas.length, 0);
+    assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+  }
+});
+
+test('trocar cartão salvo na repetição ou adulterar a bandeira é rejeitado', async () => {
+  const carteira = carteiraCheckoutTeste();
+  const servidor = montarServidor(4990, undefined, carteira);
+  const chaveTentativa = randomUUID();
+  assert.equal((await servidor.enviar('cartao', { cartaoSalvoId: carteira.cartoes[0]._id, chaveTentativa })).statusCode, 200);
+  assert.equal((await servidor.enviar('cartao', { cartaoSalvoId: 'bbbbbbbbbbbbbbbbbbbbbbbb', chaveTentativa })).statusCode, 409);
+  const adulterado = montarServidor(4990, undefined, carteiraCheckoutTeste());
+  assert.equal((await adulterado.enviar('cartao', { cartaoSalvoId: 'aaaaaaaaaaaaaaaaaaaaaaaa', payment_method_id: 'master' })).statusCode, 400);
+  assert.equal(adulterado.cobrancas.length, 0);
+});
+
+test('perfil vincula cartão ao cliente do provedor e promove referência antiga sem salvar token/PAN/CVV', async () => {
+  const usuario = { status: true, email: 'conta@example.com', cartoes: [
+    { _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', finalCartao: '1111', bandeira: 'visa', validade: '12/30' }], async save() {} };
+  const chamadas = [];
+  const salvar = criarReferenciaCartao({ Usuario: { findById: async () => usuario,
+    async findOneAndUpdate(_filtro, dados) { Object.assign(usuario, dados.$set); return usuario; } },
+    cardTokenModule: { get: async () => ({ id: 'token-perfil-teste', status: 'active', luhn_validation: true, security_code_length: 3,
+      last_four_digits: '1111', first_six_digits: '411111', expiration_month: 12, expiration_year: 2030,
+      date_due: new Date(Date.now() + 60000).toISOString() }) },
+    customerModule: {
+      async create(dados) { chamadas.push(dados); return { id: 'customer-proprio' }; },
+      async createCard(dados) { chamadas.push(dados); return carteiraCheckoutTeste().cartaoRemoto; },
+    } });
+  const resposta = await salvar('cliente-proprio', { tokenCartao: 'token-perfil-teste', customerId: 'alheio' });
+  assert.equal(usuario.cartoes.length, 1);
+  assert.equal(usuario.provedorCustomerId, 'customer-proprio');
+  assert.equal(resposta[0].reutilizavel, true);
+  assert.equal(resposta[0].provedorCardId, 'card-remoto-1');
+  assert.equal(chamadas[1].customerId, 'customer-proprio');
+  assert.equal(chamadas[0].body.email, usuario.email);
+  const persistido = JSON.stringify(usuario);
+  assert.equal(persistido.includes('token-perfil-teste'), false);
+  assert.equal(persistido.includes('411111'), false);
+  assert.equal(JSON.stringify(resposta).includes('customer-proprio'), false);
+});
+
+test('perfil preserva vínculo canônico criado por outra solicitação e rejeita cartão remoto de outro cliente', async () => {
+  for (const alheio of [false, true]) {
+    const usuario = { status: true, email: 'conta@example.com', cartoes: [], async save() {} };
+    let clienteUsado;
+    const salvar = criarReferenciaCartao({ Usuario: { findById: async () => usuario,
+      async findOneAndUpdate() { usuario.provedorCustomerId = 'customer-canonico'; return null; } },
+      cardTokenModule: { get: async () => ({ id: 'token-perfil-teste', status: 'active', luhn_validation: true, security_code_length: 3,
+        last_four_digits: '1111', first_six_digits: '411111', expiration_month: 12, expiration_year: 2030,
+        date_due: new Date(Date.now() + 60000).toISOString() }) },
+      customerModule: { async create() { return { id: 'customer-criado-agora' }; },
+        async createCard({ customerId }) { clienteUsado = customerId; return { ...carteiraCheckoutTeste().cartaoRemoto,
+          customer_id: alheio ? 'outro-cliente' : customerId }; } } });
+    if (alheio) {
+      await assert.rejects(salvar('cliente-proprio', { tokenCartao: 'token-perfil-teste' }));
+      assert.equal(usuario.cartoes.length, 0);
+    } else {
+      await salvar('cliente-proprio', { tokenCartao: 'token-perfil-teste' });
+      assert.equal(usuario.cartoes.length, 1);
+    }
+    assert.equal(clienteUsado, 'customer-canonico');
+    assert.equal(usuario.provedorCustomerId, 'customer-canonico');
+  }
+});
+
+test('troca de endereço salvo preenche e limpa todos os campos, recalcula frete e invalida cotação', async () => {
+  const { dadosEnderecoCheckout } = await import('../src/utils/perfilCheckout.mjs');
+  const fonte = readFileSync(resolve(__dirname, '../src/Pages/Checkout.jsx'), 'utf8');
+  const handler = fonte.slice(fonte.indexOf('  const escolherEndereco ='), fonte.indexOf('  const escolherCartao ='));
+  let formulario = { endereco: 'Rua antiga', complemento: 'Apto antigo' }, cep, selecionado;
+  let fretes = 0, resumos = 0;
+  const cepAtualRef = { current: '' };
+  const runtime = { enderecosSalvos: [{ _id: 'casa', rua: 'Rua nova', numero: '2', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP', cep: '01310-100' }],
+    dadosEnderecoCheckout, setEnderecoSalvoId: (id) => { selecionado = id; },
+    setFormData: (atualizar) => { formulario = atualizar(formulario); }, setCep: (valor) => { cep = valor; },
+    formatarCep: (valor) => valor, cepAtualRef, limparFrete: () => { fretes++; }, atualizarResumo: () => { resumos++; } };
+  runInNewContext(handler + '\nescolherEndereco("casa");', runtime);
+  assert.equal(formulario.endereco, 'Rua nova');
+  assert.equal(formulario.complemento, '');
+  assert.equal(cep, '01310100');
+  assert.equal(cepAtualRef.current, cep);
+  assert.equal(selecionado, 'casa');
+  runInNewContext('escolherEndereco("");', runtime);
+  assert.equal(formulario.endereco, '');
+  assert.equal(cep, '');
+  assert.equal(fretes, 2);
+  assert.equal(resumos, 2);
+});
+
+test('checkout distingue cartão reutilizável, legado e vencido, inclusive limite do mês', async () => {
+  const { cartaoDisponivelCheckout } = await import('../src/utils/perfilCheckout.mjs');
+  const cartao = carteiraCheckoutTeste().cartoes[0];
+  assert.equal(cartaoDisponivelCheckout(cartao, Date.UTC(2030, 11, 31)), true);
+  assert.equal(cartaoDisponivelCheckout(cartao, Date.UTC(2031, 0, 1)), false);
+  assert.equal(cartaoDisponivelCheckout({ ...cartao, reutilizavel: false }), false);
+  assert.equal(cartaoDisponivelCheckout({ ...cartao, status: false }), false);
+});
+
+test('trocar cartão limpa dados sensíveis em memória e exige nova conferência do resumo', () => {
+  const fonte = readFileSync(resolve(__dirname, '../src/Pages/Checkout.jsx'), 'utf8');
+  const handler = fonte.slice(fonte.indexOf('  const escolherCartao ='), fonte.indexOf('  const salvarEnderecoPrincipal ='));
+  let formulario = { numeroCartao: '4111111111111111', cvv: '123', parcelas: '2' }, selecionado, atualizacoes = 0;
+  runInNewContext(handler + '\nescolherCartao("cartao-1");', { setCartaoSalvoId: (id) => { selecionado = id; },
+    setFormData: (atualizar) => { formulario = atualizar(formulario); }, atualizarResumo: () => { atualizacoes++; } });
+  assert.equal(formulario.numeroCartao, '');
+  assert.equal(formulario.cvv, '');
+  assert.equal(formulario.parcelas, '2');
+  assert.equal(selecionado, 'cartao-1');
+  assert.equal(atualizacoes, 1);
+});
+
+test('handler do checkout tokeniza cartão salvo somente com ID e CVV e envia apenas token à loja', async () => {
+  const { cartaoDisponivelCheckout } = await import('../src/utils/perfilCheckout.mjs');
+  const cartao = carteiraCheckoutTeste().cartoes[0];
+  let tokenizado, enviado;
+  const formulario = { nome: 'Cliente', email: 'teste@example.com', cpf: '00000000000', validade: '', numeroCartao: '', cpfTitular: '', cvv: '123' };
+  await executarCheckoutTeste({ cartaoSalvoId: cartao._id, cartaoSalvo: cartao, cartaoDisponivelCheckout,
+    resumo: { cotacao: 'resumo', validoAte: new Date(Date.now() + 60000).toISOString() }, cartItems: [{}], subtotal: 4990,
+    freteSelecionado: {}, freteSelecionadoId: 1, valorFrete: 1500, parcelasSelecionadas: '1', cep: '01001000',
+    pagamento: 'cartao', formData: formulario, entregaResumo: {}, pedidoPendente: null,
+    envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null }, sessionStorage: { getItem: () => null, setItem() {} },
+    crypto: { randomUUID }, setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert: assert.fail,
+    detectarBandeiraCartao: () => 'visa', mpInstance: { async createCardToken(dados) { tokenizado = dados; return { id: 'token-teste' }; } },
+    fetch: async (_url, opcoes) => { enviado = JSON.parse(opcoes.body); return {}; },
+    lerRespostaPagamento: async () => ({ sucesso: true }), concluirPagamento: async () => {} });
+  assert.deepEqual(JSON.parse(JSON.stringify(tokenizado)), { cardId: 'card-remoto-1', securityCode: '123' });
+  assert.equal(enviado.cartaoSalvoId, cartao._id);
+  assert.equal(enviado.token, 'token-teste');
+  assert.equal(Object.hasOwn(enviado, 'cvv'), false);
+  assert.equal(Object.hasOwn(enviado, 'securityCode'), false);
+  assert.equal(Object.hasOwn(enviado, 'numeroCartao'), false);
+});
+
 test('PAG-18: logs JSON têm esquema estável e descartam dados pessoais, cartão e credenciais', () => {
   const linhas = [];
   const saida = Object.fromEntries(['log', 'warn', 'error'].map((nivel) => [nivel, (linha) => linhas.push(linha)]));
@@ -415,9 +589,12 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     if (nome === './backend/db/mongodb') return {
       ...requerer(nome),
       Usuario: {
-        findById(id) { return { select: async () => { consultasConta.push(id); if (falhas.consultaConta) throw new Error('Falha token-sensivel'); return ({ email: 'perfil@example.com', status: !falhas.contaInativa, perfil: falhas.perfilConta || 'cliente',
+        findById(id) { const conta = { email: 'perfil@example.com', status: !falhas.contaInativa, perfil: falhas.perfilConta || 'cliente',
+          cartoes: falhas.cartoes || [], provedorCustomerId: falhas.provedorCustomerId,
           enderecos: [{ _id: id === 'outro-cliente' ? 'outro-endereco' : 'endereco-1', cep: '01001000',
-            rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP' }] }); } }; },
+            rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP' }] };
+          return { select: async () => { consultasConta.push(id); if (falhas.consultaConta) throw new Error('Falha token-sensivel'); return conta; },
+            then(resolve, reject) { return Promise.resolve(conta).then(resolve, reject); } }; },
       },
       Assinatura: {
         async init() {},
@@ -559,7 +736,8 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       criarCarrinhoHelpers: () => ({ obterCarrinho: async () => carrinho }),
     };
     if (nome === 'mercadopago') return {
-      MercadoPagoConfig: class {}, CardToken: class {}, PaymentRefund: class {}, PreApproval: class {
+      MercadoPagoConfig: class {}, Customer: class { async getCard() { return falhas.cartaoRemoto; } },
+      CardToken: class { async get() { return falhas.tokenSalvo; } }, PaymentRefund: class {}, PreApproval: class {
         async create({ body, requestOptions }) {
           assert.equal(body.external_reference, adesoes[0]._id);
           assert.equal(requestOptions.idempotencyKey, body.external_reference);
@@ -2162,7 +2340,7 @@ test('PAG-13: falha do gateway retorna mensagem fixa e não imprime corpo, token
 
 function montarReferenciaCartao(alteracoes = {}) {
   const token = 'token-de-validacao-perfil';
-  const usuario = { status: true, cartoes: [], async save() { this.salvo = true; } };
+  const usuario = { status: true, provedorCustomerId: 'customer-perfil', cartoes: [], async save() { this.salvo = true; } };
   const consultas = [];
   const dados = { id: token, status: 'active', luhn_validation: true, security_code_length: 3,
     last_four_digits: '1111', first_six_digits: '411111', expiration_month: 12,
@@ -2170,7 +2348,10 @@ function montarReferenciaCartao(alteracoes = {}) {
     card_number: '4111111111111111', security_code: '123', cardholder: { name: 'Nome privado', identification: { number: 'documento-privado' } },
     ...alteracoes };
   const salvar = criarReferenciaCartao({ Usuario: { findById: async (id) => { consultas.push(id); return usuario; } },
-    cardTokenModule: { get: async ({ id }) => { assert.equal(id, token); return dados; } } });
+    cardTokenModule: { get: async ({ id }) => { assert.equal(id, token); return dados; } },
+    customerModule: { async createCard() { return { id: 'card-perfil', customer_id: 'customer-perfil',
+      last_four_digits: dados.last_four_digits, expiration_month: dados.expiration_month, expiration_year: dados.expiration_year,
+      payment_method: { id: 'visa', payment_type_id: 'credit_card' } }; } } });
   return { token, usuario, consultas, salvar };
 }
 
@@ -2630,7 +2811,7 @@ function executarCheckoutTeste(variaveis) {
   const fonte = readFileSync(resolve(__dirname, '../src/Pages/Checkout.jsx'), 'utf8');
   const inicio = fonte.indexOf('  const handleFinalizarPedido =');
   const handler = fonte.slice(inicio, fonte.indexOf('\n  return (', inicio));
-  return runInNewContext(handler + '\nhandleFinalizarPedido({ preventDefault() {} });', variaveis);
+  return runInNewContext(handler + '\nhandleFinalizarPedido({ preventDefault() {} });', { cartaoSalvoId: '', cartaoSalvo: null, ...variaveis });
 }
 
 test('PAG-15: handler do checkout envia cotação e token, e recebe o resumo oficial efetivamente cobrado', async () => {

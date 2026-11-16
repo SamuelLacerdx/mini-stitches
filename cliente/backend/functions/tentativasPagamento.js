@@ -26,6 +26,7 @@ function identificarRequisicao(req, metodo) {
   if (body.pedidoNumero) dados.push(body.pedidoNumero);
   if (body.entrega?.endereco) dados.push(body.entrega.endereco);
   if (body.cliente) dados.push([body.cliente.nome, body.cliente.email]);
+  if (body.cartaoSalvoId) dados.push(['cartaoSalvoId', body.cartaoSalvoId]);
   return { chaveTentativa: body.chaveTentativa,
     hashRequisicao: createHash("sha256").update(JSON.stringify(dados)).digest("hex") };
 }
