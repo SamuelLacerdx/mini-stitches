@@ -24,12 +24,12 @@ export default defineConfig([
   },
   {
     // Backend Node (CommonJS) e configs de build.
-    files: ['server.js', 'api/**/*.js', 'backend/**/*.js', 'tests/**/*.mjs', '*.config.js'],
+    files: ['server.js', 'api/**/*.js', 'backend/**/*.js', 'tests/**/*.{mjs,cjs}', '*.config.js'],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },
   },
   {
-    files: ['server.js', 'api/**/*.js', 'backend/**/*.js'],
+    files: ['server.js', 'api/**/*.js', 'backend/**/*.js', 'tests/**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' },
   },
 ])

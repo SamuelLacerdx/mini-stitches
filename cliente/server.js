@@ -18,6 +18,14 @@ const {
   sincronizarVideosDoKitComStatus,
 } = require("./backend/functions/videosKit");
 const {
+  ErroCalculoPagamento,
+  criarItensPedido,
+  calcularValorBaseCentavos,
+  calcularPixCentavos,
+  calcularParcelasCentavos,
+  LIMITE_FRETE_GRATIS_CENTAVOS,
+} = require("./backend/functions/calculosPagamento");
+const {
   Usuario,
   Plano,
   Assinatura,
@@ -202,13 +210,66 @@ function dataValida(texto) {
 const sohTextos = (...valores) =>
   valores.every((valor) => typeof valor === "string");
 
+async function obterSubtotalCarrinhoCentavos(req) {
+  const carrinho = await obterCarrinho(req);
+  await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+  const itensValidos = carrinho.itens.filter(
+    (item) => item.produtoId && item.produtoId.ativo !== false,
+  );
+  return criarItensPedido(itensValidos).subtotal;
+}
+
+function obterFreteCentavos(body) {
+  const frete = Number(body?.freteCentavos);
+  if (!Number.isSafeInteger(frete) || frete < 0) {
+    throw new ErroCalculoPagamento("O frete do pedido é inválido.");
+  }
+  return frete;
+}
+
+async function obterFreteAplicavelCentavos(req, subtotalCentavos, itensPedido) {
+  const informado = obterFreteCentavos(req.body);
+  if (subtotalCentavos > LIMITE_FRETE_GRATIS_CENTAVOS) return 0;
+
+  const cepDestino = normalizarCEP(req.body?.entrega?.cep ?? req.body?.cep);
+  const servicoInformado = req.body?.servicoId;
+  const servicoId = typeof servicoInformado === "number" ? servicoInformado
+    : typeof servicoInformado === "string" && /^\d+$/.test(servicoInformado)
+      ? Number(servicoInformado) : NaN;
+  if (!cepDestino || !Number.isSafeInteger(servicoId) || servicoId <= 0) {
+    throw new ErroCalculoPagamento("Informe o CEP e um serviço de frete válido.");
+  }
+
+  let itens;
+  if (itensPedido) {
+    itens = itensPedido.map((item) => ({
+      quantidade: item.quantidade,
+      produtoId: { _id: item.produtoId, preco: item.precoUnit },
+    }));
+  } else {
+    const carrinho = await obterCarrinho(req);
+    await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+    itens = carrinho.itens.filter((item) => item.produtoId && item.produtoId.ativo !== false);
+    criarItensPedido(itens);
+  }
+  const opcoes = await cotarFrete({ cepDestino, itens });
+  const opcao = opcoes.find((item) => item.servicoId === servicoId);
+  if (!opcao || !Number.isSafeInteger(opcao.preco) || opcao.preco < 0) {
+    throw new ErroCalculoPagamento("Serviço de frete indisponível. Calcule o frete novamente.");
+  }
+  if (informado !== opcao.preco) {
+    throw new ErroCalculoPagamento("O valor do frete mudou. Calcule o frete novamente.");
+  }
+  return opcao.preco;
+}
+
 app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
 
 app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
-    const { valorOriginal, email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
+    const { email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
     if (!mpClient || !paymentModule) {
       return res.status(400).json({
@@ -222,7 +283,6 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     ).trim();
 
     const camposFaltantes = [];
-    if (!valorOriginal) camposFaltantes.push("valorOriginal");
     if (!email) camposFaltantes.push("email");
     if (!cpf) camposFaltantes.push("cpf");
     if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
@@ -234,7 +294,15 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       });
     }
 
-    const valorComDesconto = Number((Number(valorOriginal) * 0.95).toFixed(2));
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const valorBaseCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
+    const pix = calcularPixCentavos(
+      subtotalCentavos,
+      freteCentavos,
+    );
+    const valorComDescontoCentavos = pix.total;
+    const valorComDesconto = valorComDescontoCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -259,13 +327,19 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     return res.status(200).json({
       sucesso: true,
       id_pagamento: resposta.id,
-      valor_original: valorOriginal,
+      valor_original: valorBaseCentavos / 100,
       valor_com_desconto: valorComDesconto,
       qr_code_pix: resposta.point_of_interaction.transaction_data.qr_code,
       qr_code_base64:
         resposta.point_of_interaction.transaction_data.qr_code_base64,
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro na geração do PIX:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -276,7 +350,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
   try {
-    const { valorTotal, email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
+    const { email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
     if (!mpClient || !paymentModule) {
       return res.status(400).json({
@@ -290,7 +364,6 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
     ).trim();
 
     const camposFaltantes = [];
-    if (!valorTotal) camposFaltantes.push("valorTotal");
     if (!email) camposFaltantes.push("email");
     if (!cpf) camposFaltantes.push("cpf");
     if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
@@ -314,6 +387,9 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       cidade: String(endereco?.cidade || "").trim() || "Cidade",
       estado: String(endereco?.estado || "").trim().toUpperCase() || "SP",
     };
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -350,6 +426,12 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       status: resposta.status,
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro na geração do boleto:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -360,10 +442,10 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   try {
-    const { token, payment_method_id, valorTotal, parcelas, email, cpf } =
+    const { token, payment_method_id, parcelas, email, cpf } =
       req.body || {};
 
-    if (!token || !payment_method_id || !valorTotal || !email || !cpf) {
+    if (!token || !payment_method_id || !email || !cpf) {
       return res.status(400).json({
         sucesso: false,
         mensagem: "Dados do cartão incompletos.",
@@ -377,13 +459,22 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       });
     }
 
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const totalCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
+    const quantidadeParcelas = parcelas === undefined ? 1
+      : typeof parcelas === "string" && /^[1-6]$/.test(parcelas) ? Number(parcelas)
+        : typeof parcelas === "number" ? parcelas : NaN;
+    const valoresParcelas = calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
+    const valorTotal = totalCentavos / 100;
+
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
       body: {
         token,
         payment_method_id,
         transaction_amount: Number(valorTotal),
-        installments: Number(parcelas || 1),
+        installments: quantidadeParcelas,
         payer: {
           email,
           identification: {
@@ -401,13 +492,20 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       status: resposta.status,
       status_detail: resposta.status_detail,
       parcelas: resposta.installments,
-      valor_parcela: Number(valorTotal) / Number(parcelas || 1),
+      valor_parcela: valoresParcelas[0] / 100,
+      valores_parcelas_centavos: valoresParcelas,
       mensagem:
         resposta.status === "approved"
           ? "Pagamento aprovado."
           : "Pagamento processado.",
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
+    if (erro instanceof ErroFrete) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro no pagamento com cartão:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -1470,6 +1568,22 @@ app.post("/api/frete", async (req, res) => {
       return res.status(400).json({ erro: "Seu carrinho está vazio." });
     }
 
+    const subtotalCentavos = criarItensPedido(itensValidos).subtotal;
+    if (subtotalCentavos > 39990) {
+      return res.json({
+        cep,
+        opcoes: [{
+          servicoId: 0,
+          servico: "Frete grátis",
+          transportadora: "Mini Stitches",
+          logo: "",
+          preco: 0,
+          prazoMin: 0,
+          prazoMax: 0,
+        }],
+      });
+    }
+
     const opcoes = await cotarFrete({
       cepDestino: cep,
       itens: itensValidos,
@@ -1509,7 +1623,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
   try {
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
     const idPagamento = String(pagamentoId || "").trim();
-    const frete = Number(freteCentavos);
+    const freteInformado = Number(freteCentavos);
     const nome = String(cliente?.nome || "").trim();
     const email = String(cliente?.email || "")
       .trim()
@@ -1520,8 +1634,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     if (
       !/^\d+$/.test(idPagamento) ||
-      !Number.isSafeInteger(frete) ||
-      frete < 0 ||
+      !Number.isSafeInteger(freteInformado) ||
+      freteInformado < 0 ||
       !nome ||
       !email.includes("@") ||
       !cep ||
@@ -1570,15 +1684,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     } else {
       const carrinho = await obterCarrinho(req);
       await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-      itens = carrinho.itens
-        .filter((item) => item.produtoId && item.produtoId.ativo !== false)
-        .map((item) => ({
-          produtoId: item.produtoId._id,
-          slug: item.produtoId.slug,
-          nome: item.produtoId.nome,
-          quantidade: item.quantidade,
-          precoUnit: item.produtoId.preco,
-        }));
+      const itensValidos = carrinho.itens.filter(
+        (item) => item.produtoId && item.produtoId.ativo !== false,
+      );
+      itens = criarItensPedido(itensValidos).itensPedido;
     }
 
     if (!itens.length) {
@@ -1615,10 +1724,12 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       (soma, item) => soma + item.quantidade * item.precoUnit,
       0,
     );
+    const frete = await obterFreteAplicavelCentavos(req, subtotal, itens);
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
-    const valorEsperado =
-      pagamento === "pix" ? Math.round(valorCheio * 0.95) : valorCheio;
+    const valorEsperado = pagamento === "pix"
+      ? calcularPixCentavos(subtotal, frete).total
+      : valorCheio;
 
     // Tolerância de 1 centavo para arredondamentos do desconto.
     if (
@@ -1715,6 +1826,12 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     return res.status(201).json({ pedido: respostaPedido(pedido) });
   } catch (error) {
+    if (error instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ erro: error.message });
+    }
+    if (error instanceof ErroFrete) {
+      return res.status(error.status).json({ erro: error.message });
+    }
     console.error("[api/pedidos] erro:", error?.message || error);
     return res
       .status(500)
