@@ -17,6 +17,7 @@ const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredos
 const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
 const { criarResumoCheckout, ErroResumoCheckout } = require('./backend/functions/resumoCheckout');
 const { criarRecuperacaoPagamento, registrarRotasRecuperacao } = require('./backend/functions/recuperacaoPagamento');
+const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('./backend/functions/conciliacaoAdmin');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -1740,6 +1741,11 @@ function respostaPedidoAdmin(pedido) {
     historicoLogistico: pedido.historicoLogistico || [],
   };
 }
+
+registrarConciliacaoAdmin({ app, autenticarAdmin, consultar: criarConsultaConciliacao({
+  tentativas: TentativaPagamento, pedidos: Pedido, mensalidades: MensalidadeClube,
+  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube,
+}) });
 
 app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
   try {

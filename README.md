@@ -718,6 +718,59 @@ módulos alterados aprovados. As dependências externas são simuladas nos teste
 de pagamentos. Permanecem necessárias a homologação no navegador, a validação
 com MongoDB real e as chamadas ao provedor em ambiente de testes.
 
+## PAG-17 — Conciliação no painel administrativo
+
+A aba **CONCILIAÇÃO** reúne os vínculos de tentativas avulsas, pedidos (inclusive
+legados), mensalidades e assinaturas. Base documental: [especificação revisada](https://docs.google.com/document/d/1q2ahCE_9drT_uEBRZR1qIDAnrjw1jFWuaUfM733luBE/edit),
+RN01, RF10, UC08 e critérios 7.3 e 7.5. É uma visão de consulta dos registros
+locais alimentados pelos fluxos de cobrança e notificações verificadas; abrir
+ou atualizar a tela não cobra, aprova, reembolsa nem consulta o gateway.
+
+`GET /admin/conciliacao` exige perfil administrativo atual, consultado pelo
+middleware de autenticação, e retorna `private, no-store`. Parâmetros:
+
+- `origem`: `tentativas` (padrão), `pedidos`, `mensalidades` ou `assinaturas`;
+- `pagina`: inteiro de 1 a 10000, com 25 registros por página e `temProxima`;
+- `campo` e `referencia`: busca exata pelos identificadores disponíveis na tela;
+- `financeiro`: situação financeira, exceto para a origem assinaturas;
+- `competencia`: mês `AAAA-MM`, somente para mensalidades.
+
+Filtros inválidos retornam 400 antes da consulta ao banco. Cada origem possui
+paginação independente; o mesmo pagamento pode aparecer na visão de tentativa
+e na de pedido. As listas não devem ser somadas como se fossem cobranças
+distintas. A assinatura possui atalho para todas as suas mensalidades paginadas.
+Pedidos antigos sem tentativa continuam visíveis e são identificados como
+legados; o filtro financeiro considera também seus estados anteriores.
+
+A consulta mostra valor original em centavos, reembolso confirmado, diferença
+entre ambos, aprovação efetiva, recebimento da notificação e atualização do
+provedor separadamente. Essa diferença não é uma métrica de receita disponível,
+sobretudo em contestação. A autorização da recorrência não comprova pagamento.
+Campos internos do gateway, tokens, chaves de idempotência, locks, contatos e
+endereços não são incluídos nesta resposta.
+
+Alertas identificam tentativa sem pedido, resultado desconhecido, valores ou
+situações financeiras divergentes, mensalidade aprovada sem caixa, vínculos
+duplicados/inconsistentes e vencimento diferente do calendário contratado.
+Para o Clube, aparecem competência, lote, preparação, previsão e rastreamento,
+além das operações vinculadas ao pagamento, estado e prazo de solicitação de
+reembolso. A interface distingue pedido de reembolso de sua conclusão.
+
+Uma caixa paga antes do cancelamento continua devida, mesmo quando o webhook
+chega depois. A aprovação posterior impede indicação de liberação para nova
+postagem e sinaliza acompanhamento do reembolso integral. Pendências financeiras,
+reembolso parcial/integral, contestação, bloqueios e inconsistências impedem
+essa indicação. Caixas enviadas/entregues mantêm seu histórico, sem voltar à
+fila de postagem. A tela não substitui as validações transacionais de expedição.
+
+Validação local: 171 testes de pagamentos/parcelamento, incluindo 13 cenários
+novos de conciliação com banco simulado, build e lint dos novos módulos e da
+tela administrativa. Os cenários cobrem vínculos, duplicidade, reembolso após
+entrega, cancelamento antes/depois da aprovação, prazo de solicitação, paginação,
+legados, filtros inválidos, autorização e ausência de campos sensíveis. A
+homologação visual no navegador e a conciliação com MongoDB/provedor reais
+permanecem necessárias; não foram realizadas cobranças reais.
+
 ## Estrutura principal
 
 ```text

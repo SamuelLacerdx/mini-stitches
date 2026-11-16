@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ConciliacaoAdmin from '../Componentes/ConciliacaoAdmin';
 import {
   ClubeAdmin,
   PedidosAdmin,
@@ -118,6 +119,7 @@ export default function Admin() {
     "MATERIAIS",
     "PEDIDOS",
     "CLUBE",
+    "CONCILIAÇÃO",
     "TROCAS",
     "TUTORIAIS",
   ];
@@ -425,6 +427,7 @@ export default function Admin() {
         {abaAtiva === "PEDIDOS" && <PedidosAdmin />}
 
         {abaAtiva === "CLUBE" && <ClubeAdmin />}
+        {abaAtiva === "CONCILIAÇÃO" && <ConciliacaoAdmin />}
 
         {abaAtiva === "TROCAS" && <TrocasAdmin />}
 

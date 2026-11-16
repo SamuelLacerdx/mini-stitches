@@ -13,6 +13,200 @@ const { criarCancelamentoClube, registrarRotasCancelamento } = require('../backe
 const { criarAutenticacao } = require('../backend/functions/autenticacao');
 const { criarReferenciaCartao } = require('../backend/functions/cartoesPerfil');
 const { segredosAplicacao } = require('../backend/functions/segurancaPagamento');
+const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('../backend/functions/conciliacaoAdmin');
+
+function painelConciliacao(alteracoes = {}) {
+  const clienteId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  const assinaturaId = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  const aprovadoEm = new Date('2026-11-05T15:00:00Z');
+  const recebidoEm = new Date('2026-11-07T16:00:00Z');
+  const dados = {
+    tentativas: [{ _id: 'cccccccccccccccccccccccc', clienteId, pagamentoId: '100', total: 9490,
+      statusFinanceiro: 'aprovado', aprovadoEm, ultimaNotificacaoEm: recebidoEm, estado: 'resposta_recebida' }],
+    pedidos: [{ _id: 'dddddddddddddddddddddddd', numero: 'MS-1001', clienteId, tentativaId: 'cccccccccccccccccccccccc',
+      pagamentoId: '100', total: 9490, statusFinanceiro: 'aprovado', statusLogistico: 'entregue', pagamentoAprovadoEm: aprovadoEm }],
+    assinaturas: [{ _id: assinaturaId, clienteId, preapprovalId: 'acordo-1', statusAdesao: 'cancelada', canceladoEm: new Date('2026-11-06T15:00:00Z') }],
+    mensalidades: [{ _id: 'fatura-1', assinaturaId, clienteId, preapprovalId: 'acordo-1', pagamentoId: '200', valor: 9490,
+      statusFinanceiro: 'aprovado', aprovadoEm, recebidoEm, competencia: '2026-11' }],
+    caixas: [{ _id: 'eeeeeeeeeeeeeeeeeeeeeeee', assinaturaId, clienteId, mensalidadeId: 'fatura-1', pagamentoId: '200',
+      competencia: '2026-11', lote: '2026-11', statusFinanceiro: 'aprovado', statusPreparacao: 'preparando', bloqueada: false }],
+    operacoes: [], ...alteracoes,
+  };
+  const consultas = [];
+  const corresponde = (registro, filtro) => Object.entries(filtro).every(([campo, valor]) => campo === '$or'
+    ? valor.some((item) => corresponde(registro, item)) : valor?.$in
+      ? valor.$in.includes(String(registro[campo])) : valor && '$exists' in Object(valor)
+        ? Object.hasOwn(registro, campo) === valor.$exists : registro[campo] === valor);
+  const modelos = Object.fromEntries(Object.entries(dados).map(([nome, registros]) => [nome, {
+    find(filtro) {
+      consultas.push({ nome, filtro });
+      let campos, inicio = 0, limite = Infinity;
+      return { select(valor) { campos = valor.split(' '); return this; }, sort() { return this; },
+        skip(valor) { inicio = valor; return this; }, limit(valor) { limite = valor; return this; },
+        async lean() { return registros.filter((r) => corresponde(r, filtro)).slice(inicio, inicio + limite)
+          .map((registro) => Object.fromEntries(campos.filter((c) => c in registro).map((c) => [c, registro[c]]))); } };
+    },
+  }]));
+  return { dados, consultas, consultar: criarConsultaConciliacao(modelos, () => new Date('2026-11-16T15:00:00Z')) };
+}
+
+test('PAG-17: conciliação vincula tentativa e pedido sem confundir entrega com aprovação', async () => {
+  const painel = painelConciliacao();
+  const anterior = JSON.stringify(painel.dados);
+  const { itens } = await painel.consultar();
+  assert.equal(itens.length, 1);
+  assert.equal(itens[0].pedidoNumero, 'MS-1001');
+  assert.equal(itens[0].statusLogistico, 'entregue');
+  assert.equal(itens[0].statusFinanceiro, 'aprovado');
+  assert.notEqual(itens[0].aprovadoEm, itens[0].notificacaoRecebidaEm);
+  assert.deepEqual(itens[0].problemas, []);
+  assert.equal(JSON.stringify(painel.dados), anterior);
+});
+
+test('PAG-17: reembolso parcial após entrega mantém total original e saldo exato', async () => {
+  const painel = painelConciliacao();
+  for (const fonte of ['tentativas', 'pedidos']) Object.assign(painel.dados[fonte][0], { statusFinanceiro: 'parcialmente_reembolsado', valorReembolsado: 101 });
+  const { itens: [item] } = await painel.consultar({ origem: 'pedidos' });
+  assert.equal(item.total, 9490);
+  assert.equal(item.valorReembolsado, 101);
+  assert.equal(item.saldo, 9389);
+  assert.equal(item.statusLogistico, 'entregue');
+  assert.deepEqual(item.problemas, []);
+});
+
+test('PAG-17: inconsistências financeiras, de cliente e duplicidade ficam visíveis', async () => {
+  const painel = painelConciliacao();
+  Object.assign(painel.dados.pedidos[0], { clienteId: 'outra-conta', total: 1, statusFinanceiro: 'reembolsado' });
+  painel.dados.pedidos.push({ ...painel.dados.pedidos[0], _id: 'outro-pedido' });
+  const { itens: [item] } = await painel.consultar();
+  assert.ok(item.problemas.some((p) => p.includes('Cliente diverge')));
+  assert.ok(item.problemas.some((p) => p.includes('Total diverge')));
+  assert.ok(item.problemas.some((p) => p.includes('financeira diverge')));
+  assert.ok(item.problemas.some((p) => p.includes('Mais de um')));
+});
+
+test('PAG-17: tentativa desconhecida sem pedido não é apresentada como aprovada', async () => {
+  const painel = painelConciliacao({ pedidos: [] });
+  delete painel.dados.tentativas[0].statusFinanceiro;
+  painel.dados.tentativas[0].estado = 'resultado_desconhecido';
+  const { itens: [item] } = await painel.consultar();
+  assert.equal(item.statusFinanceiro, 'desconhecido');
+  assert.ok(item.problemas.some((p) => p.includes('sem pedido')));
+  assert.ok(item.problemas.some((p) => p.includes('ainda não confirmado')));
+});
+
+test('PAG-17/RN01: aprovação anterior ao cancelamento mantém expedição apesar do webhook posterior', async () => {
+  const painel = painelConciliacao();
+  const { itens: [item] } = await painel.consultar({ origem: 'mensalidades' });
+  assert.equal(item.adesao, 'cancelada');
+  assert.ok(item.notificacaoRecebidaEm > item.canceladoEm);
+  assert.equal(item.expedicaoPermitida, true);
+  assert.deepEqual(item.problemas, []);
+});
+
+test('PAG-17/RN01: aprovação posterior bloqueia nova postagem e mostra prazo de reembolso', async () => {
+  const painel = painelConciliacao();
+  painel.dados.mensalidades[0].aprovadoEm = new Date('2026-11-07T15:00:00Z');
+  painel.dados.caixas[0].bloqueadaParaReembolso = true;
+  painel.dados.operacoes.push({ _id: 'reembolso-200', assinaturaId: painel.dados.assinaturas[0]._id, pagamentoId: '200',
+    tipo: 'reembolsar_pagamento', estado: 'pendente', limiteSolicitacaoEm: new Date('2026-11-10T15:00:00Z'),
+    valorSolicitado: 9490, lockToken: 'segredo', chaveIdempotencia: 'segredo' });
+  const { itens: [item] } = await painel.consultar({ origem: 'mensalidades' });
+  assert.equal(item.expedicaoPermitida, false);
+  assert.ok(item.problemas.some((p) => p.includes('posterior')));
+  assert.equal(item.operacoes[0].solicitacaoAtrasada, true);
+  assert.equal(item.operacoes[0].valorSolicitado, 9490);
+  assert.equal(JSON.stringify(item).includes('segredo'), false);
+  painel.dados.operacoes[0].solicitadoEm = new Date('2026-11-09T15:00:00Z');
+  assert.equal((await painel.consultar({ origem: 'mensalidades' })).itens[0].operacoes[0].solicitacaoAtrasada, false);
+});
+
+test('PAG-17: mensalidade aprovada sem caixa e calendário divergente exigem atenção', async () => {
+  const painel = painelConciliacao({ caixas: [] });
+  painel.dados.mensalidades[0].cobrancaDivergente = true;
+  const { itens: [item] } = await painel.consultar({ origem: 'mensalidades' });
+  assert.ok(item.problemas.some((p) => p.includes('sem caixa')));
+  assert.ok(item.problemas.some((p) => p.includes('calendário')));
+  assert.equal(item.expedicaoPermitida, false);
+});
+
+test('PAG-17: pagamentos pendentes, contestados e reembolsados nunca liberam expedição', async () => {
+  for (const statusFinanceiro of ['aguardando_pagamento', 'em_contestacao', 'contestado', 'parcialmente_reembolsado', 'reembolsado']) {
+    const painel = painelConciliacao();
+    Object.assign(painel.dados.mensalidades[0], { statusFinanceiro, valorReembolsado: statusFinanceiro === 'reembolsado' ? 9490 : 0 });
+    painel.dados.caixas[0].statusFinanceiro = statusFinanceiro;
+    const { itens: [item] } = await painel.consultar({ origem: 'mensalidades' });
+    assert.equal(item.expedicaoPermitida, false, statusFinanceiro);
+  }
+});
+
+test('PAG-17: vínculos da caixa divergentes ou duplicados impedem liberação', async () => {
+  const painel = painelConciliacao();
+  painel.dados.caixas.push({ ...painel.dados.caixas[0], _id: 'duplicada' });
+  painel.dados.caixas[0].competencia = '2026-12';
+  const { itens: [item] } = await painel.consultar({ origem: 'mensalidades' });
+  assert.equal(item.expedicaoPermitida, false);
+  assert.ok(item.problemas.some((p) => p.includes('Mais de uma caixa')));
+  assert.ok(item.problemas.some((p) => p.includes('competência')));
+});
+
+test('PAG-17: paginação percorre mais de 25 registros e filtros exatos alcançam legados', async () => {
+  const painel = painelConciliacao();
+  painel.dados.pedidos.splice(0, 1, ...Array.from({ length: 26 }, (_, i) => ({ _id: String(i), numero: `MS-${i}`, clienteId: 'legado', total: 100, status: 'pago' })));
+  const primeira = await painel.consultar({ origem: 'pedidos' });
+  const segunda = await painel.consultar({ origem: 'pedidos', pagina: '2' });
+  assert.equal(primeira.itens.length, 25);
+  assert.equal(primeira.temProxima, true);
+  assert.equal(segunda.itens.length, 1);
+  assert.equal(segunda.temProxima, false);
+  assert.equal((await painel.consultar({ origem: 'pedidos', campo: 'numero', referencia: 'MS-25' })).itens[0].pedidoNumero, 'MS-25');
+  assert.equal((await painel.consultar({ origem: 'pedidos', financeiro: 'aprovado' })).itens.length, 25);
+  assert.ok(segunda.itens[0].problemas.some((p) => p.includes('legado')));
+});
+
+test('PAG-17: filtros rejeitam injeção, referências inválidas e paginação excessiva antes do banco', async () => {
+  for (const query of [{ origem: 'outro' }, { pagina: 0 }, { pagina: 10001 }, { pagina: 1.5 },
+    { referencia: { $ne: null } }, { campo: '$where', referencia: 'x' }, { referencia: 'x'.repeat(129) },
+    { campo: 'clienteId', referencia: 'invalido' }, { financeiro: { $ne: null } },
+    { origem: 'mensalidades', competencia: '2026-13' }, { competencia: '2026-11' }]) {
+    const painel = painelConciliacao();
+    await assert.rejects(painel.consultar(query));
+    assert.equal(painel.consultas.length, 0);
+  }
+});
+
+test('PAG-17: assinatura autorizada sem pagamento não é tratada como aprovação financeira', async () => {
+  const painel = painelConciliacao();
+  Object.assign(painel.dados.assinaturas[0], { statusAdesao: 'aguardando_pagamento', statusProvedor: 'authorized', senha: 'segredo', entrega: { rua: 'privada' } });
+  const { itens: [item] } = await painel.consultar({ origem: 'assinaturas' });
+  assert.equal(item.statusFinanceiro, 'desconhecido');
+  assert.equal(item.expedicaoPermitida, false);
+  assert.equal(item.total, null);
+  assert.equal(JSON.stringify(item).includes('segredo'), false);
+  assert.equal(JSON.stringify(item).includes('privada'), false);
+});
+
+test('PAG-17: rota exige administrador atual, não permite cache e oculta falhas internas', async () => {
+  const jwt = require('jsonwebtoken');
+  for (const caso of ['visitante', 'cliente', 'admin-revogado', 'admin', 'falha']) {
+    let handlers;
+    let chamadas = 0;
+    const { autenticarAdmin } = criarAutenticacao({ jwtSecret: 'teste-painel',
+      consultarConta: async () => ({ status: true, perfil: ['admin', 'falha'].includes(caso) ? 'admin' : 'cliente' }) });
+    registrarConciliacaoAdmin({ app: { get(_url, ...lista) { handlers = lista; } }, autenticarAdmin,
+      consultar: async () => { chamadas++; if (caso === 'falha') throw new Error('token-sensivel'); return { itens: [] }; } });
+    const req = { headers: {}, session: {}, query: {} };
+    if (caso !== 'visitante') req.headers.cookie = `token=${jwt.sign({ usuarioId: 'conta', perfil: caso === 'cliente' ? 'cliente' : 'admin' }, 'teste-painel')}`;
+    const res = { statusCode: 200, set(nome, valor) { this[nome] = valor; }, status(valor) { this.statusCode = valor; return this; }, json(valor) { this.dados = valor; } };
+    let autorizado = false;
+    await handlers[0](req, res, () => { autorizado = true; });
+    if (autorizado) await handlers[1](req, res);
+    assert.equal(res.statusCode, { visitante: 401, cliente: 403, 'admin-revogado': 403, admin: 200, falha: 503 }[caso]);
+    assert.equal(chamadas, autorizado ? 1 : 0);
+    assert.equal(res['Cache-Control'], 'private, no-store');
+    assert.equal(JSON.stringify(res.dados).includes('token-sensivel'), false);
+  }
+});
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
 function montarServidor(preco = 4990, cotacao, falhas = {}) {
