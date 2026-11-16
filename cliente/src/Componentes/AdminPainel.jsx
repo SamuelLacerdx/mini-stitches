@@ -467,10 +467,10 @@ export function ClubeAdmin() {
   }
 
   const assinaturas = dados.assinaturas || [];
-  const ativas = assinaturas.filter((a) => !a.canceladoEm);
+  const ativas = assinaturas.filter((a) => !a.canceladoEm && a.statusAdesao === 'ativa');
   const receitaMensal = ativas.reduce((soma, a) => {
     const valor = a.plano?.valor || 0;
-    return soma + (a.plano?.nome === "trimestral" ? valor / 3 : valor);
+    return soma + valor;
   }, 0);
 
   return (
@@ -479,7 +479,7 @@ export function ClubeAdmin() {
         <CardMetrica titulo="ASSINANTES ATIVOS" valor={ativas.length} />
         <CardMetrica
           titulo="CANCELADOS"
-          valor={assinaturas.length - ativas.length}
+          valor={assinaturas.filter((a) => a.canceladoEm || a.statusAdesao === 'cancelada').length}
         />
         <CardMetrica
           titulo="RECEITA MENSAL ESTIMADA"
@@ -490,8 +490,7 @@ export function ClubeAdmin() {
       <h2 className="text-xl font-bold text-[#3E2417]">Assinantes</h2>
       {assinaturas.length === 0 ? (
         <p className="text-stone-500">
-          Nenhum assinante ainda. Assim que o checkout do Clube estiver ativo,
-          as assinaturas aparecerão aqui.
+          Nenhuma contratação registrada ainda.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-stone-200">
@@ -515,10 +514,10 @@ export function ClubeAdmin() {
                     </span>
                   </td>
                   <td className="px-4 py-3 capitalize">
-                    {a.plano?.nome} · {formatarReais(a.plano?.valor)}
+                    {a.plano?.titulo || a.plano?.nome} · {formatarReais(a.plano?.valor)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    {formatarData(a.assinadoEm)}
+                    {formatarData(a.assinadoEm || a.solicitadoEm)}
                   </td>
                   <td className="px-4 py-3 capitalize">{a.statusCaixa}</td>
                   <td className="px-4 py-3">
@@ -526,9 +525,9 @@ export function ClubeAdmin() {
                       <span className="text-red-700 font-bold">
                         Cancelada em {formatarData(a.canceladoEm)}
                       </span>
-                    ) : (
+                    ) : a.statusAdesao === 'ativa' ? (
                       <span className="text-green-700 font-bold">Ativa</span>
-                    )}
+                    ) : <span className="text-amber-800 font-bold">{a.statusAdesao === 'resultado_desconhecido' ? 'Aguardando conciliação' : 'Aguardando confirmação do pagamento'}</span>}
                   </td>
                 </tr>
               ))}

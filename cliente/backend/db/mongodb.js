@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { FINANCEIROS, LOGISTICOS } = require("../functions/estadosPedido");
+const { PLANO_CLUBE } = require("../functions/assinaturaClube");
 
 const enderecoSchema = new mongoose.Schema({
   apelido: { type: String, trim: true },
@@ -45,11 +46,22 @@ const usuarioSchema = new mongoose.Schema({
 });
 
 const planoSchema = new mongoose.Schema({
+  codigo: { type: String },
+  titulo: { type: String },
   nome: { type: String, required: true, enum: ["mensal", "trimestral"] },
-  valor: { type: Number, enum: [8990, 24000] },
+  valor: { type: Number, enum: [PLANO_CLUBE.valor, 8990, 24000] },
 });
 
 const assinaturaSchema = new mongoose.Schema({
+  chaveTentativa: { type: String, maxlength: 80 },
+  solicitadoEm: { type: Date, default: Date.now },
+  aceiteEm: { type: Date },
+  preapprovalId: { type: String },
+  statusProvedor: { type: String },
+  statusAdesao: { type: String, enum: ["iniciando", "resultado_desconhecido", "aguardando_pagamento", "ativa", "cancelada"] },
+  frete: { type: Number, min: 0, default: 0 },
+  enderecoOrigemId: { type: mongoose.Schema.Types.ObjectId },
+  entrega: { rua: String, numero: String, complemento: String, bairro: String, cidade: String, estado: String, cep: String },
   clienteId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Usuario",
@@ -57,13 +69,23 @@ const assinaturaSchema = new mongoose.Schema({
     index: true,
   },
   plano: { type: planoSchema, required: true },
-  assinadoEm: { type: Date, required: true, default: Date.now },
+  assinadoEm: { type: Date },
   statusCaixa: {
     type: String,
-    enum: ["preparando", "enviada", "entregue"],
-    default: "preparando",
+    enum: ["aguardando_pagamento", "preparando", "enviada", "entregue"],
+    default: "aguardando_pagamento",
   },
   canceladoEm: { type: Date, default: null },
+});
+
+assinaturaSchema.index({ clienteId: 1, chaveTentativa: 1 }, { unique: true,
+  partialFilterExpression: { chaveTentativa: { $type: "string" } } });
+assinaturaSchema.index({ preapprovalId: 1 }, { unique: true, sparse: true });
+assinaturaSchema.pre("validate", function () {
+  if (this.isNew && (this.plano?.codigo !== PLANO_CLUBE.codigo || this.plano?.nome !== PLANO_CLUBE.tipo ||
+    this.plano?.valor !== PLANO_CLUBE.valor || this.frete !== PLANO_CLUBE.frete)) {
+    throw new Error("Novas assinaturas devem usar o plano mensal SUB-02 de 9490 centavos com entrega incluída.");
+  }
 });
 
 const inteiro = {

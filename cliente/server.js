@@ -10,6 +10,7 @@ const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
 const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia } = require("./backend/functions/tentativasPagamento");
 const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions/webhookPagamento");
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
+const { PLANO_CLUBE, ErroAssinatura, assinaturaPublica, criarContratacaoClube } = require("./backend/functions/assinaturaClube");
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -31,7 +32,6 @@ const {
 } = require("./backend/functions/calculosPagamento");
 const {
   Usuario,
-  Plano,
   Assinatura,
   Produto,
   Carrinho,
@@ -70,6 +70,7 @@ const processarWebhook = criarProcessadorWebhook({
   isValidObjectId: mongoose.isValidObjectId,
 });
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
+const contratarClube = criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env: process.env });
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
 // boleto. APP_URL vence; VERCEL_URL e preenchido automaticamente em cada
@@ -528,61 +529,25 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   }
 });
 
-app.post("/api/assinatura/criar", async (req, res) => {
+app.get("/api/assinatura/plano", (_req, res) => res.json({ plano: PLANO_CLUBE }));
+
+app.get("/api/assinaturas", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
   try {
-    const body = req.body || {};
-    const email = body.email || body.payer_email || "";
-    const tokenCartao = body.tokenCartao || body.card_token_id || "";
-    const valorMensal = Number(
-      body.valorMensal ?? body.amount ?? body.transaction_amount ?? 69.9,
-    );
-    const tituloAssinatura =
-      body.tituloAssinatura ||
-      body.reason ||
-      body.title ||
-      "Assinatura Mini Stitches";
-    const backUrl =
-      body.back_url ||
-      body.backUrl ||
-      process.env.MP_BACK_URL ||
-      "https://example.com/assinatura";
+    const assinaturas = await Assinatura.find({ clienteId: req.session.usuarioId }).sort({ solicitadoEm: -1 }).lean();
+    res.json({ assinaturas: assinaturas.map(assinaturaPublica) });
+  } catch { res.status(503).json({ erro: "Não foi possível consultar suas assinaturas." }); }
+});
 
-    if (!email || !tokenCartao || !mpClient || !preApprovalModule) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: "Dados da assinatura incompletos.",
-      });
-    }
-
-    const valorFinal = Number.isFinite(valorMensal) ? valorMensal : 69.9;
-
-    const resposta = await preApprovalModule.create({
-      body: {
-        reason: tituloAssinatura,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          transaction_amount: valorFinal,
-          currency_id: "BRL",
-        },
-        payer_email: email,
-        back_url: backUrl,
-        card_token_id: tokenCartao,
-      },
-    });
-
-    return res.status(200).json({
-      sucesso: true,
-      id_assinatura: resposta.id,
-      status: resposta.status,
-      init_point: resposta.init_point,
-    });
+app.post("/api/assinatura/criar", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const assinatura = await contratarClube(req.session.usuarioId, req.body || {});
+    return res.json({ sucesso: true, assinatura });
   } catch (erro) {
-    console.error("Erro na criação da assinatura:", erro);
-    return res.status(500).json({
-      sucesso: false,
-      mensagem: erro.message || "Erro ao criar a assinatura.",
-    });
+    if (erro instanceof ErroAssinatura) return res.status(erro.status).json({ sucesso: false,
+      mensagem: erro.message, ...(erro.assinaturaId && { assinatura_id: erro.assinaturaId }) });
+    return res.status(503).json({ sucesso: false, mensagem: "Não foi possível concluir a contratação. Consulte o atendimento antes de repetir." });
   }
 });
 
@@ -1339,62 +1304,10 @@ app.get("/api/produto/:slug", async (req, res) => {
   }
 });
 
-app.post("/admin/assinaturas", autenticarAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const nome = String(body.nome || "").trim();
-    const preco = Number(body.preco);
-    const duracao = Number(body.duracao);
-    const tipo = String(body.tipo || "mensal").toLowerCase();
-    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
-
-    if (!nome) {
-      return res.status(400).json({ erro: "Informe o nome da assinatura." });
-    }
-    if (!Number.isInteger(preco) || preco < 0) {
-      return res
-        .status(400)
-        .json({ erro: "O preço deve ser um número inteiro em centavos." });
-    }
-    if (!Number.isInteger(duracao) || duracao <= 0) {
-      return res
-        .status(400)
-        .json({ erro: "A duração deve ser um número inteiro positivo." });
-    }
-    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
-      return res.status(400).json({ erro: "Tipo de assinatura inválido." });
-    }
-
-    const assinaturaExistente = await Assinatura.findOne({ nome });
-    if (assinaturaExistente) {
-      await Assinatura.updateOne(
-        { nome },
-        { $set: { preco, duracao, tipo, ativo } },
-      );
-      return res.json({
-        assinatura: {
-          ...assinaturaExistente.toObject(),
-          preco,
-          duracao,
-          tipo,
-          ativo,
-        },
-      });
-    }
-
-    const novaAssinatura = await Assinatura.create({
-      nome,
-      preco,
-      duracao,
-      tipo,
-      ativo,
-    });
-    res.status(201).json({ assinatura: novaAssinatura });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar a assinatura." });
-  }
+const planoNaoEditavel = (_req, res) => res.status(410).json({
+  erro: "O Clube possui somente o plano mensal SUB-02. A contratação deve ser feita pela conta do cliente.",
 });
+app.post("/admin/assinaturas", autenticarAdmin, planoNaoEditavel);
 
 app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
   try {
@@ -1410,96 +1323,15 @@ app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
   }
 });
 
-app.delete("/admin/assinaturas/:id", autenticarAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
+app.delete("/admin/assinaturas/:id", autenticarAdmin, (_req, res) => res.status(410).json({
+  erro: "Assinaturas não podem ser excluídas. O cancelamento deve preservar o histórico e interromper a recorrência no provedor.",
+}));
 
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ erro: "ID inválido." });
-    }
+app.post("/admin/planos", autenticarAdmin, planoNaoEditavel);
 
-    const assinatura = await Assinatura.findById(id);
-    if (!assinatura) {
-      return res.status(404).json({ erro: "Assinatura não encontrada." });
-    }
+app.get("/admin/planos", autenticarAdmin, (_req, res) => res.json({ planos: [PLANO_CLUBE] }));
 
-    await Assinatura.deleteOne({ _id: id });
-
-    res.json({ mensagem: "Assinatura excluída com sucesso." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao excluir assinatura." });
-  }
-});
-
-app.post("/admin/planos", autenticarAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const nome = String(body.nome || "").trim();
-    const valor = Number(body.valor);
-    const tipo = String(body.tipo || "mensal").toLowerCase();
-    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
-
-    if (!nome) {
-      return res.status(400).json({ erro: "Informe o nome do plano." });
-    }
-    if (!Number.isInteger(valor) || valor < 0) {
-      return res
-        .status(400)
-        .json({ erro: "O valor deve ser um número inteiro em centavos." });
-    }
-    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
-      return res.status(400).json({ erro: "Tipo de plano inválido." });
-    }
-
-    const planoExistente = await Plano.findOne({ nome });
-    if (planoExistente) {
-      await Plano.updateOne({ nome }, { $set: { valor, tipo, ativo } });
-      return res.json({
-        plano: { ...planoExistente.toObject(), valor, tipo, ativo },
-      });
-    }
-
-    const novoPlano = await Plano.create({ nome, valor, tipo, ativo });
-    res.status(201).json({ plano: novoPlano });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar o plano." });
-  }
-});
-
-app.get("/admin/planos", autenticarAdmin, async (req, res) => {
-  try {
-    const planos = await Plano.find().lean();
-
-    res.json({ planos });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao listar planos." });
-  }
-});
-
-app.delete("/admin/planos/:id", autenticarAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ erro: "ID inválido." });
-    }
-
-    const plano = await Plano.findById(id);
-    if (!plano) {
-      return res.status(404).json({ erro: "Plano não encontrado." });
-    }
-
-    await Plano.deleteOne({ _id: id });
-
-    res.json({ mensagem: "Plano excluído com sucesso." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao excluir plano." });
-  }
-});
+app.delete("/admin/planos/:id", autenticarAdmin, planoNaoEditavel);
 
 app.get("/produto/:slug", async (req, res) => {
   try {
@@ -1517,16 +1349,18 @@ app.get("/produto/:slug", async (req, res) => {
   }
 });
 
-app.get("/assinatura/:id", async (req, res) => {
+app.get("/assinatura/:id", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
   try {
     const { id } = req.params;
 
-    const assinatura = await Assinatura.findById(id).lean();
+    if (!mongoose.isValidObjectId(id)) return res.status(404).json({ erro: "Assinatura não encontrada." });
+    const assinatura = await Assinatura.findOne({ _id: id, clienteId: req.session.usuarioId }).lean();
     if (!assinatura) {
       return res.status(404).json({ erro: "Assinatura não encontrada." });
     }
 
-    res.json({ assinatura });
+    res.json({ assinatura: assinaturaPublica(assinatura) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ erro: "Erro ao buscar assinatura." });
@@ -1878,7 +1712,7 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
           },
         },
       ]),
-      Assinatura.countDocuments({ canceladoEm: null }),
+      Assinatura.countDocuments({ canceladoEm: null, statusAdesao: "ativa" }),
       Pedido.find().sort({ criadoEm: -1 }).limit(5).lean(),
     ]);
 
@@ -2291,21 +2125,8 @@ app.delete("/api/carrinho/:produtoId", async (req, res) => {
   }
 });
 
-app.get("/plano/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const plano = await Plano.findById(id).lean();
-    if (!plano) {
-      return res.status(404).json({ erro: "Plano não encontrado." });
-    }
-
-    res.json({ plano });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao buscar plano." });
-  }
-});
+app.get("/plano/:id", (req, res) => req.params.id === PLANO_CLUBE.codigo
+  ? res.json({ plano: PLANO_CLUBE }) : res.status(404).json({ erro: "Plano não encontrado." }));
 
 // ── Redefinição de senha ────────────────────────────────────────────
 

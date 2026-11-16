@@ -1,139 +1,173 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-/**
- * Componente Clube da Caixinha (Clube.jsx)
- * Exibe as informações do clube de assinatura, vantagens e planos disponíveis.
- */
+const moeda = (valor) => (valor / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const campo = 'mt-1 w-full rounded-lg border border-[#C58752]/50 bg-white p-3';
+const vazio = { numero: '', titular: '', validade: '', cvv: '', cpf: '' };
+
 export default function Clube() {
-  // Estado para armazenar o plano selecionado pelo utilizador
-  const [planoSelecionado, setPlanoSelecionado] = useState(null);
+  const [plano, setPlano] = useState(null);
+  const [perfil, setPerfil] = useState(null);
+  const [sdk, setSdk] = useState(null);
+  const [enderecoId, setEnderecoId] = useState('');
+  const [cartao, setCartao] = useState(vazio);
+  const [aceite, setAceite] = useState(false);
+  const [carregando, setCarregando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState('');
+  const [assinatura, setAssinatura] = useState(null);
+  const envioRef = useRef(false);
+  const chaveRef = useRef(null);
 
-  // Lista dos 4 benefícios principais extraídos do design do Figma
-  const beneficios = [
-    {
-      id: 1,
-      titulo: 'CAIXA SURPRESA POR MÊS',
-      descricao: 'Todo mês uma caixa temática chega na sua casa com materiais e instruções.',
-      icone: '📦'
-    },
-    {
-      id: 2,
-      titulo: 'ENVIO PARA TODO BRASIL',
-      descricao: 'Entregamos em qualquer canto do Brasil com segurança e rapidez.',
-      icone: '🚚'
-    },
-    {
-      id: 3,
-      titulo: 'TUTORIAIS EM VÍDEO',
-      descricao: 'Acesso a vídeos passo a passo para não se perder em nenhum ponto.',
-      icone: '🎥'
-    },
-    {
-      id: 4,
-      titulo: 'CANCELE QUANDO QUISER',
-      descricao: 'Sem fidelidade, sem burocracia. Você cancela quando quiser.',
-      icone: '✨'
+  useEffect(() => {
+    let ativo = true;
+    async function carregar() {
+      try {
+        const [oferta, conta, config] = await Promise.all([
+          fetch('/api/assinatura/plano'),
+          fetch('/api/perfil', { credentials: 'include', cache: 'no-store' }),
+          fetch('/api/config'),
+        ]);
+        if (!oferta.ok || !config.ok || (!conta.ok && conta.status !== 401)) throw new Error('Não foi possível carregar o Clube.');
+        const dadosPlano = await oferta.json();
+        const dadosConfig = await config.json();
+        const usuario = conta.ok ? (await conta.json()).usuario : null;
+        let atual = null;
+        if (usuario) {
+          const consulta = await fetch('/api/assinaturas', { credentials: 'include', cache: 'no-store' });
+          if (!consulta.ok) throw new Error('Não foi possível conferir suas contratações. Tente novamente antes de assinar.');
+          const dados = await consulta.json();
+          atual = dados.assinaturas?.find((item) => ['iniciando', 'resultado_desconhecido', 'aguardando_pagamento', 'ativa'].includes(item.statusAdesao)) || null;
+        }
+        if (!ativo) return;
+        setPlano(dadosPlano.plano);
+        setPerfil(usuario);
+        setAssinatura(atual);
+        const enderecos = usuario?.enderecos || [];
+        setEnderecoId((enderecos.find((item) => item.principal) || enderecos[0])?._id || '');
+        setCartao((anterior) => ({ ...anterior, cpf: usuario?.cpf || '' }));
+        if (dadosConfig.publicKey && window.MercadoPago) {
+          setSdk(new window.MercadoPago(dadosConfig.publicKey, { locale: 'pt-BR' }));
+        }
+      } catch (error) {
+        if (ativo) setErro(error.message);
+      } finally {
+        if (ativo) setCarregando(false);
+      }
     }
-  ];
+    carregar();
+    return () => { ativo = false; };
+  }, []);
 
-  // Função para processar o clique de assinatura
-  const handleAssinar = (nomePlano) => {
-    setPlanoSelecionado(nomePlano);
-    alert(`Opção selecionada: Plano ${nomePlano}. A redirecionar para o checkout!`);
+  const alterar = (event) => setCartao((anterior) => ({ ...anterior, [event.target.name]: event.target.value }));
+
+  const contratar = async (event) => {
+    event.preventDefault();
+    if (envioRef.current) return;
+    envioRef.current = true;
+    setEnviando(true);
+    setErro('');
+    try {
+      if (!sdk || !aceite || !enderecoId) throw new Error('Confira o cartão, o endereço e a autorização mensal.');
+      const numero = cartao.numero.replace(/\D/g, '');
+      const metodos = await sdk.getPaymentMethods({ bin: numero.slice(0, 6) });
+      if (!metodos.results?.some((item) => item.payment_type_id === 'credit_card')) {
+        throw new Error('Use um cartão de crédito para contratar o Clube.');
+      }
+      const [mes, ano] = cartao.validade.split('/');
+      let token;
+      try {
+        token = await sdk.createCardToken({
+          cardNumber: numero, cardholderName: cartao.titular,
+          cardExpirationMonth: mes, cardExpirationYear: ano?.length === 2 ? `20${ano}` : ano,
+          securityCode: cartao.cvv,
+          identification: { type: 'CPF', number: cartao.cpf.replace(/\D/g, '') },
+        });
+      } catch { throw new Error('Não foi possível validar o cartão. Confira os dados informados.'); }
+      if (!token?.id) throw new Error('Não foi possível validar o cartão.');
+      chaveRef.current ??= sessionStorage.getItem('mini-stitches:adesao-clube') || crypto.randomUUID();
+      sessionStorage.setItem('mini-stitches:adesao-clube', chaveRef.current);
+      const resposta = await fetch('/api/assinatura/criar', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plano: plano.codigo, metodo: 'cartao', tokenCartao: token.id,
+          enderecoId, aceiteRecorrencia: aceite, chaveTentativa: chaveRef.current }),
+      });
+      const dados = await resposta.json();
+      setCartao(vazio);
+      if (resposta.status === 401) throw new Error('Entre na sua conta novamente para contratar.');
+      if (!resposta.ok) throw new Error(dados.mensagem || 'Não foi possível confirmar a contratação. Consulte o atendimento antes de repetir.');
+      setAssinatura(dados.assinatura);
+    } catch (error) {
+      setErro(error.message || 'Não foi possível concluir a contratação.');
+    } finally {
+      envioRef.current = false;
+      setEnviando(false);
+    }
   };
 
   return (
-    <div className="w-full flex-1 bg-[#FEF8F0] pb-16 font-['Work_Sans'] text-[#3E2417]">
-      
-      {/* 1. SEÇÃO HERO / CABEÇALHO */}
-      <section className="w-full bg-orange-200 py-12 px-6 text-center">
-        <div className="max-w-3xl mx-auto space-y-3">
-          <h1 className="text-3xl md:text-5xl font-['Archivo_Black'] text-[#3E2417]">
-            CLUBE DA CAIXINHA
-          </h1>
-          <p className="text-xs md:text-sm font-medium text-[#3E2417] leading-relaxed max-w-xl mx-auto">
-            Todo mês, uma nova aventura de fazer com as mãos chega na sua casa. Para crianças de 4 a 10 anos.
-          </p>
-        </div>
-      </section>
-
-      <div className="max-w-6xl mx-auto px-6 mt-10 space-y-12">
-        
-        {/* 2. GRELHA DE BENEFÍCIOS */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {beneficios.map((item) => (
-            <div
-              key={item.id}
-              className="bg-orange-200 p-6 rounded-2xl flex flex-col justify-between hover:shadow-md transition-shadow"
-            >
-              <div>
-                <div className="text-2xl mb-3">{item.icone}</div>
-                <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417] mb-2 leading-tight">
-                  {item.titulo}
-                </h3>
-                <p className="text-xs text-yellow-900 font-medium leading-relaxed">
-                  {item.descricao}
-                </p>
+    <div className="w-full bg-[#FEF9F3] px-4 py-10 text-[#422518] md:px-10">
+      <div className="mx-auto max-w-4xl space-y-8">
+        <header className="rounded-2xl bg-[#F6D1E7] p-7 text-center">
+          <h1 className="text-3xl font-bold uppercase">Clube da Caixinha</h1>
+          <p className="mt-3">Uma nova aventura criativa por mês para crianças de 4 a 10 anos.</p>
+        </header>
+        {carregando && <p role="status">Carregando o Clube...</p>}
+        {erro && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{erro}</p>}
+        {plano && <>
+          <section className="space-y-4 rounded-2xl border border-[#C58752]/40 bg-white p-6">
+            <h2 className="text-2xl font-bold">{plano.nome}</h2>
+            <p className="text-3xl font-bold">{moeda(plano.valor)}<span className="text-base font-normal"> / mês</span></p>
+            <ul className="list-inside list-disc space-y-2">
+              <li>Para uma criança: um Kit DIY inédito e um brinde surpresa por mês.</li>
+              <li>Entrega incluída para todo o Brasil: {moeda(plano.frete)} de frete.</li>
+              <li>Cobrança mensal recorrente no cartão de crédito, sem fidelidade.</li>
+              <li>QR Code para a biblioteca de vídeos, disponível a qualquer pessoa com login.</li>
+            </ul>
+            <p className="text-sm">Cancelamento livre. A primeira caixa depende da aprovação da mensalidade e do calendário do Clube.</p>
+          </section>
+          {assinatura ? (
+            <section className="space-y-3 rounded-2xl border border-[#C58752]/40 bg-white p-6" role="status">
+              <h2 className="text-xl font-bold">{assinatura.statusAdesao === 'ativa' ? 'Assinatura ativa' : 'Solicitação de assinatura registrada'}</h2>
+              <p>{assinatura.statusAdesao === 'ativa' ? 'Acompanhe as próximas informações da sua assinatura na sua conta.'
+                : assinatura.statusAdesao === 'cancelada' ? 'A autorização foi cancelada pelo provedor. Consulte o atendimento para acompanhar a solicitação.'
+                : ['iniciando', 'resultado_desconhecido'].includes(assinatura.statusAdesao)
+                  ? 'A contratação aguarda conciliação. Consulte o atendimento antes de solicitar outra assinatura.'
+                  : 'Aguardamos a confirmação da primeira mensalidade. A autorização da recorrência ainda não confirma o pagamento da caixa.'}</p>
+              <p className="text-sm">Referência: {assinatura.id}</p>
+              <Link to="/contato" className="inline-block underline">Falar com o atendimento</Link>
+            </section>
+          ) : !perfil ? (
+            !carregando && <Link to="/login?redirect=%2Fclube" className="inline-block rounded-xl bg-[#602C16] px-6 py-3 font-bold text-white">Entrar para assinar</Link>
+          ) : (
+            <form onSubmit={contratar} className="space-y-5 rounded-2xl border border-[#C58752]/40 bg-white p-6">
+              <h2 className="text-xl font-bold">Contratar o plano mensal</h2>
+              <label className="block">Endereço de entrega
+                <select required className={campo} value={enderecoId} onChange={(event) => setEnderecoId(event.target.value)} disabled={enviando}>
+                  <option value="">Selecione um endereço da sua conta</option>
+                  {(perfil.enderecos || []).map((item) => <option key={item._id} value={item._id}>{item.rua}, {item.numero} — {item.cidade}/{item.estado}</option>)}
+                </select>
+              </label>
+              {!perfil.enderecos?.length && <Link to="/perfil" className="inline-block underline">Cadastrar endereço no perfil</Link>}
+              <div className="grid gap-4 md:grid-cols-2">
+                <label>Número do cartão de crédito<input required name="numero" autoComplete="cc-number" inputMode="numeric" value={cartao.numero} onChange={alterar} className={campo} disabled={enviando} /></label>
+                <label>Nome no cartão<input required name="titular" autoComplete="cc-name" value={cartao.titular} onChange={alterar} className={campo} disabled={enviando} /></label>
+                <label>Validade (MM/AA)<input required name="validade" autoComplete="cc-exp" placeholder="MM/AA" pattern="(0[1-9]|1[0-2])/[0-9]{2,4}" value={cartao.validade} onChange={alterar} className={campo} disabled={enviando} /></label>
+                <label>Código de segurança<input required type="password" name="cvv" autoComplete="cc-csc" inputMode="numeric" pattern="[0-9]{3,4}" maxLength={4} value={cartao.cvv} onChange={alterar} className={campo} disabled={enviando} /></label>
+                <label>CPF do titular<input required name="cpf" inputMode="numeric" value={cartao.cpf} onChange={alterar} className={campo} disabled={enviando} /></label>
               </div>
-            </div>
-          ))}
-        </section>
-
-        {/* 3. SEÇÃO DE PLANOS DE ASSINATURA */}
-        <section className="bg-pink-200 p-8 md:p-12 rounded-[20px] max-w-3xl mx-auto text-center space-y-8">
-          <h2 className="text-2xl md:text-3xl font-['Archivo_Black'] text-[#3E2417]">
-            PLANOS
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* PLANO MENSAL */}
-            <div className="bg-[#FEF8F0] p-6 rounded-2xl flex flex-col justify-between border border-orange-200 shadow-sm hover:scale-[1.02] transition-transform">
-              <div className="space-y-3">
-                <h3 className="text-lg font-['Archivo_Black'] text-[#3E2417]">
-                  MENSAL
-                </h3>
-                <p className="text-3xl font-['Archivo_Black'] text-yellow-900">
-                  R$ 89,80
-                </p>
-                <p className="text-xs font-medium text-[#3E2417]">
-                  por caixa / cobrado mensalmente
-                </p>
-              </div>
-
-              <button
-                onClick={() => handleAssinar('Mensal')}
-                className="mt-6 w-full py-3 bg-[#3E2417] hover:bg-[#602D15] text-[#FEF8F0] rounded-2xl font-['Archivo_Black'] text-xs uppercase transition-colors cursor-pointer"
-              >
-                ASSINAR MENSAL
+              <label className="flex items-start gap-3">
+                <input required type="checkbox" checked={aceite} onChange={(event) => setAceite(event.target.checked)} disabled={enviando} className="mt-1" />
+                <span>Autorizo a cobrança recorrente de {moeda(plano.valor)} por mês no cartão de crédito, com entrega incluída, até solicitar o cancelamento.</span>
+              </label>
+              <p className="text-sm">O cartão será validado pelo Mercado Pago. A ativação depende da confirmação da primeira mensalidade.</p>
+              <button disabled={enviando || !sdk || !enderecoId} className="rounded-xl bg-[#602C16] px-6 py-3 font-bold text-white disabled:opacity-50">
+                {enviando ? 'Enviando contratação...' : `Assinar por ${moeda(plano.valor)}/mês`}
               </button>
-            </div>
-
-            {/* PLANO TRIMESTRAL */}
-            <div className="bg-[#FEF8F0] p-6 rounded-2xl flex flex-col justify-between border border-orange-200 shadow-sm hover:scale-[1.02] transition-transform">
-              <div className="space-y-3">
-                <h3 className="text-lg font-['Archivo_Black'] text-[#3E2417]">
-                  TRIMESTRAL
-                </h3>
-                <p className="text-3xl font-['Archivo_Black'] text-yellow-900">
-                  R$ 240,00
-                </p>
-                <p className="text-xs font-medium text-[#3E2417]">
-                  R$ 80,00/caixa · cobrado a cada 3 meses
-                </p>
-              </div>
-
-              <button
-                onClick={() => handleAssinar('Trimestral')}
-                className="mt-6 w-full py-3 bg-[#3E2417] hover:bg-[#602D15] text-[#FEF8F0] rounded-2xl font-['Archivo_Black'] text-xs uppercase transition-colors cursor-pointer"
-              >
-                ASSINAR TRIMESTRAL
-              </button>
-            </div>
-
-          </div>
-        </section>
-
+              {!sdk && <p className="text-sm" role="status">A contratação por cartão está indisponível no momento.</p>}
+            </form>
+          )}
+        </>}
       </div>
     </div>
   );

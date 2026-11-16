@@ -12,7 +12,10 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const arquivo = resolve(__dirname, '../server.js');
   const requerer = createRequire(arquivo);
   const rotas = new Map();
+  const handlersRotas = new Map();
   const cobrancas = [];
+  const adesoes = [];
+  const autorizacoes = [];
   const tentativas = [];
   const pedidos = [];
   const notificacoes = [];
@@ -40,7 +43,10 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   };
   const app = { use() {} };
   for (const metodo of ['get', 'post', 'patch', 'put', 'delete']) {
-    app[metodo] = (url, ...handlers) => rotas.set(`${metodo} ${url}`, handlers.at(-1));
+    app[metodo] = (url, ...handlers) => {
+      rotas.set(`${metodo} ${url}`, handlers.at(-1));
+      handlersRotas.set(`${metodo} ${url}`, handlers);
+    };
   }
   const express = Object.assign(() => app, { json() {}, urlencoded() {} });
   const carrinho = { itens: [{ quantidade: 1, produtoId: {
@@ -72,6 +78,35 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     });
     if (nome === './backend/db/mongodb') return {
       ...requerer(nome),
+      Usuario: {
+        findById(id) { return { select: async () => ({ email: 'perfil@example.com', status: !falhas.contaInativa,
+          enderecos: [{ _id: id === 'outro-cliente' ? 'outro-endereco' : 'endereco-1', cep: '01001000',
+            rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP' }] }) }; },
+      },
+      Assinatura: {
+        async init() {},
+        findOne(filtro) {
+          const valor = adesoes.find((item) => Object.entries(filtro).every(([campo, esperado]) => item[campo] === esperado)) ?? null;
+          return { then(resolve, reject) { return Promise.resolve(valor).then(resolve, reject); }, lean: async () => valor };
+        },
+        find(filtro) { return { sort() { return this; }, lean: async () => adesoes.filter((item) => item.clienteId === filtro.clienteId) }; },
+        async create(dados) {
+          if (falhas.registroClube) throw new Error('Falha no banco');
+          if (adesoes.some((item) => item.clienteId === dados.clienteId && item.chaveTentativa === dados.chaveTentativa)) {
+            throw Object.assign(new Error('Duplicada'), { code: 11000 });
+          }
+          const adesao = { _id: '507f1f77bcf86cd799439011', ...JSON.parse(JSON.stringify(dados)),
+            toObject() { const { toObject: ignorado, ...valor } = this; void ignorado; return valor; } };
+          adesoes.push(adesao);
+          return adesao;
+        },
+        async updateOne(filtro, dados) {
+          if (falhas.atualizacaoClube) throw new Error('Falha no banco');
+          const item = adesoes.find((item) => item._id === filtro._id);
+          if (item) Object.assign(item, dados.$set);
+          return { matchedCount: item ? 1 : 0 };
+        },
+      },
       NotificacaoPagamento: {
         async init() {},
         async findById(id) { return notificacoes.find((item) => item._id === id) ?? null; },
@@ -177,7 +212,15 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       criarCarrinhoHelpers: () => ({ obterCarrinho: async () => carrinho }),
     };
     if (nome === 'mercadopago') return {
-      MercadoPagoConfig: class {}, PreApproval: class {},
+      MercadoPagoConfig: class {}, PreApproval: class {
+        async create({ body, requestOptions }) {
+          assert.equal(body.external_reference, adesoes[0]._id);
+          assert.equal(requestOptions.idempotencyKey, body.external_reference);
+          autorizacoes.push(body);
+          if (falhas.clube) throw new Error('Timeout token-sensivel');
+          return { id: 'acordo-123', status: 'authorized' };
+        }
+      },
       Payment: class {
         async get() {
           consultas.push('get');
@@ -208,24 +251,26 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   runInNewContext(readFileSync(arquivo, 'utf8'), {
     require, module: { exports: {} },
     process: { env: { MP_ACCESS_TOKEN: 'credencial-ficticia-dos-testes',
+      APP_URL: falhas.semAppUrl ? '' : 'https://mini-stitches.example',
       MP_WEBHOOK_SECRET: falhas.semSecret ? '' : 'segredo-webhook-testes' } },
     console: { log() {}, error() {} },
   }, { filename: arquivo });
 
-  return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas,
+  return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas, adesoes, autorizacoes,
     get reservas() { return reservas; },
     get atualizarLogistica() { return atualizarLogistica; },
     async enviar(metodo, dados = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
-      session: { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
-    req.params = { id: 'pedido-1' };
+      headers: {}, session: falhas.semSessao ? {} : { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
+    req.params = dados.parametros ?? { id: 'pedido-1' };
     req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
     req.body.chaveTentativa ??= randomUUID();
     if (dados.semChave) delete req.body.chaveTentativa;
     req.body.entrega ??= { cep: req.body.cep, endereco: 'Rua Teste, 1' };
     const res = { statusCode: 200, status(valor) { this.statusCode = valor; return this; },
+      set() { return this; },
       send(valor) { this.dados = valor; return this; },
       json(valor) { this.dados = valor; return this; } };
     const url = metodo.startsWith('/') ? metodo : `/api/pagamento/${metodo}`;
@@ -238,7 +283,13 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         .update(`id:${id.toLowerCase()};request-id:${requestId};ts:${ts};`).digest('hex');
       req.headers = dados.headers ?? { 'x-request-id': requestId, 'x-signature': `ts=${ts},v1=${hash}` };
     }
-    await rotas.get(`${dados.httpMethod ?? 'post'} ${url}`)(req, res);
+    const caminho = `${dados.httpMethod ?? 'post'} ${url}`;
+    if (dados.testarAutenticacao) {
+      let autenticado = false;
+      handlersRotas.get(caminho)[0](req, res, () => { autenticado = true; });
+      if (!autenticado) return res;
+    }
+    await rotas.get(caminho)(req, res);
     return res;
   } };
 }
@@ -870,4 +921,115 @@ test('PAG-09: falha transacional não deixa reembolso e histórico aplicados pel
   assert.equal(servidor.pedidos[0].statusLogistico, 'pronto_para_preparo');
   assert.equal(servidor.pedidos[0].historicoFinanceiro?.length || 0, 0);
   assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+const dadosAdesao = (extras = {}) => ({ plano: 'SUB-02', metodo: 'cartao', tokenCartao: 'token-cartao-teste',
+  enderecoId: 'endereco-1', aceiteRecorrencia: true, ...extras });
+
+test('PAG-10: login e conta ativa são obrigatórios antes da autorização', async () => {
+  const visitante = montarServidor(4990, undefined, { semSessao: true });
+  assert.equal((await visitante.enviar('/api/assinatura/criar', dadosAdesao({ testarAutenticacao: true }))).statusCode, 401);
+  assert.equal(visitante.autorizacoes.length, 0);
+  const inativo = montarServidor(4990, undefined, { contaInativa: true });
+  assert.equal((await inativo.enviar('/api/assinatura/criar', dadosAdesao())).statusCode, 403);
+  assert.equal(inativo.autorizacoes.length, 0);
+});
+
+test('PAG-10: cobrança mensal é fixada em R$ 94,90, sem frete, preço ou destino controlados pelo cliente', async () => {
+  const servidor = montarServidor(4990, async () => { throw new Error('Assinatura não deve cotar frete'); });
+  const res = await servidor.enviar('/api/assinatura/criar', dadosAdesao({
+    valorMensal: 0.01, amount: 0.01, transaction_amount: 0.01, freteCentavos: 99999,
+    tituloAssinatura: 'Plano adulterado', back_url: 'https://destino-invalido.example', payer_email: 'outro@example.com',
+    auto_recurring: { frequency: 12, transaction_amount: 1, free_trial: { frequency: 1 } },
+  }));
+  assert.equal(res.statusCode, 200);
+  const cobranca = servidor.autorizacoes[0];
+  assert.deepEqual(cobranca.auto_recurring, { frequency: 1, frequency_type: 'months', transaction_amount: 94.9, currency_id: 'BRL' });
+  assert.equal(cobranca.payer_email, 'perfil@example.com');
+  assert.equal(cobranca.reason, 'SUB-02 - Pequenos Criadores');
+  assert.equal(cobranca.back_url, 'https://mini-stitches.example/clube?retorno=assinatura');
+  assert.equal(servidor.adesoes[0].frete, 0);
+  assert.equal(servidor.adesoes[0].plano.valor, 9490);
+  assert.equal(servidor.adesoes[0].entrega.cep, '01001000');
+  assert.equal(res.dados.assinatura.statusAdesao, 'aguardando_pagamento');
+  assert.equal(servidor.adesoes[0].statusCaixa, 'aguardando_pagamento');
+  assert.equal(servidor.adesoes[0].assinadoEm, undefined);
+  for (const campo of ['tokenCartao', 'card_token_id', 'numeroCartao', 'cvv']) assert.equal(campo in servidor.adesoes[0], false);
+});
+
+test('PAG-10: plano antigo, Pix, falta de aceite, cartão bruto e endereço alheio são rejeitados', async () => {
+  const servidor = montarServidor();
+  for (const dados of [{ plano: 'trimestral' }, { plano: 'anual' }, { metodo: 'pix' }, { aceiteRecorrencia: false },
+    { tokenCartao: '' }, { enderecoId: 'outro-endereco' }, { numeroCartao: '4111111111111111' }, { cvv: '123' }]) {
+    assert.equal((await servidor.enviar('/api/assinatura/criar', dadosAdesao(dados))).statusCode, 400);
+  }
+  assert.equal(servidor.adesoes.length, 0);
+  assert.equal(servidor.autorizacoes.length, 0);
+  for (const [rota, httpMethod] of [['/admin/assinaturas', 'post'], ['/admin/planos', 'post'], ['/admin/planos/:id', 'delete'], ['/admin/assinaturas/:id', 'delete']]) {
+    assert.equal((await servidor.enviar(rota, { httpMethod })).statusCode, 410);
+  }
+});
+
+test('PAG-10: repetição da contratação reaproveita autorização e não cria outra recorrência', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  const dados = dadosAdesao({ chaveTentativa });
+  const primeira = await servidor.enviar('/api/assinatura/criar', dados);
+  const repetida = await servidor.enviar('/api/assinatura/criar', dados);
+  assert.deepEqual(repetida.dados, primeira.dados);
+  assert.equal(servidor.adesoes.length, 1);
+  assert.equal(servidor.autorizacoes.length, 1);
+});
+
+test('PAG-10: duas solicitações simultâneas com a mesma chave autorizam uma única recorrência', async () => {
+  const servidor = montarServidor();
+  const dados = dadosAdesao({ chaveTentativa: randomUUID() });
+  const respostas = await Promise.all([
+    servidor.enviar('/api/assinatura/criar', dados), servidor.enviar('/api/assinatura/criar', dados),
+  ]);
+  assert.ok(respostas.some((resposta) => resposta.statusCode === 200));
+  assert.ok(respostas.every((resposta) => [200, 409].includes(resposta.statusCode)));
+  assert.equal(servidor.adesoes.length, 1);
+  assert.equal(servidor.autorizacoes.length, 1);
+});
+
+test('PAG-10: falha no registro ou configuração não solicita recorrência; timeout não pode duplicá-la', async () => {
+  for (const falhas of [{ registroClube: true }, { semAppUrl: true }]) {
+    const servidor = montarServidor(4990, undefined, falhas);
+    assert.equal((await servidor.enviar('/api/assinatura/criar', dadosAdesao())).statusCode, 503);
+    assert.equal(servidor.autorizacoes.length, 0);
+  }
+  const falhas = { clube: true };
+  const servidor = montarServidor(4990, undefined, falhas);
+  const dados = dadosAdesao({ chaveTentativa: randomUUID() });
+  assert.equal((await servidor.enviar('/api/assinatura/criar', dados)).statusCode, 503);
+  falhas.clube = false;
+  assert.equal((await servidor.enviar('/api/assinatura/criar', dados)).statusCode, 409);
+  assert.equal(servidor.autorizacoes.length, 1);
+  assert.equal(servidor.adesoes[0].statusAdesao, 'resultado_desconhecido');
+});
+
+test('PAG-10: contrato só pode ser consultado pelo dono e a oferta pública é única', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  const oferta = await servidor.enviar('/api/assinatura/plano', { httpMethod: 'get' });
+  assert.equal(oferta.dados.plano.codigo, 'SUB-02');
+  assert.equal(oferta.dados.plano.valor, 9490);
+  const res = await servidor.enviar('/api/assinatura/criar', dadosAdesao());
+  const parametros = { id: res.dados.assinatura.id };
+  assert.equal((await servidor.enviar('/assinatura/:id', { httpMethod: 'get', parametros })).statusCode, 200);
+  falhas.clienteId = 'outro-cliente';
+  assert.equal((await servidor.enviar('/assinatura/:id', { httpMethod: 'get', parametros })).statusCode, 404);
+});
+
+test('PAG-10: modelo aceita SUB-02 e não permite cadastrar novamente planos antigos', async () => {
+  const { Assinatura } = require('../backend/db/mongodb');
+  const base = { clienteId: '507f1f77bcf86cd799439012', plano: { codigo: 'SUB-02', nome: 'mensal', valor: 9490 }, frete: 0 };
+  const assinatura = new Assinatura(base);
+  await assinatura.validate();
+  assert.equal(assinatura.assinadoEm, undefined);
+  assert.equal(assinatura.statusCaixa, 'aguardando_pagamento');
+  for (const plano of [{ nome: 'mensal', valor: 8990 }, { nome: 'trimestral', valor: 24000 }]) {
+    await assert.rejects(new Assinatura({ ...base, plano }).validate());
+  }
 });

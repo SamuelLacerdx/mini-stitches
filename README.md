@@ -297,6 +297,46 @@ Referência técnica: [status de pagamentos na Payments API](https://www.mercado
 Os testes locais cobrem reembolso antes/depois do envio, reembolso parcial,
 contestação, cancelamento logístico, duplicidade e concorrência simulada.
 
+### Plano único e contratação do Clube (PAG-10)
+
+A oferta oficial é `SUB-02 — Pequenos Criadores`, mensal, para uma criança,
+por **9490 centavos**, com **frete zero em todo o Brasil**. A constante
+`PLANO_CLUBE` no servidor fornece a oferta por `GET /api/assinatura/plano`.
+O navegador não define preço, recorrência, desconto, nome do plano ou URL de
+retorno. O valor é convertido para reais somente no envio ao Mercado Pago.
+
+A página `/clube` consulta a oferta, exige login, permite selecionar um endereço
+da conta e solicita aceite expresso da cobrança recorrente. O cartão é
+tokenizado pelo SDK do Mercado Pago; somente o token é enviado à API.
+`POST /api/assinatura/criar` usa o e-mail do cadastro, copia o endereço escolhido,
+registra a solicitação antes de chamar `PreApproval.create` e envia recorrência
+de um mês, valor R$ 94,90 e moeda BRL, sem teste grátis ou prazo anual.
+Configure `APP_URL` com a URL pública HTTPS (ou use `VERCEL_URL` no deploy).
+Uma URL de retorno fornecida pelo navegador é ignorada.
+
+Uma chave por cliente e tentativa protege a contratação contra repetições e
+timeout. Número completo do cartão, CVV e token não são persistidos no registro
+da assinatura. Dados brutos de cartão são rejeitados no backend. A consulta
+`GET /api/assinaturas` e `/assinatura/:id` exige login e filtra pelo dono.
+
+O estado inicial da solicitação é `iniciando`; após a resposta do provedor,
+fica `aguardando_pagamento`. `authorized` na autorização de recorrência não
+comprova que a primeira mensalidade foi aprovada: não ativa a assinatura nem
+libera caixa. A confirmação da primeira mensalidade, competência e calendário
+pertencem à PAG-11; o cancelamento da recorrência pertence à PAG-12. Retornar
+do gateway ou recarregar a página não confirma pagamento.
+
+Os planos antigos não são mais oferecidos. Rotas administrativas antigas de
+cadastro de planos/assinaturas e exclusão retornam HTTP 410; a exclusão direta
+de um registro não interromperia uma recorrência no provedor. Dados históricos
+de planos anteriores permanecem legíveis e não têm seus preços reescritos.
+Novas assinaturas só podem usar SUB-02 com entrega incluída. Contratações
+pendentes não são contadas como assinaturas ativas no painel.
+
+Referência técnica: [assinaturas com pagamento autorizado](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/integration-configuration/subscription-no-associated-plan/authorized-payments).
+Os testes locais simulam o provedor e o banco; a tokenização e a primeira
+cobrança devem ser homologadas com contas e cartões de teste do Mercado Pago.
+
 ## Estrutura principal
 
 ```text
