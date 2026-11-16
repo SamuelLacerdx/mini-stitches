@@ -455,7 +455,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            valorOriginal: valorPedido,
+            freteCentavos: valorFrete,
             email,
             cpf: cpfLimpo,
             nome: primeiroNome,
@@ -487,7 +487,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            valorTotal: valorPedido,
+            freteCentavos: valorFrete,
             email,
             cpf: cpfLimpo,
             nomeCompleto,
@@ -540,7 +540,7 @@ export default function FinalizarCompra() {
           body: JSON.stringify({
             token: cardToken.id,
             payment_method_id: formData.bandeira || bandeiraDetectada,
-            valorTotal: valorPedido,
+            freteCentavos: valorFrete,
             parcelas,
             email,
             cpf: cpfLimpo,

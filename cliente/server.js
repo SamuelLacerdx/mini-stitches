@@ -18,6 +18,11 @@ const {
   sincronizarVideosDoKitComStatus,
 } = require("./backend/functions/videosKit");
 const {
+  ErroCalculoPagamento,
+  criarItensPedido,
+  calcularValorBaseCentavos,
+} = require("./backend/functions/calculosPagamento");
+const {
   Usuario,
   Plano,
   Assinatura,
@@ -164,13 +169,30 @@ function dataValida(texto) {
 const sohTextos = (...valores) =>
   valores.every((valor) => typeof valor === "string");
 
+async function obterSubtotalCarrinhoCentavos(req) {
+  const carrinho = await obterCarrinho(req);
+  await carrinho.populate("itens.produtoId", "nome preco ativo slug");
+  const itensValidos = carrinho.itens.filter(
+    (item) => item.produtoId && item.produtoId.ativo !== false,
+  );
+  return criarItensPedido(itensValidos).subtotal;
+}
+
+function obterFreteCentavos(body) {
+  const frete = Number(body?.freteCentavos);
+  if (!Number.isSafeInteger(frete) || frete < 0) {
+    throw new ErroCalculoPagamento("O frete do pedido é inválido.");
+  }
+  return frete;
+}
+
 app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
 
 app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
-    const { valorOriginal, email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
+    const { email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
     if (!mpClient || !paymentModule) {
       return res.status(400).json({
@@ -184,7 +206,6 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     ).trim();
 
     const camposFaltantes = [];
-    if (!valorOriginal) camposFaltantes.push("valorOriginal");
     if (!email) camposFaltantes.push("email");
     if (!cpf) camposFaltantes.push("cpf");
     if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
@@ -196,7 +217,13 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       });
     }
 
-    const valorComDesconto = Number((Number(valorOriginal) * 0.95).toFixed(2));
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const valorBaseCentavos = calcularValorBaseCentavos(
+      subtotalCentavos,
+      obterFreteCentavos(req.body),
+    );
+    const valorComDescontoCentavos = Math.round(valorBaseCentavos * 0.95);
+    const valorComDesconto = valorComDescontoCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -221,13 +248,16 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     return res.status(200).json({
       sucesso: true,
       id_pagamento: resposta.id,
-      valor_original: valorOriginal,
+      valor_original: valorBaseCentavos / 100,
       valor_com_desconto: valorComDesconto,
       qr_code_pix: resposta.point_of_interaction.transaction_data.qr_code,
       qr_code_base64:
         resposta.point_of_interaction.transaction_data.qr_code_base64,
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro na geração do PIX:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -238,7 +268,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
   try {
-    const { valorTotal, email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
+    const { email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
     if (!mpClient || !paymentModule) {
       return res.status(400).json({
@@ -252,7 +282,6 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
     ).trim();
 
     const camposFaltantes = [];
-    if (!valorTotal) camposFaltantes.push("valorTotal");
     if (!email) camposFaltantes.push("email");
     if (!cpf) camposFaltantes.push("cpf");
     if (!nomeCompletoInformado) camposFaltantes.push("nomeCompleto");
@@ -276,6 +305,11 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       cidade: String(endereco?.cidade || "").trim() || "Cidade",
       estado: String(endereco?.estado || "").trim().toUpperCase() || "SP",
     };
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const valorTotal = calcularValorBaseCentavos(
+      subtotalCentavos,
+      obterFreteCentavos(req.body),
+    ) / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -312,6 +346,9 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       status: resposta.status,
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro na geração do boleto:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -322,10 +359,10 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   try {
-    const { token, payment_method_id, valorTotal, parcelas, email, cpf } =
+    const { token, payment_method_id, parcelas, email, cpf } =
       req.body || {};
 
-    if (!token || !payment_method_id || !valorTotal || !email || !cpf) {
+    if (!token || !payment_method_id || !email || !cpf) {
       return res.status(400).json({
         sucesso: false,
         mensagem: "Dados do cartão incompletos.",
@@ -338,6 +375,12 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
         mensagem: "Configuração do Mercado Pago ausente.",
       });
     }
+
+    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
+    const valorTotal = calcularValorBaseCentavos(
+      subtotalCentavos,
+      obterFreteCentavos(req.body),
+    ) / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -370,6 +413,9 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
           : "Pagamento processado.",
     });
   } catch (erro) {
+    if (erro instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    }
     console.error("Erro no pagamento com cartão:", erro);
     return res.status(500).json({
       sucesso: false,
@@ -1512,15 +1558,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     } else {
       const carrinho = await obterCarrinho(req);
       await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-      itens = carrinho.itens
-        .filter((item) => item.produtoId && item.produtoId.ativo !== false)
-        .map((item) => ({
-          produtoId: item.produtoId._id,
-          slug: item.produtoId.slug,
-          nome: item.produtoId.nome,
-          quantidade: item.quantidade,
-          precoUnit: item.produtoId.preco,
-        }));
+      const itensValidos = carrinho.itens.filter(
+        (item) => item.produtoId && item.produtoId.ativo !== false,
+      );
+      itens = criarItensPedido(itensValidos).itensPedido;
     }
 
     if (!itens.length) {
@@ -1631,6 +1672,9 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     return res.status(201).json({ pedido: respostaPedido(pedido) });
   } catch (error) {
+    if (error instanceof ErroCalculoPagamento) {
+      return res.status(400).json({ erro: error.message });
+    }
     console.error("[api/pedidos] erro:", error?.message || error);
     return res
       .status(500)
