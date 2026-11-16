@@ -158,7 +158,7 @@ async function chamarMelhorEnvio(config, payload) {
       signal: AbortSignal.timeout(8000),
     });
   } catch (erro) {
-    console.error("[frete] falha ao contatar o Melhor Envio:", erro?.message);
+    console.error('[frete] falha ao contatar o Melhor Envio');
     if (erro?.name === "TimeoutError" || erro?.name === "AbortError") {
       throw new ErroFrete(
         504,
@@ -241,7 +241,6 @@ async function cotarFrete({ cepDestino, itens }) {
   if (!resposta.ok) {
     console.error("[frete] resposta inesperada do Melhor Envio:", {
       status: resposta.status,
-      body: corpo || texto.slice(0, 500),
     });
 
     if (resposta.status === 422) {

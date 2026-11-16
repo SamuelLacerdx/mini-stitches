@@ -502,6 +502,82 @@ Referências: [cancelamentos e reembolsos](https://www.mercadopago.com.br/develo
 [atualização da assinatura](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/update-preapproval/put)
 e [criação idempotente de reembolso](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-api-payments/create-refund/post).
 
+### Segurança dos pagamentos e cartões (PAG-13)
+
+Esta etapa implementa controles dos itens 7.3, 7.4 e 7.6 da
+[especificação revisada](https://docs.google.com/document/d/1q2ahCE_9drT_uEBRZR1qIDAnrjw1jFWuaUfM733luBE/edit).
+As rotas privadas validam o JWT com HS256, conferem a identidade e consultam a
+conta no banco a cada requisição. Conta desativada é bloqueada, inclusive no
+replay de pagamento ou assinatura já registrada. O papel administrativo atual
+vem do banco; um JWT antigo com `perfil: admin` não mantém permissões removidas.
+Falha na consulta da conta retorna 503 sem liberar a operação. Respostas privadas,
+incluindo falhas de autenticação, recebem `Cache-Control: private, no-store`.
+As consultas de assinatura, caixas, pedidos e cancelamento continuam restritas
+ao proprietário, enquanto as operações administrativas exigem administrador.
+
+Em produção, `SESSION_SECRET` e `JWT_SECRET` devem ser configurados explicitamente
+com pelo menos 32 caracteres cada, gerados aleatoriamente. Valores ausentes,
+curtos ou o segredo padrão de desenvolvimento impedem a inicialização.
+O `.env.example` não fornece segredos padrão para produção. O ambiente de
+desenvolvimento preserva o fallback para facilitar testes locais.
+
+Checkout, contratação do Clube e cadastro de referência no perfil tokenizam
+o cartão pelo MercadoPago.js no navegador. PAN (número completo), CVV, validade
+e documento do titular são enviados diretamente ao SDK para gerar o token;
+a API da loja recebe somente o token e os demais dados necessários à operação.
+Os formulários limpam os campos de cartão após a tentativa, inclusive em falha.
+Erros do SDK são convertidos em mensagens fixas. Tokens de cartão não são
+armazenados em localStorage/sessionStorage; permanecem somente em memória
+durante a solicitação. As chaves de idempotência não contêm dados do cartão.
+
+`validarCorpoSeguro` rejeita campos de PAN/CVV, inclusive variantes de nomes e
+campos aninhados, nas solicitações de pagamento, assinatura, pedido e referência
+do perfil. Um replay não contorna essa rejeição. O token precisa ser uma string
+com formato limitado; número de cartão e objetos não são aceitos como token.
+O endpoint de cartão aceita apenas as bandeiras oferecidas pela interface e
+não permite trocar `payment_method_id` por Pix/boleto. Valores e parcelas
+continuam calculados no servidor pelas etapas anteriores.
+
+O contrato antigo de `POST /perfil/cartoes`, que enviava número completo e CVV
+ao servidor, foi removido. Agora recebe `{ tokenCartao }`, consulta `CardToken.get`
+no provedor e verifica identificação, situação ativa, validade do token e
+indicadores de validação. Salva apenas uma referência mascarada de exibição,
+obtida do provedor: quatro últimos dígitos, bandeira, validade e situação.
+Não armazena token, BIN, CPF do titular, número completo ou CVV. A referência
+não é um cartão reutilizável para cobrança e não substitui a tokenização no
+checkout ou na assinatura. Dados enviados para forjar os últimos dígitos ou
+o proprietário da referência não são utilizados. Referências legadas continuam
+visíveis e podem ser excluídas pelo dono. O campo não utilizado `tokenGateway`
+foi retirado do esquema para impedir novas gravações por esse caminho.
+
+As respostas persistidas do gateway e as respostas públicas usam listas
+explícitas de campos. Exceções completas, corpo de resposta do frete e mensagens
+de erro arbitrárias deixam de ser registrados pelo servidor. A falha inesperada
+de pagamento retorna uma mensagem fixa e o identificador da tentativa quando
+disponível. Os logs mantêm eventos e identificadores operacionais necessários,
+sem imprimir requisições, tokens ou cabeçalhos de autorização. Uma exceção
+não transforma timeout em permissão para repetir a cobrança.
+
+Evidências locais: testes dos handlers reais para visitante, conta desativada,
+permissão removida, JWT adulterado/expirado e algoritmo indevido; rejeição de
+PAN/CVV aninhado e token inválido; verificação de ausência de dados sensíveis
+nos registros simulados/respostas/logs; descarte desses campos pelo esquema;
+e execução do handler real do perfil com SDK/fetch simulados, conferindo que
+somente o token cruza para a API da loja. A suíte HTTP de pedidos também valida
+isolamento entre contas e respostas privadas.
+
+**Limites da validação:** ainda é necessário homologar o tráfego real de
+tokenização e autorização no navegador, inspecionar banco/logs/backups existentes
+com acesso autorizado e comprovar HTTPS/TLS e criptografia no ambiente hospedado.
+Alterar o esquema não apaga campos legados já existentes no banco. Os testes
+usam dados fictícios e não inspecionam produção. A avaliação de escopo PCI DSS,
+as evidências do provedor e a documentação aplicável à loja permanecem necessárias;
+a tokenização, isoladamente, não comprova conformidade PCI DSS.
+
+Referências técnicas: [geração do token de cartão](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/additional-content/cardtoken),
+[cuidados com logs](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)
+e [gestão de sessão](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+
 ## Estrutura principal
 
 ```text

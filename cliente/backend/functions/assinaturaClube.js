@@ -1,5 +1,6 @@
 const PLANO_CLUBE = Object.freeze({ codigo: "SUB-02", nome: "Pequenos Criadores", tipo: "mensal",
   valor: 9490, frete: 0, criancas: 1, moeda: "BRL" });
+const { validarCorpoSeguro, validarTokenCartao } = require('./segurancaPagamento');
 
 class ErroAssinatura extends Error {
   constructor(message, status = 400, assinaturaId) {
@@ -29,6 +30,7 @@ function urlRetorno(env) {
 function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, logger = console, aposAutorizacao }) {
   return async function contratar(clienteId, body) {
     if (!clienteId) throw new ErroAssinatura("Entre na sua conta para contratar o Clube.", 401);
+    validarCorpoSeguro(body);
     if (!preApprovalModule) throw new ErroAssinatura("Contratação do Clube indisponível.", 503);
     if (body.plano !== PLANO_CLUBE.codigo || (body.metodo !== undefined && body.metodo !== "cartao")) {
       throw new ErroAssinatura("O Clube oferece somente o plano mensal SUB-02 no cartão.");
@@ -37,9 +39,6 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
       throw new ErroAssinatura("Informe uma chave válida para a contratação.");
     }
     if (body.aceiteRecorrencia !== true) throw new ErroAssinatura("Confirme a cobrança mensal recorrente.");
-    if (["numeroCartao", "cardNumber", "cvv", "securityCode"].some((campo) => Object.hasOwn(body, campo))) {
-      throw new ErroAssinatura("Envie somente o token do cartão.");
-    }
     const backUrl = urlRetorno(env);
     await Assinatura.init();
     const filtro = { clienteId, chaveTentativa: body.chaveTentativa };
@@ -55,9 +54,7 @@ function criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env, lo
     }
     const existente = await Assinatura.findOne(filtro);
     if (existente) return recuperar(existente);
-    if (typeof body.tokenCartao !== "string" || !/^[a-zA-Z0-9_-]{10,200}$/.test(body.tokenCartao)) {
-      throw new ErroAssinatura("Informe um token de cartão válido.");
-    }
+    validarTokenCartao(body.tokenCartao);
     const usuario = await Usuario.findById(clienteId).select("email status enderecos");
     if (!usuario || !usuario.status) throw new ErroAssinatura("Conta indisponível para contratar.", 403);
     if (typeof usuario.email !== "string" || !usuario.email.includes("@")) throw new ErroAssinatura("Confira o e-mail da sua conta.");

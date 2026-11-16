@@ -9,6 +9,9 @@ const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../back
 const { primeiraCompetencia, loteElegivel, vencimentoMensal, validarPostagem } = require('../backend/functions/calendarioClube');
 const { criarConciliadorClube, criarConsultaFaturas, registrarRotasClube } = require('../backend/functions/recorrenciaClube');
 const { criarCancelamentoClube, registrarRotasCancelamento } = require('../backend/functions/cancelamentoClube');
+const { criarAutenticacao } = require('../backend/functions/autenticacao');
+const { criarReferenciaCartao } = require('../backend/functions/cartoesPerfil');
+const { segredosAplicacao } = require('../backend/functions/segurancaPagamento');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
 function montarServidor(preco = 4990, cotacao, falhas = {}) {
@@ -24,6 +27,8 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
   const notificacoes = [];
   const consultas = [];
   const eventos = [];
+  const logs = [];
+  const consultasConta = [];
   let reservas;
   let atualizarLogistica;
   const estoques = falhas.estoques ?? { 'produto-teste': { estoque: 10, estoqueSeguranca: 0, ativo: true } };
@@ -92,9 +97,9 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     if (nome === './backend/db/mongodb') return {
       ...requerer(nome),
       Usuario: {
-        findById(id) { return { select: async () => ({ email: 'perfil@example.com', status: !falhas.contaInativa,
+        findById(id) { return { select: async () => { consultasConta.push(id); if (falhas.consultaConta) throw new Error('Falha token-sensivel'); return ({ email: 'perfil@example.com', status: !falhas.contaInativa, perfil: falhas.perfilConta || 'cliente',
           enderecos: [{ _id: id === 'outro-cliente' ? 'outro-endereco' : 'endereco-1', cep: '01001000',
-            rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP' }] }) }; },
+            rua: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', estado: 'SP' }] }); } }; },
       },
       Assinatura: {
         async init() {},
@@ -226,7 +231,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       criarCarrinhoHelpers: () => ({ obterCarrinho: async () => carrinho }),
     };
     if (nome === 'mercadopago') return {
-      MercadoPagoConfig: class {}, PaymentRefund: class {}, PreApproval: class {
+      MercadoPagoConfig: class {}, CardToken: class {}, PaymentRefund: class {}, PreApproval: class {
         async create({ body, requestOptions }) {
           assert.equal(body.external_reference, adesoes[0]._id);
           assert.equal(requestOptions.idempotencyKey, body.external_reference);
@@ -257,7 +262,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
           if (falhas.antesResposta) await falhas.antesResposta();
           if (falhas.gateway) throw new Error('Timeout com token-sensivel');
           return { id: 123, status: falhas.status ?? 'approved', installments: body.installments,
-            point_of_interaction: { transaction_data: {} } };
+            point_of_interaction: { transaction_data: {} }, ...falhas.respostaGateway };
         }
       },
     };
@@ -268,17 +273,17 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     process: { env: { MP_ACCESS_TOKEN: 'credencial-ficticia-dos-testes',
       APP_URL: falhas.semAppUrl ? '' : 'https://mini-stitches.example',
       MP_WEBHOOK_SECRET: falhas.semSecret ? '' : 'segredo-webhook-testes' } },
-    console: { log() {}, error() {} },
+    console: { log(...dados) { logs.push(dados); }, error(...dados) { logs.push(dados); } },
   }, { filename: arquivo });
 
-  return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas, adesoes, autorizacoes,
+  return { cobrancas, tentativas, eventos, estoques, pedidos, notificacoes, consultas, adesoes, autorizacoes, logs, consultasConta,
     get reservas() { return reservas; },
     get atualizarLogistica() { return atualizarLogistica; },
     async enviar(metodo, dados = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
-      headers: {}, session: falhas.semSessao ? {} : { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
+      headers: dados.headers || {}, session: falhas.semSessao ? {} : { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
     req.params = dados.parametros ?? { id: 'pedido-1' };
     req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
     req.body.chaveTentativa ??= randomUUID();
@@ -301,7 +306,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     const caminho = `${dados.httpMethod ?? 'post'} ${url}`;
     if (dados.testarAutenticacao) {
       let autenticado = false;
-      handlersRotas.get(caminho)[0](req, res, () => { autenticado = true; });
+      await handlersRotas.get(caminho)[0](req, res, () => { autenticado = true; });
       if (!autenticado) return res;
     }
     await rotas.get(caminho)(req, res);
@@ -404,7 +409,7 @@ test('falha da cotação impede cobrança e frete grátis dispensa cotação ext
 test('PAG-05: Pix, boleto e cartão persistem tentativa antes da cobrança com snapshot oficial', async () => {
   for (const metodo of ['pix', 'boleto', 'cartao']) {
     const servidor = montarServidor();
-    const res = await servidor.enviar(metodo, { total: 1, numeroCartao: '4111111111111111', cvv: '123' });
+    const res = await servidor.enviar(metodo, { total: 1 });
     assert.equal(res.statusCode, 200);
     assert.deepEqual(servidor.eventos, ['registro', 'reserva', 'gateway', 'atualizacao']);
     const tentativa = servidor.tentativas[0];
@@ -1670,4 +1675,193 @@ test('PAG-12: cancelamento durante autorização guarda ID remoto para retomada 
   assert.equal(resposta.dados.assinatura.statusAdesao, 'cancelada');
   assert.equal(retomadas.length, 1);
   assert.equal(retomadas[0].assinaturaId, servidor.adesoes[0]._id);
+});
+
+test('PAG-13: pagamento e assinatura exigem autenticação antes de qualquer efeito', async () => {
+  for (const rota of ['/api/pagamento/pix', '/api/pagamento/boleto', '/api/pagamento/cartao', '/api/assinatura/criar', '/perfil/cartoes']) {
+    const servidor = montarServidor(4990, undefined, { semSessao: true });
+    const res = await servidor.enviar(rota, { testarAutenticacao: true });
+    assert.equal(res.statusCode, 401);
+    assert.equal(servidor.cobrancas.length + servidor.autorizacoes.length + servidor.consultasConta.length, 0);
+  }
+});
+
+test('PAG-13: conta desativada bloqueia inclusive replay de pagamento e assinatura já registrada', async () => {
+  const opcoes = {};
+  const servidor = montarServidor(4990, undefined, opcoes);
+  const dados = { chaveTentativa: randomUUID(), testarAutenticacao: true };
+  assert.equal((await servidor.enviar('cartao', dados)).statusCode, 200);
+  const adesao = dadosAdesao({ testarAutenticacao: true });
+  assert.equal((await servidor.enviar('/api/assinatura/criar', adesao)).statusCode, 200);
+  opcoes.contaInativa = true;
+  assert.equal((await servidor.enviar('cartao', dados)).statusCode, 403);
+  assert.equal((await servidor.enviar('/api/assinatura/criar', adesao)).statusCode, 403);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.autorizacoes.length, 1);
+});
+
+test('PAG-13: falha ao consultar conta impede cobrança sem expor erro do banco', async () => {
+  const servidor = montarServidor(4990, undefined, { consultaConta: true });
+  const res = await servidor.enviar('cartao', { testarAutenticacao: true });
+  assert.equal(res.statusCode, 503);
+  assert.equal(servidor.cobrancas.length, 0);
+  assert.equal(JSON.stringify(res.dados).includes('token-sensivel'), false);
+});
+
+test('PAG-13: JWT com papel antigo não preserva administração e algoritmos/payload inválidos são recusados', async () => {
+  const jwt = require('jsonwebtoken');
+  const secret = 'segredo-exclusivo-dos-testes-de-autorizacao';
+  const conta = { status: true, perfil: 'cliente' };
+  const auth = criarAutenticacao({ jwtSecret: secret, consultarConta: async () => conta });
+  async function verificar(token, admin = true) {
+    const req = { headers: { cookie: `token=${token}` }, session: {} };
+    const res = { statusCode: 200, set() { return this; }, status(valor) { this.statusCode = valor; return this; }, json() {} };
+    let liberado = false;
+    await (admin ? auth.autenticarAdmin : auth.autenticar)(req, res, () => { liberado = true; });
+    return { ...res, liberado };
+  }
+  const token = jwt.sign({ usuarioId: 'cliente-a', perfil: 'admin' }, secret);
+  assert.equal((await verificar(token)).statusCode, 403);
+  conta.perfil = 'admin';
+  assert.equal((await verificar(token)).liberado, true);
+  for (const invalido of [jwt.sign({ usuarioId: 'cliente-a' }, secret, { algorithm: 'HS384' }),
+    jwt.sign({ usuarioId: { $ne: null } }, secret), jwt.sign({ perfil: 'admin' }, secret),
+    jwt.sign({ usuarioId: 'cliente-a' }, secret, { expiresIn: -1 }), token + 'adulterado']) {
+    assert.equal((await verificar(invalido, false)).statusCode, 401);
+  }
+});
+
+test('PAG-13: PAN/CVV em campos diretos, variantes e estruturas aninhadas são rejeitados sem persistência', async () => {
+  for (const dados of [{ numeroCartao: '4111111111111111' }, { card_number: '4111111111111111' },
+    { cvv: '123' }, { CVV: '' }, { payload: { security_code: '123' } },
+    { cards: [{ card: { number: '4111111111111111' } }] }, { numero: '4111 1111 1111 1111' }]) {
+    for (const metodo of ['pix', 'boleto', 'cartao']) {
+      const servidor = montarServidor();
+      const res = await servidor.enviar(metodo, dados);
+      assert.equal(res.statusCode, 400);
+      assert.equal(servidor.cobrancas.length + servidor.tentativas.length, 0);
+      assert.equal(JSON.stringify([servidor.logs, res.dados]).includes('4111111111111111'), false);
+    }
+    const servidor = montarServidor();
+    assert.equal((await servidor.enviar('/api/assinatura/criar', dadosAdesao(dados))).statusCode, 400);
+    assert.equal(servidor.adesoes.length, 0);
+  }
+});
+
+test('PAG-13: token não pode ser objeto, número completo nem texto arbitrário; Pix não passa como cartão', async () => {
+  for (const token of [{ id: 'token-teste' }, ['token-teste'], true, 123, '', 'x', '4111111111111111', 'token com espaços']) {
+    const servidor = montarServidor();
+    assert.equal((await servidor.enviar('cartao', { token })).statusCode, 400);
+    assert.equal(servidor.cobrancas.length, 0);
+    assert.equal((await servidor.enviar('/api/assinatura/criar', dadosAdesao({ tokenCartao: token }))).statusCode, 400);
+  }
+  const servidor = montarServidor();
+  assert.equal((await servidor.enviar('cartao', { payment_method_id: 'pix' })).statusCode, 400);
+});
+
+test('PAG-13: replay também rejeita dados brutos em vez de devolvê-los ou aceitá-los silenciosamente', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  assert.equal((await servidor.enviar('cartao', { chaveTentativa })).statusCode, 200);
+  assert.equal((await servidor.enviar('cartao', { chaveTentativa, dados: { cvv: '123' } })).statusCode, 400);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-13: resposta do provedor é reduzida antes de salvar e de responder ao checkout', async () => {
+  const sensivel = { token: 'token-proibido-no-banco', card_number: '4111111111111111', cvv: '789',
+    payer: { identification: { number: 'documento-do-titular' } }, access_token: 'credencial-proibida' };
+  const servidor = montarServidor(4990, undefined, { respostaGateway: sensivel });
+  const res = await servidor.enviar('cartao');
+  const registros = JSON.stringify([servidor.tentativas, servidor.pedidos, servidor.logs, res.dados]);
+  for (const valor of ['token-proibido-no-banco', '4111111111111111', 'documento-do-titular', 'credencial-proibida']) {
+    assert.equal(registros.includes(valor), false);
+  }
+});
+
+test('PAG-13: falha do gateway retorna mensagem fixa e não imprime corpo, token ou erro completo', async () => {
+  const servidor = montarServidor(4990, undefined, { gateway: true });
+  const res = await servidor.enviar('cartao');
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.dados.mensagem, 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.');
+  assert.equal(JSON.stringify([servidor.logs, servidor.tentativas, res.dados]).includes('token-sensivel'), false);
+});
+
+function montarReferenciaCartao(alteracoes = {}) {
+  const token = 'token-de-validacao-perfil';
+  const usuario = { status: true, cartoes: [], async save() { this.salvo = true; } };
+  const consultas = [];
+  const dados = { id: token, status: 'active', luhn_validation: true, security_code_length: 3,
+    last_four_digits: '1111', first_six_digits: '411111', expiration_month: 12,
+    expiration_year: new Date().getUTCFullYear() + 2, date_due: new Date(Date.now() + 86400000).toISOString(),
+    card_number: '4111111111111111', security_code: '123', cardholder: { name: 'Nome privado', identification: { number: 'documento-privado' } },
+    ...alteracoes };
+  const salvar = criarReferenciaCartao({ Usuario: { findById: async (id) => { consultas.push(id); return usuario; } },
+    cardTokenModule: { get: async ({ id }) => { assert.equal(id, token); return dados; } } });
+  return { token, usuario, consultas, salvar };
+}
+
+test('PAG-13: perfil salva apenas referência mascarada consultada no provedor, sem token/BIN/documento/CVV', async () => {
+  const caso = montarReferenciaCartao();
+  const cartoes = await caso.salvar('cliente-a', { tokenCartao: caso.token, clienteId: 'outra-conta', finalCartao: '9999' });
+  assert.deepEqual(caso.consultas, ['cliente-a']);
+  assert.equal(cartoes[0].finalCartao, '1111');
+  assert.equal(cartoes[0].bandeira, 'visa');
+  assert.equal(caso.usuario.salvo, true);
+  const conteudo = JSON.stringify([caso.usuario.cartoes, cartoes]);
+  for (const segredo of [caso.token, '4111111111111111', 'documento-privado', 'Nome privado', 'security_code', 'first_six_digits']) {
+    assert.equal(conteudo.includes(segredo), false);
+  }
+});
+
+test('PAG-13: perfil rejeita contrato antigo e token expirado, usado ou sem validação do provedor', async () => {
+  const caso = montarReferenciaCartao();
+  await assert.rejects(caso.salvar('cliente-a', { numero: '4111111111111111', cvv: '123' }));
+  assert.equal(caso.consultas.length, 0);
+  for (const alteracoes of [{ status: 'used' }, { id: 'outro-token' }, { date_due: '2020-01-01' },
+    { luhn_validation: false }, { security_code_length: 0 }, { last_four_digits: '4111111111111111' }]) {
+    const invalido = montarReferenciaCartao(alteracoes);
+    await assert.rejects(invalido.salvar('cliente-a', { tokenCartao: invalido.token }));
+    assert.equal(invalido.usuario.salvo, undefined);
+  }
+});
+
+test('PAG-13: frontend do perfil envia PAN/CVV ao SDK e somente token à API da loja', async () => {
+  const fonte = readFileSync(resolve(__dirname, '../src/Pages/Perfil.jsx'), 'utf8');
+  const handler = fonte.slice(fonte.indexOf('  async function salvarCartao(e)'), fonte.indexOf('  async function excluirCartao'));
+  const chamadas = [];
+  const formularios = [];
+  let dadosSdk;
+  const runtime = { cartaoForm: { titular: 'Nome Teste', numero: '4111111111111111', validade: '12/30', cvv: '123', cpfTitular: '00000000000' },
+    envioCartaoRef: { current: false }, setSalvandoCartao() {}, setCartaoForm: (dados) => formularios.push(dados),
+    setCartoes() {}, setMostrarFormularioCartao() {}, alert() {},
+    window: { MercadoPago: class { async createCardToken(dados) { dadosSdk = dados; return { id: 'token-gerado-pelo-sdk' }; } } },
+    fetch: async (url, opcoes) => {
+      chamadas.push({ url, opcoes });
+      return { ok: true, json: async () => url === '/api/config' ? { publicKey: 'publica' } : { cartoes: [] } };
+    },
+  };
+  await runInNewContext(handler + '\nsalvarCartao({ preventDefault() {} });', runtime);
+  assert.equal(dadosSdk.cardNumber, '4111111111111111');
+  assert.equal(dadosSdk.securityCode, '123');
+  assert.deepEqual(JSON.parse(chamadas[1].opcoes.body), { tokenCartao: 'token-gerado-pelo-sdk' });
+  assert.equal(formularios.at(-1).numero, '');
+  assert.equal(formularios.at(-1).cvv, '');
+});
+
+test('PAG-13: produção recusa segredos ausentes/padrão/fracos e erro não contém seus valores', () => {
+  for (const env of [{}, { SESSION_SECRET: 'mini-stitches-secret', JWT_SECRET: 'mini-stitches-secret' },
+    { SESSION_SECRET: 'curta', JWT_SECRET: 'curta' }, { SESSION_SECRET: 'a'.repeat(64) }]) {
+    assert.throws(() => segredosAplicacao({ NODE_ENV: 'production', ...env }), /Configure SESSION_SECRET/);
+  }
+  const seguro = { NODE_ENV: 'production', SESSION_SECRET: randomUUID(), JWT_SECRET: randomUUID() };
+  assert.equal(segredosAplicacao(seguro).jwtSecret, seguro.JWT_SECRET);
+});
+
+test('PAG-13: esquema de cartão descarta PAN, CVV e token de gateway não utilizado', () => {
+  const { Usuario } = require('../backend/db/mongodb');
+  const usuario = new Usuario({ cartoes: [{ finalCartao: '1111', numero: '4111111111111111', cvv: '123', tokenGateway: 'token-nao-persistir' }] });
+  const salvo = JSON.stringify(usuario.toObject());
+  assert.equal(salvo.includes('4111111111111111'), false);
+  assert.equal(salvo.includes('token-nao-persistir'), false);
+  assert.equal(salvo.includes('cvv'), false);
 });

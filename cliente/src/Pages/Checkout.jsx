@@ -428,7 +428,6 @@ export default function FinalizarCompra() {
       }
       return { pedido: dados.pedido };
     } catch (erro) {
-      console.error('Falha ao registrar o pedido:', erro);
       return { erroPedido: erro.message || 'Não foi possível registrar o pedido.' };
     }
   };
@@ -562,14 +561,16 @@ export default function FinalizarCompra() {
         const bandeiraDetectada = detectarBandeiraCartao(numeroCartao);
 
         // Criar Token do Cartão
-        const cardToken = await mpInstance.createCardToken({
+        let cardToken;
+        try { cardToken = await mpInstance.createCardToken({
           cardNumber: numeroCartao.replace(/\s+/g, ''),
           cardholderName: nomeCartao,
           cardExpirationMonth: month,
           cardExpirationYear: fullYear,
           securityCode: cvv,
           identification: { type: 'CPF', number: cpfTitularLimpo },
-        });
+        }); } catch { throw new Error('Não foi possível validar o cartão. Confira os dados informados.'); }
+        setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
 
         if (!cardToken || !cardToken.id) {
           throw new Error('Falha ao validar os dados do cartão.');
@@ -601,6 +602,7 @@ export default function FinalizarCompra() {
     } catch (erro) {
       alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
     } finally {
+      setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
       setLoading(false);
       envioPagamentoRef.current = false;
     }

@@ -22,7 +22,6 @@ const cartaoSchema = new mongoose.Schema({
     type: String,
     enum: ["visa", "master", "elo", "amex", "hipercard", "diners"],
   },
-  tokenGateway: { type: String, select: false },
   status: { type: Boolean },
   criadoEm: { type: Date },
 });

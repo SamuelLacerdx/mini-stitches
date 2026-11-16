@@ -107,6 +107,7 @@ export default function Clube() {
         });
       } catch { throw new Error('Não foi possível validar o cartão. Confira os dados informados.'); }
       if (!token?.id) throw new Error('Não foi possível validar o cartão.');
+      setCartao(vazio);
       chaveRef.current ??= sessionStorage.getItem('mini-stitches:adesao-clube') || crypto.randomUUID();
       sessionStorage.setItem('mini-stitches:adesao-clube', chaveRef.current);
       const resposta = await fetch('/api/assinatura/criar', {
@@ -122,6 +123,7 @@ export default function Clube() {
     } catch (error) {
       setErro(error.message || 'Não foi possível concluir a contratação.');
     } finally {
+      setCartao(vazio);
       envioRef.current = false;
       setEnviando(false);
     }

@@ -43,8 +43,8 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
         .select('numero criadoEm status statusFinanceiro statusLogistico valorReembolsado pagamento subtotal frete desconto total rastreio itens.nome itens.slug itens.quantidade itens.precoUnit')
         .sort({ criadoEm: -1 }).limit(50).lean();
       res.json({ pedidos: pedidos.map(respostaPedido) });
-    } catch (erro) {
-      console.error('[pedidos] erro ao listar:', erro.message);
+    } catch {
+      console.error('[pedidos] falha ao listar');
       res.status(500).json({ erro: 'Não foi possível carregar os pedidos.' });
     }
   });
@@ -55,8 +55,8 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
       const pedido = filtro && await Pedido.findOne(filtro).select('status statusFinanceiro statusLogistico valorReembolsado -_id').lean();
       if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado.' });
       return res.json({ status: pedido.status, ...estadosPedido(pedido) });
-    } catch (erro) {
-      console.error('[pedidos] erro ao consultar status:', erro.message);
+    } catch {
+      console.error('[pedidos] falha ao consultar status');
       return res.status(500).json({ erro: 'Não foi possível carregar o status do pedido.' });
     }
   });
@@ -78,8 +78,8 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
           historicoLogistico: (pedido.historicoLogistico || []).map(({ status, em }) => ({ status, em })),
         },
       });
-    } catch (erro) {
-      console.error('[pedidos] erro ao consultar pedido:', erro.message);
+    } catch {
+      console.error('[pedidos] falha ao consultar pedido');
       return res.status(500).json({ erro: 'Não foi possível carregar o pedido.' });
     }
   });

@@ -1,5 +1,6 @@
 const { createHash } = require("crypto");
 const { financeiroDoProvedor } = require("./estadosPedido");
+const { validarCorpoSeguro, validarTokenCartao } = require('./segurancaPagamento');
 
 class ErroIdempotencia extends Error {
   constructor(message, status = 409, tentativaId) {
@@ -11,6 +12,8 @@ class ErroIdempotencia extends Error {
 
 function identificarRequisicao(req, metodo) {
   const body = req.body || {};
+  validarCorpoSeguro(body);
+  if (metodo === 'cartao' && body.token !== undefined) validarTokenCartao(body.token);
   if (typeof body.chaveTentativa !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(body.chaveTentativa)) {
     throw new ErroIdempotencia("Informe uma chave válida para a tentativa de pagamento.", 400);
   }

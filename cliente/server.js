@@ -13,6 +13,8 @@ const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/function
 const { PLANO_CLUBE, ErroAssinatura, assinaturaPublica, criarContratacaoClube } = require("./backend/functions/assinaturaClube");
 const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = require('./backend/functions/recorrenciaClube');
 const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backend/functions/cancelamentoClube');
+const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredosAplicacao } = require('./backend/functions/segurancaPagamento');
+const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
 const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -49,20 +51,20 @@ const {
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
-const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund } = require("mercadopago");
+const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund, CardToken } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
 
 const session = require("express-session");
 
-const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
-const jwtSecret = process.env.JWT_SECRET || sessionSecret;
+const { sessionSecret, jwtSecret } = segredosAplicacao(process.env);
 const mpPublicKey = process.env.MP_PUBLIC_KEY || "";
 const mpAccessToken = process.env.MP_ACCESS_TOKEN || "";
 const mpClient = mpAccessToken
   ? new MercadoPagoConfig({ accessToken: mpAccessToken })
   : null;
 const paymentModule = mpClient ? new Payment(mpClient) : null;
+const salvarReferenciaCartao = criarReferenciaCartao({ Usuario, cardTokenModule: mpClient ? new CardToken(mpClient) : null });
 const reservasEstoque = criarReservasEstoque({
   Produto, TentativaPagamento, Pedido,
   executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
@@ -97,9 +99,10 @@ function obterNotificationUrl() {
   return null;
 }
 
-console.log("[mp] notification_url:", obterNotificationUrl() || "(nao definida)");
+console.log('[mp] notificacao configurada:', Boolean(obterNotificationUrl()));
 const { autenticar, autenticarAdmin, clienteIdDoCarrinho } = criarAutenticacao({
   jwtSecret,
+  consultarConta: (id) => Usuario.findById(id).select('status perfil'),
 });
 const { obterCarrinho, respostaCarrinho } = criarCarrinhoHelpers({
   Carrinho,
@@ -174,8 +177,8 @@ app.use(async (req, res, next) => {
   try {
     await conectarBanco();
     next();
-  } catch (erro) {
-    console.error("Erro na conexão:", erro.message);
+  } catch {
+    console.error('[banco] conexao indisponivel');
     res.status(503).json({ erro: "Serviço indisponível. Tente novamente." });
   }
 });
@@ -359,6 +362,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
     }
@@ -371,10 +375,10 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro na geração do PIX:", erro);
+    console.error('[pagamento] falha ao processar pix');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o Pix.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
       ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
@@ -456,6 +460,7 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
     }
@@ -468,10 +473,10 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro na geração do boleto:", erro);
+    console.error('[pagamento] falha ao processar boleto');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o boleto.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
       ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
@@ -489,6 +494,10 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
         sucesso: false,
         mensagem: "Dados do cartão incompletos.",
       });
+    }
+    validarTokenCartao(token);
+    if (!['visa', 'master', 'elo', 'amex', 'hipercard', 'diners'].includes(payment_method_id)) {
+      return res.status(400).json({ sucesso: false, mensagem: 'Meio de pagamento de cartão inválido.' });
     }
 
     if (!mpClient || !paymentModule) {
@@ -529,6 +538,7 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
 
     return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
     if (erro instanceof ErroReservaEstoque) {
       return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
     }
@@ -541,10 +551,10 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro no pagamento com cartão:", erro);
+    console.error('[pagamento] falha ao processar cartao');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o cartão.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
       ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
@@ -571,7 +581,7 @@ app.post("/api/assinatura/criar", autenticar, async (req, res) => {
     const assinatura = await contratarClube(req.session.usuarioId, req.body || {});
     return res.json({ sucesso: true, assinatura });
   } catch (erro) {
-    if (erro instanceof ErroAssinatura) return res.status(erro.status).json({ sucesso: false,
+    if (erro instanceof ErroAssinatura || erro instanceof ErroSegurancaPagamento) return res.status(erro.status).json({ sucesso: false,
       mensagem: erro.message, ...(erro.assinaturaId && { assinatura_id: erro.assinaturaId }) });
     return res.status(503).json({ sucesso: false, mensagem: "Não foi possível concluir a contratação. Consulte o atendimento antes de repetir." });
   }
@@ -590,8 +600,8 @@ app.get("/api/cep/:cep", async (req, res) => {
     }
 
     res.json({ endereco });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res
       .status(502)
       .json({ erro: "Não foi possível consultar o CEP. Tente novamente." });
@@ -648,7 +658,7 @@ app.post("/api/cadastro", async (req, res) => {
       return res.status(409).send(mensagem);
     }
 
-    console.error(err);
+    console.error('[api] falha interna');
     res.status(500).send("Erro interno do servidor.");
   }
 });
@@ -666,7 +676,7 @@ app.post("/api/login", async (req, res) => {
     }).select("+senhaHash");
 
     // Mesma mensagem nos dois casos: não revela quais e-mails têm conta.
-    if (!usuario || !(await bcrypt.compare(senha, usuario.senhaHash))) {
+    if (!usuario || usuario.status !== true || !(await bcrypt.compare(senha, usuario.senhaHash))) {
       return res.status(401).json({ erro: "E-mail ou senha incorretos." });
     }
 
@@ -688,8 +698,8 @@ app.post("/api/login", async (req, res) => {
     return res.json({
       destino: usuario.perfil === "admin" ? "/admin" : "/perfil",
     });
-  } catch (err) {
-    console.error(err);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro interno do servidor." });
   }
 });
@@ -727,18 +737,11 @@ app.get("/api/perfil", autenticar, async (req, res) => {
           ? usuario.nascimento.toISOString().slice(0, 10)
           : "",
         enderecos: usuario.enderecos,
-        cartoes: (usuario.cartoes || []).map((c) => ({
-          _id: c._id,
-          titular: c.titular,
-          finalCartao: c.finalCartao,
-          validade: c.validade,
-          bandeira: c.bandeira,
-          status: c.status,
-        })),
+        cartoes: cartoesPublicos(usuario.cartoes),
       },
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao carregar perfil." });
   }
 });
@@ -787,7 +790,7 @@ app.patch("/perfil/atualizar", autenticar, async (req, res) => {
       return res.status(409).send("Este e-mail já está cadastrado.");
     }
 
-    console.error(err);
+    console.error('[api] falha interna');
     res.status(500).send("Erro interno do servidor.");
   }
 });
@@ -854,8 +857,8 @@ app.post("/perfil/enderecos", autenticar, async (req, res) => {
     await usuario.save();
 
     res.status(201).json({ enderecos: usuario.enderecos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao salvar o endereço." });
   }
 });
@@ -885,8 +888,8 @@ app.patch(
       await usuario.save();
 
       res.json({ enderecos: usuario.enderecos });
-    } catch (error) {
-      console.error(error);
+    } catch {
+      console.error('[api] falha interna');
       res.status(500).json({ erro: "Erro ao definir o endereço principal." });
     }
   },
@@ -916,79 +919,21 @@ app.delete("/perfil/enderecos/:enderecoId", autenticar, async (req, res) => {
     await usuario.save();
 
     res.json({ enderecos: usuario.enderecos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao excluir o endereço." });
   }
 });
 
 // ── Cartões ──────────────────────────────────────────────────────────
 
-const BANDEIRAS = {
-  4: "visa",
-  5: "master",
-  6: "elo",
-  3: "amex",
-};
-
-function detectarBandeira(numero) {
-  if (/^606282|^3841/.test(numero)) return "hipercard";
-  if (/^36|^38|^30[0-5]/.test(numero)) return "diners";
-  if (/^4/.test(numero)) return "visa";
-  if (/^5[1-5]/.test(numero)) return "master";
-  if (/^3[47]/.test(numero)) return "amex";
-  return "elo";
-}
-
 app.post("/perfil/cartoes", autenticar, async (req, res) => {
   try {
-    const { titular, numero, validade } = req.body || {};
-
-    if (
-      typeof titular !== "string" || !titular.trim() ||
-      typeof numero !== "string" || !numero.trim() ||
-      typeof validade !== "string" || !validade.trim()
-    ) {
-      return res.status(400).json({ erro: "Preencha todos os campos." });
-    }
-
-    const soDigitos = numero.replace(/\D/g, "");
-    if (soDigitos.length < 13 || soDigitos.length > 19) {
-      return res.status(400).json({ erro: "Número do cartão inválido." });
-    }
-
-    if (!/^\d{2}\/\d{2}$/.test(validade.trim())) {
-      return res.status(400).json({ erro: "Validade deve ser MM/AA." });
-    }
-
-    const usuario = await Usuario.findById(req.session.usuarioId);
-    if (!usuario) {
-      return res.status(404).json({ erro: "Usuário não encontrado." });
-    }
-
-    usuario.cartoes.push({
-      titular: titular.trim(),
-      finalCartao: soDigitos.slice(-4),
-      validade: validade.trim(),
-      bandeira: detectarBandeira(soDigitos),
-      status: true,
-      criadoEm: new Date(),
-    });
-    await usuario.save();
-
-    res.status(201).json({
-      cartoes: usuario.cartoes.map((c) => ({
-        _id: c._id,
-        titular: c.titular,
-        finalCartao: c.finalCartao,
-        validade: c.validade,
-        bandeira: c.bandeira,
-        status: c.status,
-      })),
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar o cartão." });
+    res.status(201).json({ cartoes: await salvarReferenciaCartao(req.session.usuarioId, req.body || {}) });
+  } catch (erro) {
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ erro: erro.message });
+    console.error('[cartao] falha ao salvar referencia');
+    res.status(503).json({ erro: 'Não foi possível validar o cartão. Tente novamente.' });
   }
 });
 
@@ -1021,8 +966,8 @@ app.delete("/perfil/cartoes/:cartaoId", autenticar, async (req, res) => {
         status: c.status,
       })),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao excluir o cartão." });
   }
 });
@@ -1128,8 +1073,8 @@ app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
 
     const novoProduto = await Produto.create(item);
     res.status(201).json({ produto: novoProduto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao salvar o produto." });
   }
 });
@@ -1252,8 +1197,8 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
 
     const produtoAtualizado = await Produto.findById(id).lean();
     res.json({ produto: produtoAtualizado });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao atualizar o produto." });
   }
 });
@@ -1263,8 +1208,8 @@ app.get("/admin/estoque", autenticarAdmin, async (req, res) => {
     const produtos = await Produto.find().lean();
 
     res.json({ produtos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao listar produtos." });
   }
 });
@@ -1285,8 +1230,8 @@ app.delete("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
     await Produto.deleteOne({ _id: id });
 
     res.json({ mensagem: "Produto removido com sucesso." });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao excluir o produto." });
   }
 });
@@ -1306,8 +1251,8 @@ app.get("/api/produtos", async (req, res) => {
       estoqueDisponivel: estoqueDisponivel(p),
     }));
     res.set("Cache-Control", CACHE_PUBLICO).json({ produtos: resultado });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao listar produtos." });
   }
 });
@@ -1324,8 +1269,8 @@ app.get("/api/produto/:slug", async (req, res) => {
     const { estoqueSeguranca: _es, ...produto } = produtoRaw;
     produto.estoqueDisponivel = estoqueDisponivel(produtoRaw);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao buscar produto." });
   }
 });
@@ -1343,8 +1288,8 @@ app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
       .lean();
 
     res.json({ assinaturas });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao listar assinaturas." });
   }
 });
@@ -1369,8 +1314,8 @@ app.get("/produto/:slug", async (req, res) => {
     }
 
     res.json({ produto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao buscar produto." });
   }
 });
@@ -1387,8 +1332,8 @@ app.get("/assinatura/:id", autenticar, async (req, res) => {
     }
 
     res.json({ assinatura: assinaturaPublica(assinatura) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao buscar assinatura." });
   }
 });
@@ -1397,8 +1342,8 @@ app.get("/api/carrinho", async (req, res) => {
   try {
     const carrinho = await obterCarrinho(req);
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível carregar o carrinho." });
   }
 });
@@ -1476,7 +1421,7 @@ app.post("/api/frete", async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("[api/frete] erro:", error?.message || error);
+    console.error('[frete] falha ao consultar cotacao');
 
     if (error instanceof ErroFrete) {
       return res.status(error.status).json({ erro: error.message });
@@ -1495,6 +1440,7 @@ registrarRotasPedidosCliente(app, {
 // valor pago vêm do próprio Mercado Pago, nunca do navegador.
 app.post("/api/pedidos", autenticar, async (req, res) => {
   try {
+    validarCorpoSeguro(req.body || {});
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
     const idPagamento = String(pagamentoId || "").trim();
     const freteInformado = Number(freteCentavos);
@@ -1560,8 +1506,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     let pagamentoMP;
     try {
       pagamentoMP = await paymentModule.get({ id: idPagamento });
-    } catch (erro) {
-      console.error("[api/pedidos] pagamento não encontrado:", erro?.message);
+    } catch {
+      console.error('[api/pedidos] pagamento nao encontrado');
       return res.status(400).json({ erro: "Pagamento não encontrado." });
     }
 
@@ -1691,13 +1637,14 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     return res.status(201).json({ pedido: respostaPedido(pedido) });
   } catch (error) {
+    if (error instanceof ErroSegurancaPagamento) return res.status(400).json({ erro: error.message });
     if (error instanceof ErroCalculoPagamento) {
       return res.status(400).json({ erro: error.message });
     }
     if (error instanceof ErroFrete) {
       return res.status(error.status).json({ erro: error.message });
     }
-    console.error("[api/pedidos] erro:", error?.message || error);
+    console.error('[api/pedidos] falha ao registrar pedido');
     return res
       .status(500)
       .json({ erro: "Não foi possível registrar o pedido." });
@@ -1768,8 +1715,8 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
       statusPedidos,
       ultimosPedidos: ultimosPedidos.map(respostaPedidoAdmin),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao carregar o painel." });
   }
 });
@@ -1786,8 +1733,8 @@ app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
       .limit(200)
       .lean();
     res.json({ pedidos: pedidos.map(respostaPedidoAdmin) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao listar pedidos." });
   }
 });
@@ -1810,7 +1757,7 @@ app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
     res.json({ pedido: respostaPedidoAdmin(pedido) });
   } catch (error) {
     if (error instanceof ErroEstadoPedido) return res.status(error.status).json({ erro: error.message });
-    console.error(error);
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao atualizar o pedido." });
   }
 });
@@ -1913,8 +1860,8 @@ app.post("/api/trocas", async (req, res) => {
         criadoEm: troca.criadoEm,
       },
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível registrar a solicitação." });
   }
 });
@@ -1951,8 +1898,8 @@ app.get("/api/trocas", autenticar, async (req, res) => {
       .limit(50)
       .lean();
     res.json({ trocas: trocas.map(respostaTroca) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível carregar suas trocas." });
   }
 });
@@ -1977,8 +1924,8 @@ app.post("/api/trocas/consultar", async (req, res) => {
       .sort({ criadoEm: -1 })
       .lean();
     res.json({ trocas: trocas.map(respostaTroca) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível consultar as solicitações." });
   }
 });
@@ -2012,8 +1959,8 @@ app.get("/admin/trocas", autenticarAdmin, async (req, res) => {
           : null,
       })),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao listar trocas." });
   }
 });
@@ -2038,8 +1985,8 @@ app.patch("/admin/trocas/:id", autenticarAdmin, async (req, res) => {
       return res.status(404).json({ erro: "Solicitação não encontrada." });
     }
     res.json({ troca });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Erro ao atualizar a solicitação." });
   }
 });
@@ -2085,8 +2032,8 @@ app.post("/api/carrinho", async (req, res) => {
 
     await carrinho.save();
     res.status(200).json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
   }
 });
@@ -2126,8 +2073,8 @@ app.patch("/api/carrinho/:produtoId", async (req, res) => {
     item.quantidade = quantidade;
     await carrinho.save();
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível atualizar o carrinho." });
   }
 });
@@ -2145,8 +2092,8 @@ app.delete("/api/carrinho/:produtoId", async (req, res) => {
     );
     await carrinho.save();
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('[api] falha interna');
     res.status(500).json({ erro: "Não foi possível remover o item." });
   }
 });
@@ -2197,8 +2144,8 @@ app.post("/api/esqueci-senha", async (req, res) => {
     }
 
     res.json({ mensagem: "Se o e-mail estiver cadastrado, enviamos um link." });
-  } catch (erro) {
-    console.error("Erro em /api/esqueci-senha:", erro.message || erro);
+  } catch {
+    console.error('[conta] falha na recuperacao de senha');
     res.status(500).json({ mensagem: "Erro ao processar a solicitação." });
   }
 });
@@ -2231,8 +2178,8 @@ app.post("/api/nova-senha", async (req, res) => {
     await usuario.save();
 
     res.json({ mensagem: "Senha alterada com sucesso!" });
-  } catch (erro) {
-    console.error("Erro em /api/nova-senha:", erro.message || erro);
+  } catch {
+    console.error('[conta] falha na redefinicao de senha');
     res.status(500).json({ mensagem: "Erro ao redefinir a senha." });
   }
 });
@@ -2245,7 +2192,7 @@ app.post("/sair", (req, res) => {
   });
   req.session.destroy((error) => {
     if (error) {
-      console.error(error);
+      console.error('[api] falha interna');
       return res
         .status(500)
         .json({ erro: "Não foi possível encerrar a sessão." });
@@ -2293,8 +2240,8 @@ async function iniciar() {
     app.listen(4000, () => {
       console.log("Abra http://localhost:4000");
     });
-  } catch (erro) {
-    console.error("Erro na conexão:", erro.message);
+  } catch {
+    console.error('[banco] conexao indisponivel');
   }
 }
 
