@@ -484,6 +484,12 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         },
       },
       Produto: {
+        find(filtro) { return { sort() { return this; }, async lean() {
+          return (falhas.produtos || []).filter((produto) => Object.entries(filtro).every(([campo, valor]) => produto[campo] === valor));
+        } }; },
+        findOne(filtro) { return { async lean() {
+          return (falhas.produtos || []).find((produto) => Object.entries(filtro).every(([campo, valor]) => produto[campo] === valor)) || null;
+        } }; },
         async findOneAndUpdate(filtro, atualizacao, { session }) {
           assert.ok(session.transacaoTeste);
           const produto = estoques[String(filtro._id)];
@@ -608,6 +614,7 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
       headers: dados.headers || {}, session: falhas.semSessao ? {} : { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
     req.params = dados.parametros ?? { id: 'pedido-1' };
+    req.query = dados.query ?? {};
     req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
     req.body.chaveTentativa ??= randomUUID();
     if (dados.semChave) delete req.body.chaveTentativa;
@@ -649,6 +656,35 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     return res;
   } };
 }
+
+test('catálogo público desconta estoque de segurança na listagem e no detalhe sem expor o campo interno', async () => {
+  for (const estoqueSeguranca of [undefined, 0, 3, 10]) {
+    const produto = { _id: 'produto-teste', slug: 'kit', nome: 'Kit', tipo: 'kit', ativo: true, estoque: 10,
+      ...(estoqueSeguranca !== undefined && { estoqueSeguranca }) };
+    const original = JSON.stringify(produto);
+    const servidor = montarServidor(4990, undefined, { produtos: [produto] });
+    const lista = await servidor.enviar('/api/produtos', { httpMethod: 'get', query: {} });
+    const detalhe = await servidor.enviar('/api/produto/:slug', { httpMethod: 'get', parametros: { slug: 'kit' } });
+    assert.equal(lista.statusCode, 200);
+    assert.equal(detalhe.statusCode, 200);
+    for (const publico of [lista.dados.produtos[0], detalhe.dados.produto]) {
+      assert.equal(publico.estoqueDisponivel, 10 - (estoqueSeguranca || 0));
+      assert.equal(Object.hasOwn(publico, 'estoqueSeguranca'), false);
+    }
+    assert.equal(JSON.stringify(produto), original);
+  }
+});
+
+test('catálogo público preserva filtro de tipo e oculta produtos inativos', async () => {
+  const produtos = [{ slug: 'kit', nome: 'Kit', tipo: 'kit', ativo: true, estoque: 5, estoqueSeguranca: 2 },
+    { slug: 'material', nome: 'Material', tipo: 'material', ativo: true, estoque: 3 },
+    { slug: 'inativo', nome: 'Inativo', tipo: 'kit', ativo: false, estoque: 10 }];
+  const servidor = montarServidor(4990, undefined, { produtos });
+  const lista = await servidor.enviar('/api/produtos', { httpMethod: 'get', query: { tipo: 'KIT' } });
+  assert.deepEqual(Array.from(lista.dados.produtos, (produto) => produto.slug), ['kit']);
+  const detalhe = await servidor.enviar('/api/produto/:slug', { httpMethod: 'get', parametros: { slug: 'inativo' } });
+  assert.equal(detalhe.statusCode, 404);
+});
 
 test('RN03/RN04: exemplos do documento, meio centavo e cálculo único por subtotal', () => {
   assert.deepEqual(calcularPixCentavos(4990, 1500), { produtosLiquidos: 4741, desconto: 249, total: 6241 });

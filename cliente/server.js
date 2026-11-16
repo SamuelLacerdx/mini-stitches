@@ -137,6 +137,12 @@ function estoqueDisponivel(produto) {
   return (produto.estoque || 0) - (produto.estoqueSeguranca || 0);
 }
 
+function respostaProdutoPublico(produto) {
+  const resposta = { ...produto, estoqueDisponivel: estoqueDisponivel(produto) };
+  delete resposta.estoqueSeguranca;
+  return resposta;
+}
+
 app.post("/api/webhook", async (req, res) => {
   const secret = String(process.env.MP_WEBHOOK_SECRET || "").trim();
   if (!secret || !paymentModule) return res.status(503).send("Webhook indisponível");
@@ -1318,10 +1324,7 @@ app.get("/api/produtos", async (req, res) => {
     }
 
     const produtos = await Produto.find(filtro).sort({ nome: 1 }).lean();
-    const resultado = produtos.map(({ estoqueSeguranca: _es, ...p }) => ({
-      ...p,
-      estoqueDisponivel: estoqueDisponivel(p),
-    }));
+    const resultado = produtos.map(respostaProdutoPublico);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produtos: resultado });
   } catch {
     logger.error('api.falha');
@@ -1338,8 +1341,7 @@ app.get("/api/produto/:slug", async (req, res) => {
       return res.status(404).json({ erro: "Produto não encontrado." });
     }
 
-    const { estoqueSeguranca: _es, ...produto } = produtoRaw;
-    produto.estoqueDisponivel = estoqueDisponivel(produtoRaw);
+    const produto = respostaProdutoPublico(produtoRaw);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produto });
   } catch {
     logger.error('api.falha');
