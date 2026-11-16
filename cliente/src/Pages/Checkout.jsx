@@ -70,6 +70,8 @@ export default function FinalizarCompra() {
   const [erroFrete, setErroFrete] = useState('');
   const ultimaCotacaoRef = useRef(0);
   const [loading, setLoading] = useState(false);
+  const envioPagamentoRef = useRef(false);
+  const chavePagamentoRef = useRef(null);
   const [resultado, setResultado] = useState(null); // Armazena sucesso, QR code, Link Boleto
   const { resultado: acompanhamento, tentarNovamente } = usePedido(resultado?.pedido?.numero, { somentePagamento: true });
   const statusPagamento = acompanhamento?.pedido?.status || resultado?.pedido?.status;
@@ -430,8 +432,25 @@ export default function FinalizarCompra() {
   };
 
   // Processamento do Pagamento
+  const lerRespostaPagamento = async (resposta) => {
+    const dados = await resposta.json();
+    if (dados.nova_tentativa_permitida || ['rejected', 'cancelled'].includes(dados.status)) {
+      chavePagamentoRef.current = null;
+      sessionStorage.removeItem('mini-stitches:tentativa-pagamento');
+    }
+    return dados;
+  };
+
+  const concluirPagamento = async (tipo, dados) => {
+    const registro = await registrarPedido(dados.id_pagamento);
+    if (registro.pedido) sessionStorage.removeItem('mini-stitches:tentativa-pagamento');
+    setResultado({ tipo, dados, ...registro });
+  };
+
   const handleFinalizarPedido = async (e) => {
     e.preventDefault();
+    if (envioPagamentoRef.current) return;
+    envioPagamentoRef.current = true;
     setLoading(true);
     setResultado(null);
 
@@ -445,16 +464,21 @@ export default function FinalizarCompra() {
     if (!cartItems.length || subtotal <= 0) {
       alert('Seu carrinho está vazio.');
       setLoading(false);
+      envioPagamentoRef.current = false;
       return;
     }
 
     if (!freteSelecionado) {
       alert('Calcule e escolha uma opção de frete antes de finalizar.');
       setLoading(false);
+      envioPagamentoRef.current = false;
       return;
     }
 
     try {
+      chavePagamentoRef.current ??= sessionStorage.getItem('mini-stitches:tentativa-pagamento') || crypto.randomUUID();
+      const chaveTentativa = chavePagamentoRef.current;
+      sessionStorage.setItem('mini-stitches:tentativa-pagamento', chaveTentativa);
       // 1. PAGAMENTO PIX
       if (pagamento === 'pix') {
         if (!email || !email.includes('@')) throw new Error('E-mail inválido.');
@@ -464,6 +488,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -473,10 +498,10 @@ export default function FinalizarCompra() {
             sobrenome,
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
 
         if (json.sucesso) {
-          setResultado({ tipo: 'pix', dados: json, ...(await registrarPedido(json.id_pagamento)) });
+          await concluirPagamento('pix', json);
         } else {
           throw new Error(json.mensagem || 'Erro ao processar Pix');
         }
@@ -498,6 +523,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -514,10 +540,10 @@ export default function FinalizarCompra() {
             },
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
 
         if (json.sucesso) {
-          setResultado({ tipo: 'boleto', dados: json, ...(await registrarPedido(json.id_pagamento)) });
+          await concluirPagamento('boleto', json);
         } else {
           throw new Error(json.mensagem || 'Erro ao processar Boleto');
         }
@@ -551,6 +577,7 @@ export default function FinalizarCompra() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
             token: cardToken.id,
             payment_method_id: formData.bandeira || bandeiraDetectada,
             freteCentavos: valorFrete,
@@ -561,10 +588,10 @@ export default function FinalizarCompra() {
             cpf: cpfLimpo,
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
 
         if (json.sucesso && json.status === 'approved') {
-          setResultado({ tipo: 'sucesso', dados: json, ...(await registrarPedido(json.id_pagamento)) });
+          await concluirPagamento('sucesso', json);
         } else {
           throw new Error(json.mensagem || 'Pagamento recusado.');
         }
@@ -573,6 +600,7 @@ export default function FinalizarCompra() {
       alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
     } finally {
       setLoading(false);
+      envioPagamentoRef.current = false;
     }
   };
 

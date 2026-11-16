@@ -7,7 +7,7 @@ const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
-const { criarCobrancaComTentativa } = require("./backend/functions/tentativasPagamento");
+const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia, resumirResposta } = require("./backend/functions/tentativasPagamento");
 const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
@@ -131,6 +131,12 @@ app.post("/api/webhook", async (req, res) => {
       const tentativa = mongoose.isValidObjectId(referencia)
         ? await TentativaPagamento.findById(referencia)
         : await TentativaPagamento.findOne({ pagamentoId: String(paymentId) });
+      if (tentativa) {
+        await TentativaPagamento.updateOne({ _id: tentativa._id }, { $set: {
+          pagamentoId: String(paymentId), estado: "resposta_recebida",
+          statusProvedor: String(pagamento.status), respostaGateway: resumirResposta(pagamento),
+        } });
+      }
       if (["cancelled", "rejected"].includes(pagamento?.status) && tentativa) {
         await reservasEstoque.liberar(tentativa._id);
       }
@@ -208,6 +214,7 @@ function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
   const cep = normalizarCEP(req.body?.entrega?.cep ?? req.body?.cep);
   if (!cep) throw new ErroCalculoPagamento("Informe um CEP válido para a tentativa.");
   return {
+    ...req.identidadePagamento,
     clienteId: req.session.usuarioId,
     metodo,
     itens: calculo.itensPedido,
@@ -219,6 +226,33 @@ function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
     cep,
     servicoId: calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS ? 0 : Number(req.body.servicoId),
   };
+}
+
+function formatarTentativa({ resposta, tentativaId, tentativa }) {
+  const comum = { sucesso: true, id_pagamento: resposta.id, tentativa_id: tentativaId, status: resposta.status };
+  if (tentativa.metodo === "pix") return {
+    ...comum,
+    valor_original: (tentativa.subtotal + tentativa.frete) / 100,
+    valor_com_desconto: tentativa.total / 100,
+    qr_code_pix: resposta.point_of_interaction?.transaction_data?.qr_code || "",
+    qr_code_base64: resposta.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+  };
+  if (tentativa.metodo === "boleto") return {
+    ...comum, status: resposta.status,
+    codigo_de_barras: resposta.barcode?.content || "",
+    link_boleto_pdf: resposta.transaction_details?.external_resource_url || "",
+  };
+  const valores = calcularParcelasCentavos(tentativa.total, tentativa.parcelas);
+  return { ...comum, status: resposta.status, status_detail: resposta.status_detail,
+    parcelas: resposta.installments, valor_parcela: valores[0] / 100,
+    valores_parcelas_centavos: valores,
+    mensagem: resposta.status === "approved" ? "Pagamento aprovado." : "Pagamento processado." };
+}
+
+async function recuperarTentativa(req, metodo) {
+  req.identidadePagamento = identificarRequisicao(req, metodo);
+  const existente = await cobrarComTentativa.buscar({ clienteId: req.session.usuarioId, ...req.identidadePagamento });
+  return existente ? formatarTentativa(existente) : null;
 }
 
 function obterFreteCentavos(body) {
@@ -271,6 +305,8 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "pix");
+    if (existente) return res.json(existente);
     const { email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
     if (!mpClient || !paymentModule) {
@@ -299,7 +335,6 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     const calculo = await obterCalculoCarrinho(req);
     const subtotalCentavos = calculo.subtotal;
     const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos, calculo.itensPedido);
-    const valorBaseCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
     const pix = calcularPixCentavos(
       subtotalCentavos,
       freteCentavos,
@@ -308,7 +343,7 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     const valorComDesconto = valorComDescontoCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const { resposta, tentativaId } = await cobrarComTentativa({
+    const cobranca = await cobrarComTentativa({
       ...dadosTentativa(req, calculo, "pix", freteCentavos, pix.total),
       body: {
         transaction_amount: valorComDesconto,
@@ -328,19 +363,13 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      tentativa_id: tentativaId,
-      valor_original: valorBaseCentavos / 100,
-      valor_com_desconto: valorComDesconto,
-      qr_code_pix: resposta.point_of_interaction.transaction_data.qr_code,
-      qr_code_base64:
-        resposta.point_of_interaction.transaction_data.qr_code_base64,
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
     if (erro instanceof ErroReservaEstoque) {
-      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
@@ -359,6 +388,8 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "boleto");
+    if (existente) return res.json(existente);
     const { email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
     if (!mpClient || !paymentModule) {
@@ -402,7 +433,7 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
     const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const { resposta, tentativaId } = await cobrarComTentativa({
+    const cobranca = await cobrarComTentativa({
       ...dadosTentativa(req, calculo, "boleto", freteCentavos, subtotalCentavos + freteCentavos),
       body: {
         transaction_amount: Number(valorTotal),
@@ -429,17 +460,13 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      tentativa_id: tentativaId,
-      codigo_de_barras: resposta.barcode?.content || "",
-      link_boleto_pdf: resposta.transaction_details?.external_resource_url || "",
-      status: resposta.status,
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
     if (erro instanceof ErroReservaEstoque) {
-      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });
@@ -458,6 +485,8 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
 
 app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "cartao");
+    if (existente) return res.json(existente);
     const { token, payment_method_id, parcelas, email, cpf } =
       req.body || {};
 
@@ -482,11 +511,11 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
     const quantidadeParcelas = parcelas === undefined ? 1
       : typeof parcelas === "string" && /^[1-6]$/.test(parcelas) ? Number(parcelas)
         : typeof parcelas === "number" ? parcelas : NaN;
-    const valoresParcelas = calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
+    calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
     const valorTotal = totalCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const { resposta, tentativaId } = await cobrarComTentativa({
+    const cobranca = await cobrarComTentativa({
       ...dadosTentativa(req, calculo, "cartao", freteCentavos, totalCentavos, quantidadeParcelas),
       body: {
         token,
@@ -504,23 +533,13 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      tentativa_id: tentativaId,
-      status: resposta.status,
-      status_detail: resposta.status_detail,
-      parcelas: resposta.installments,
-      valor_parcela: valoresParcelas[0] / 100,
-      valores_parcelas_centavos: valoresParcelas,
-      mensagem:
-        resposta.status === "approved"
-          ? "Pagamento aprovado."
-          : "Pagamento processado.",
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
     if (erro instanceof ErroReservaEstoque) {
-      return res.status(409).json({ sucesso: false, mensagem: erro.message });
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
     }
     if (erro instanceof ErroCalculoPagamento) {
       return res.status(400).json({ sucesso: false, mensagem: erro.message });

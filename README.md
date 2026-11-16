@@ -138,9 +138,9 @@ inicial continua disponível para conciliação pela referência externa. O regi
 não guarda token, CPF, número do cartão, CVV ou o payload completo do gateway.
 
 O pedido comercial continua sendo registrado pelo fluxo de `/api/pedidos`.
-O controle de reserva antecipada está descrito abaixo. A idempotência entre
-requisições (PAG-07) e a conciliação automática de tentativas inconclusivas
-permanecem etapas separadas.
+O controle de reserva antecipada e a idempotência entre requisições estão
+descritos abaixo. A conciliação completa de notificações permanece uma etapa
+separada (PAG-08).
 Os testes locais estão disponíveis em `npm run test:pagamentos`, na pasta
 `cliente`; arquivos ignorados em `cliente/tests/` precisam existir localmente.
 
@@ -173,6 +173,43 @@ para evitar repor estoque já restituído.
 Os testes de disputa, reversão e repetição usam persistência simulada com
 transações serializadas; a homologação com MongoDB real e gateway sandbox
 continua necessária.
+
+### Idempotência por tentativa (PAG-07)
+
+As rotas de Pix, boleto e cartão exigem `chaveTentativa` (16 a 80 caracteres
+alfanuméricos ou hífen). O checkout gera um UUID e mantém a chave durante
+repetições; `sessionStorage` permite conservá-la após falha de rede ou
+recarregamento antes de registrar o pedido. O envio tem bloqueio imediato de
+duplo clique. Dados de cartão e tokens não são salvos nesse armazenamento.
+
+O índice único parcial `{ clienteId: 1, chaveTentativa: 1 }` impede duas
+tentativas para a mesma chave e conta. O índice deve estar criado antes de
+habilitar cobranças; a API aguarda a inicialização do modelo. Em ambientes com
+criação automática de índices desativada, crie esse índice no procedimento de
+deploy. O identificador persistido da tentativa também é usado como
+`requestOptions.idempotencyKey` no SDK do Mercado Pago.
+
+Uma repetição conhecida devolve os mesmos dados de cobrança sem recalcular o
+carrinho, reservar ou cobrar novamente. São persistidos somente os campos de
+resposta necessários ao checkout (status, identificador, Pix, boleto e parcelas),
+com seleção restrita por padrão no modelo. A chave está vinculada aos dados
+da requisição por hash; mudanças de método, entrega ou parcelas geram conflito
+HTTP 409. Retokenização do mesmo pagamento não altera sua identidade.
+
+Requisições em processamento ou com resultado desconhecido retornam HTTP 409
+com `tentativa_id` e não fazem outra chamada de cobrança. Não crie outra chave
+para contornar timeout. O webhook consulta o pagamento na API do provedor e
+registra a resposta na tentativa; após a conciliação, repetir a mesma chave
+recupera essa resposta. A autenticação do webhook e o tratamento completo de
+eventos fora de ordem ainda pertencem à PAG-08. Uma tentativa interrompida
+antes de chegar ao gateway permanece bloqueada para conferência operacional;
+não há reenvio automático após expiração de prazo.
+
+O checkout permite nova chave após recusa/cancelamento conclusivo ou falha de
+estoque sem cobrança. Após registrar o pedido, remove a chave do armazenamento
+da aba, mantendo a referência em memória enquanto a tela permanece aberta.
+Os testes locais simulam concorrência e persistência; ainda é necessária
+homologação com o índice real e a idempotência do gateway em sandbox.
 
 ## Estrutura principal
 

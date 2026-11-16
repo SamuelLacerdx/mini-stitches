@@ -4,6 +4,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { createRequire } = require('node:module');
 const { runInNewContext } = require('node:vm');
+const { randomUUID } = require('node:crypto');
 const { calcularPixCentavos, calcularFreteAplicavelCentavos } = require('../backend/functions/calculosPagamento');
 
 // Executa os handlers reais sem abrir portas, acessar banco ou criar cobranças.
@@ -87,13 +88,18 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
         },
       },
       TentativaPagamento: {
+        async init() { if (falhas.indice) throw new Error('Índice indisponível'); },
         async findById(id) { return tentativas.find((item) => item._id === id) ?? null; },
-        async findOne(filtro) {
-          return tentativas.find((item) => Object.entries(filtro).every(([chave, valor]) => item[chave] === valor)) ?? null;
+        findOne(filtro) {
+          const valor = tentativas.find((item) => Object.entries(filtro).every(([chave, valor]) => item[chave] === valor)) ?? null;
+          return { select: async () => valor, then(resolve, reject) { return Promise.resolve(valor).then(resolve, reject); } };
         },
         async create(dados) {
           eventos.push('registro');
           if (falhas.registro) throw new Error('Banco indisponível');
+          if (tentativas.some((item) => item.clienteId === dados.clienteId && item.chaveTentativa === dados.chaveTentativa)) {
+            throw Object.assign(new Error('Chave duplicada'), { code: 11000 });
+          }
           const tentativa = { _id: `tentativa-${tentativas.length + 1}`, estoqueEstado: 'nao_reservado', ...JSON.parse(JSON.stringify(dados)) };
           tentativas.push(tentativa);
           return tentativa;
@@ -134,8 +140,9 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
             transaction_amount: body.transaction_amount, payment_method_id: body.payment_method_id,
             payment_type_id: body.payment_method_id === 'bolbradesco' ? 'ticket' : 'credit_card' };
         }
-        async create({ body }) {
+        async create({ body, requestOptions }) {
           eventos.push('gateway');
+          assert.equal(requestOptions.idempotencyKey, body.external_reference);
           assert.ok(tentativas.some((item) => item._id === body.external_reference && item.estado === 'registrada'));
           assert.equal(tentativas.find((item) => item._id === body.external_reference).estoqueEstado, 'reservado');
           cobrancas.push(body);
@@ -158,8 +165,10 @@ function montarServidor(preco = 4990, cotacao, falhas = {}) {
     const req = { body: { email: 'teste@example.com', cpf: '00000000000',
       nomeCompleto: 'Cliente Teste', token: 'token-teste', payment_method_id: 'visa',
       freteCentavos: 1500, cep: '01001000', servicoId: 1, ...dados },
-      session: { usuarioId: 'cliente-teste' } };
+      session: { usuarioId: falhas.clienteId ?? 'cliente-teste' } };
     req.body.cliente ??= { nome: 'Cliente Teste', email: 'teste@example.com' };
+    req.body.chaveTentativa ??= randomUUID();
+    if (dados.semChave) delete req.body.chaveTentativa;
     req.body.entrega ??= { cep: req.body.cep, endereco: 'Rua Teste, 1' };
     const res = { statusCode: 200, status(valor) { this.statusCode = valor; return this; },
       send(valor) { this.dados = valor; return this; },
@@ -421,4 +430,103 @@ test('PAG-06: webhook de recusa antes do pedido libera uma única vez', async ()
   }
   assert.equal(servidor.tentativas[0].estoqueEstado, 'liberado');
   assert.equal(servidor.estoques['produto-teste'].estoque, 10);
+});
+
+test('PAG-07: mesma chave devolve a mesma cobrança em todos os métodos', async () => {
+  for (const metodo of ['pix', 'boleto', 'cartao']) {
+    const servidor = montarServidor();
+    const chaveTentativa = randomUUID();
+    const primeira = await servidor.enviar(metodo, { chaveTentativa });
+    const repetida = await servidor.enviar(metodo, { chaveTentativa, token: 'retokenizacao' });
+    assert.equal(repetida.statusCode, 200);
+    assert.deepEqual(repetida.dados, primeira.dados);
+    assert.equal(servidor.tentativas.length, 1);
+    assert.equal(servidor.cobrancas.length, 1);
+    assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  }
+});
+
+test('PAG-07: duplo clique simultâneo gera uma tentativa, uma reserva e uma cobrança', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  const respostas = await Promise.all([
+    servidor.enviar('pix', { chaveTentativa }), servidor.enviar('pix', { chaveTentativa }),
+  ]);
+  assert.ok(respostas.some((resposta) => resposta.statusCode === 200));
+  assert.ok(respostas.every((resposta) => [200, 409].includes(resposta.statusCode)));
+  assert.equal(servidor.tentativas.length, 1);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+  assert.equal((await servidor.enviar('pix', { chaveTentativa })).statusCode, 200);
+});
+
+test('PAG-07: repetição após timeout não cobra nem reserva de novo; webhook recupera resposta', async () => {
+  const falhas = { gateway: true };
+  const servidor = montarServidor(4990, undefined, falhas);
+  const chaveTentativa = randomUUID();
+  assert.equal((await servidor.enviar('pix', { chaveTentativa })).statusCode, 500);
+  falhas.gateway = false;
+  const repetida = await servidor.enviar('pix', { chaveTentativa });
+  assert.equal(repetida.statusCode, 409);
+  assert.equal(repetida.dados.tentativa_id, servidor.tentativas[0]._id);
+  await servidor.enviar('/api/webhook', { type: 'payment', data: { id: '123' } });
+  assert.equal((await servidor.enviar('pix', { chaveTentativa })).statusCode, 200);
+  assert.equal(servidor.cobrancas.length, 1);
+  assert.equal(servidor.tentativas.length, 1);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 9);
+});
+
+test('PAG-07: mesma chave com dados diferentes é conflito, sem nova cobrança', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  await servidor.enviar('pix', { chaveTentativa });
+  for (const dados of [{ cep: '01310100' }, { parcelas: '2' }, { email: 'outro@example.com' }]) {
+    assert.equal((await servidor.enviar('pix', { chaveTentativa, ...dados })).statusCode, 409);
+  }
+  assert.equal((await servidor.enviar('boleto', { chaveTentativa })).statusCode, 409);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-07: replay funciona depois que o carrinho foi esvaziado pelo registro do pedido', async () => {
+  const servidor = montarServidor();
+  const chaveTentativa = randomUUID();
+  const primeira = await servidor.enviar('boleto', { chaveTentativa });
+  await servidor.enviar('/api/pedidos', { pagamentoId: '123' });
+  const repetida = await servidor.enviar('boleto', { chaveTentativa });
+  assert.equal(repetida.statusCode, 200);
+  assert.deepEqual(repetida.dados, primeira.dados);
+  assert.equal(servidor.cobrancas.length, 1);
+});
+
+test('PAG-07: chave ausente ou inválida não registra nem cobra; índice é único por cliente', async () => {
+  const servidor = montarServidor();
+  for (const dados of [{ semChave: true }, { chaveTentativa: 'curta' }, { chaveTentativa: {} }]) {
+    assert.equal((await servidor.enviar('pix', dados)).statusCode, 400);
+  }
+  assert.equal(servidor.tentativas.length, 0);
+  assert.equal(servidor.cobrancas.length, 0);
+  const { TentativaPagamento } = require('../backend/db/mongodb');
+  assert.ok(TentativaPagamento.schema.indexes().some(([campos, opcoes]) =>
+    campos.clienteId === 1 && campos.chaveTentativa === 1 && opcoes.unique));
+});
+
+test('PAG-07: a mesma chave em outra conta não revela nem reutiliza a tentativa alheia', async () => {
+  const falhas = {};
+  const servidor = montarServidor(4990, undefined, falhas);
+  const chaveTentativa = randomUUID();
+  const primeira = await servidor.enviar('pix', { chaveTentativa });
+  falhas.clienteId = 'outro-cliente';
+  const segunda = await servidor.enviar('pix', { chaveTentativa });
+  assert.equal(segunda.statusCode, 200);
+  assert.notEqual(primeira.dados.tentativa_id, segunda.dados.tentativa_id);
+  assert.equal(servidor.tentativas.length, 2);
+  assert.equal(servidor.cobrancas.length, 2);
+  assert.equal(servidor.estoques['produto-teste'].estoque, 8);
+});
+
+test('PAG-07: falha na inicialização do índice impede cobrança', async () => {
+  const servidor = montarServidor(4990, undefined, { indice: true });
+  assert.equal((await servidor.enviar('pix')).statusCode, 500);
+  assert.equal(servidor.tentativas.length, 0);
+  assert.equal(servidor.cobrancas.length, 0);
 });

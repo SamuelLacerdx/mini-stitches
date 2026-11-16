@@ -233,6 +233,8 @@ const historicoStatusSchema = new mongoose.Schema(
 const tentativaPagamentoSchema = new mongoose.Schema({
   clienteId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, index: true },
   metodo: { type: String, enum: ["pix", "boleto", "cartao"], required: true },
+  chaveTentativa: { type: String, maxlength: 80 },
+  hashRequisicao: { type: String },
   itens: {
     type: [itemPedidoSchema],
     required: true,
@@ -247,16 +249,22 @@ const tentativaPagamentoSchema = new mongoose.Schema({
   servicoId: { type: Number, min: 0, validate: inteiro },
   estado: {
     type: String,
-    enum: ["registrada", "resposta_recebida", "resultado_desconhecido"],
+    enum: ["registrada", "resposta_recebida", "resultado_desconhecido", "nao_cobrada"],
     default: "registrada",
     required: true,
   },
   pagamentoId: { type: String },
   statusProvedor: { type: String, maxlength: 80 },
+  respostaGateway: { type: mongoose.Schema.Types.Mixed, select: false },
   estoqueEstado: {
     type: String, enum: ["nao_reservado", "reservado", "liberado"], default: "nao_reservado",
   },
 }, { timestamps: { createdAt: "criadoEm", updatedAt: "atualizadoEm" } });
+
+tentativaPagamentoSchema.index({ clienteId: 1, chaveTentativa: 1 }, {
+  unique: true,
+  partialFilterExpression: { chaveTentativa: { $type: "string" } },
+});
 
 tentativaPagamentoSchema.pre("validate", function () {
   const subtotal = this.itens.reduce((soma, item) => soma + item.precoUnit * item.quantidade, 0);
