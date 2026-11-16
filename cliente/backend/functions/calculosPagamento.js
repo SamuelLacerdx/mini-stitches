@@ -5,6 +5,8 @@ class ErroCalculoPagamento extends Error {
   }
 }
 
+const LIMITE_FRETE_GRATIS_CENTAVOS = 39990;
+
 function calcularSubtotalCentavos(itens) {
   if (!Array.isArray(itens) || itens.length === 0) {
     throw new ErroCalculoPagamento("Seu carrinho está vazio.");
@@ -67,10 +69,24 @@ function calcularPixCentavos(subtotalCentavos, freteCentavos) {
   return { produtosLiquidos, desconto, total };
 }
 
+function calcularFreteAplicavelCentavos(subtotalCentavos, freteCotadoCentavos) {
+  if (!Number.isSafeInteger(subtotalCentavos) || subtotalCentavos < 0) {
+    throw new ErroCalculoPagamento("O subtotal do frete é inválido.");
+  }
+  if (!Number.isSafeInteger(freteCotadoCentavos) || freteCotadoCentavos < 0) {
+    throw new ErroCalculoPagamento("O frete cotado é inválido.");
+  }
+  return subtotalCentavos > LIMITE_FRETE_GRATIS_CENTAVOS
+    ? 0
+    : freteCotadoCentavos;
+}
+
 module.exports = {
   ErroCalculoPagamento,
   calcularSubtotalCentavos,
   criarItensPedido,
   calcularValorBaseCentavos,
   calcularPixCentavos,
+  calcularFreteAplicavelCentavos,
+  LIMITE_FRETE_GRATIS_CENTAVOS,
 };

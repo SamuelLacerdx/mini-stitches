@@ -22,6 +22,7 @@ const {
   criarItensPedido,
   calcularValorBaseCentavos,
   calcularPixCentavos,
+  calcularFreteAplicavelCentavos,
 } = require("./backend/functions/calculosPagamento");
 const {
   Usuario,
@@ -187,6 +188,13 @@ function obterFreteCentavos(body) {
   return frete;
 }
 
+async function obterFreteAplicavelCentavos(req, subtotalCentavos) {
+  return calcularFreteAplicavelCentavos(
+    subtotalCentavos,
+    obterFreteCentavos(req.body),
+  );
+}
+
 app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
@@ -219,13 +227,11 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     }
 
     const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const valorBaseCentavos = calcularValorBaseCentavos(
-      subtotalCentavos,
-      obterFreteCentavos(req.body),
-    );
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const valorBaseCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
     const pix = calcularPixCentavos(
       subtotalCentavos,
-      obterFreteCentavos(req.body),
+      freteCentavos,
     );
     const valorComDescontoCentavos = pix.total;
     const valorComDesconto = valorComDescontoCentavos / 100;
@@ -311,10 +317,8 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       estado: String(endereco?.estado || "").trim().toUpperCase() || "SP",
     };
     const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const valorTotal = calcularValorBaseCentavos(
-      subtotalCentavos,
-      obterFreteCentavos(req.body),
-    ) / 100;
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -382,10 +386,8 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
     }
 
     const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const valorTotal = calcularValorBaseCentavos(
-      subtotalCentavos,
-      obterFreteCentavos(req.body),
-    ) / 100;
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
 
     const notificationUrl = obterNotificationUrl();
     const resposta = await paymentModule.create({
@@ -1463,6 +1465,22 @@ app.post("/api/frete", async (req, res) => {
       return res.status(400).json({ erro: "Seu carrinho está vazio." });
     }
 
+    const subtotalCentavos = criarItensPedido(itensValidos).subtotal;
+    if (subtotalCentavos > 39990) {
+      return res.json({
+        cep,
+        opcoes: [{
+          servicoId: 0,
+          servico: "Frete grátis",
+          transportadora: "Mini Stitches",
+          logo: "",
+          preco: 0,
+          prazoMin: 0,
+          prazoMax: 0,
+        }],
+      });
+    }
+
     const opcoes = await cotarFrete({
       cepDestino: cep,
       itens: itensValidos,
@@ -1502,7 +1520,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
   try {
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
     const idPagamento = String(pagamentoId || "").trim();
-    const frete = Number(freteCentavos);
+    const freteInformado = Number(freteCentavos);
     const nome = String(cliente?.nome || "").trim();
     const email = String(cliente?.email || "")
       .trim()
@@ -1513,8 +1531,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     if (
       !/^\d+$/.test(idPagamento) ||
-      !Number.isSafeInteger(frete) ||
-      frete < 0 ||
+      !Number.isSafeInteger(freteInformado) ||
+      freteInformado < 0 ||
       !nome ||
       !email.includes("@") ||
       !cep ||
@@ -1603,6 +1621,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       (soma, item) => soma + item.quantidade * item.precoUnit,
       0,
     );
+    const frete = calcularFreteAplicavelCentavos(subtotal, freteInformado);
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
     const valorEsperado = pagamento === "pix"
