@@ -113,7 +113,8 @@ export default function Perfil() {
         setStatusTrocas("ok");
       })
       .catch(() => setStatusTrocas("erro"));
-  }, []);
+    // toast vem do contexto e é estável (useCallback no provedor)
+  }, [toast]);
 
   function handleChange(e) {
     const { name, value } = e.target;

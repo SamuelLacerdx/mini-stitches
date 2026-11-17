@@ -23,7 +23,7 @@ import EsqueciSenha from "./Pages/EsqueciSenha";
 import NovaSenha from "./Pages/NovaSenha";
 import CarrinhoProvider from './Componentes/CarrinhoProvider';
 import CarrinhoLateral from './Componentes/CarrinhoLateral';
-import ToastProvider from './context/ToastContext';
+import ToastProvider from './Componentes/ToastProvider';
 import SessaoProvider from './Componentes/SessaoProvider';
 
 export default function App() {
