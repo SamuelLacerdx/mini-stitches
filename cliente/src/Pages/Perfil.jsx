@@ -73,6 +73,7 @@ export default function Perfil() {
         throw new Error(data.erro || "Não foi possível sair da conta.");
       }
 
+      window.dispatchEvent(new Event("sessao-alterada"));
       navigate("/");
     } catch (error) {
       toast(error.message || "Não foi possível sair da conta.", "erro");

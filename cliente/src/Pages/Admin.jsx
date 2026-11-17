@@ -109,6 +109,7 @@ export default function Admin() {
         throw new Error(dados.erro || "Não foi possível sair da conta.");
       }
 
+      window.dispatchEvent(new Event("sessao-alterada"));
       navigate("/");
     } catch (error) {
       toast(error.message || "Não foi possível sair da conta.", "erro");

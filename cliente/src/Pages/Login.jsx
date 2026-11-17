@@ -26,6 +26,7 @@ export default function Login() {
         throw new Error(data.erro || "Não foi possível fazer login.");
       }
 
+      window.dispatchEvent(new Event("sessao-alterada"));
       navigate(redirect || data.destino || "/perfil", { replace: true });
     } catch (error) {
       toast(error.message || "Não foi possível fazer login.", "erro");

@@ -14,48 +14,54 @@ import {
 } from "lucide-react";
 
 export default function Header() {
-  const location = useLocation();
-  return <ConteudoHeader key={location.key} />;
-}
-
-function ConteudoHeader() {
   const { abrir, aberto } = useCarrinho();
   const [usuario, setUsuario] = useState(null);
-  const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
-  const [menuAberto, setMenuAberto] = useState(false);
+  // Guardam a rota em que foram abertos: ao trocar de página fecham sozinhos,
+  // sem efeito nem nova chamada à API.
+  const [buscaRota, setBuscaRota] = useState(null);
+  const [menuRota, setMenuRota] = useState(null);
   const inputRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const buscaAberta = buscaRota === location.pathname;
+  const menuAberto = menuRota === location.pathname;
 
   useEffect(() => {
     let ativo = true;
 
-    fetch("/api/perfil", { credentials: "include" })
-      .then(async (resposta) => {
-        if (!resposta.ok) {
-          if (resposta.status !== 401) {
-            throw new Error("Não foi possível verificar a conta logada.");
+    function carregarUsuario() {
+      fetch("/api/perfil", { credentials: "include" })
+        .then(async (resposta) => {
+          if (!resposta.ok) {
+            if (resposta.status !== 401) {
+              throw new Error("Não foi possível verificar a conta logada.");
+            }
+            return null;
           }
-          return null;
-        }
 
-        const data = await resposta.json();
-        return data.usuario;
-      })
-      .then((dadosUsuario) => {
-        if (ativo) {
-          setUsuario(dadosUsuario);
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-        if (ativo) {
-          setUsuario(null);
-        }
-      });
+          const data = await resposta.json();
+          return data.usuario;
+        })
+        .then((dadosUsuario) => {
+          if (ativo) {
+            setUsuario(dadosUsuario);
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+          if (ativo) {
+            setUsuario(null);
+          }
+        });
+    }
+
+    carregarUsuario();
+    window.addEventListener("sessao-alterada", carregarUsuario);
 
     return () => {
       ativo = false;
+      window.removeEventListener("sessao-alterada", carregarUsuario);
     };
   }, []);
 
@@ -132,7 +138,7 @@ function ConteudoHeader() {
               {/* Botão de Pesquisar (visível quando fechado) */}
               <button
                 type="button"
-                onClick={() => setBuscaAberta(true)}
+                onClick={() => setBuscaRota(location.pathname)}
                 className={`flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] ${
                   buscaAberta ? "opacity-0 pointer-events-none" : "opacity-100"
                 }`}
@@ -148,7 +154,7 @@ function ConteudoHeader() {
                     e.preventDefault();
                     const q = termoBusca.trim();
                     if (!q) return;
-                    setBuscaAberta(false);
+                    setBuscaRota(null);
                     setTermoBusca("");
                     navigate(`/busca?q=${encodeURIComponent(q)}`);
                   }}
@@ -165,7 +171,7 @@ function ConteudoHeader() {
                   <button
                     type="button"
                     onClick={() => {
-                      setBuscaAberta(false);
+                      setBuscaRota(null);
                       setTermoBusca("");
                     }}
                     className="cursor-pointer rounded-full p-1 hover:bg-[#F2E8DD]"
@@ -206,7 +212,7 @@ function ConteudoHeader() {
             {/* HAMBURGER – mobile only */}
             <button
               type="button"
-              onClick={() => setMenuAberto(true)}
+              onClick={() => setMenuRota(location.pathname)}
               className="flex cursor-pointer items-center rounded-full border border-[#D8C2B0] p-1.5 text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] lg:hidden"
             >
               <Menu className="h-5 w-5 stroke-[1.75]" />
@@ -219,7 +225,7 @@ function ConteudoHeader() {
       {menuAberto && (
         <div
           className="fixed inset-0 z-50 lg:hidden"
-          onClick={() => setMenuAberto(false)}
+          onClick={() => setMenuRota(null)}
         >
           {/* overlay */}
           <div className="absolute inset-0 bg-black/40" />
@@ -231,7 +237,7 @@ function ConteudoHeader() {
           >
             <button
               type="button"
-              onClick={() => setMenuAberto(false)}
+              onClick={() => setMenuRota(null)}
               className="mb-4 self-end cursor-pointer rounded-full p-1 hover:bg-[#F2E8DD]"
             >
               <X className="h-5 w-5 stroke-[1.75] text-[#3E1B0E]" />
@@ -248,7 +254,7 @@ function ConteudoHeader() {
               <Link
                 key={to}
                 to={to}
-                onClick={() => setMenuAberto(false)}
+                onClick={() => setMenuRota(null)}
                 className="rounded-lg px-3 py-2.5 text-sm tracking-wide text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
               >
                 {label}
