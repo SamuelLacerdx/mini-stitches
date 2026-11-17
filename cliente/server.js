@@ -1359,6 +1359,33 @@ app.get("/api/produto/:slug", async (req, res) => {
   }
 });
 
+// Serve a foto do produto como binário cacheável, para o carrinho não precisar
+// devolver os ~150 KB de base64 de cada item em toda leitura.
+app.get("/api/produto/:slug/imagem", async (req, res) => {
+  try {
+    const produto = await Produto.findOne({ slug: req.params.slug, ativo: true }, "imagemUrl").lean();
+    const endereco = String(produto?.imagemUrl || "").trim();
+    if (!endereco) {
+      return res.status(404).json({ erro: "Imagem não encontrada." });
+    }
+
+    const dataUrl = /^data:([\w.+-]+\/[\w.+-]+);base64,(.+)$/s.exec(endereco);
+    if (!dataUrl) {
+      // Produto cadastrado com link externo: devolve o próprio link.
+      if (/^https?:\/\//i.test(endereco)) return res.redirect(302, endereco);
+      return res.status(404).json({ erro: "Imagem não encontrada." });
+    }
+
+    res
+      .set("Content-Type", dataUrl[1])
+      .set("Cache-Control", "public, max-age=86400, s-maxage=86400")
+      .send(Buffer.from(dataUrl[2], "base64"));
+  } catch {
+    logger.error('api.falha');
+    res.status(500).json({ erro: "Erro ao buscar imagem." });
+  }
+});
+
 const planoNaoEditavel = (_req, res) => res.status(410).json({
   erro: "O Clube possui somente o plano mensal SUB-02. A contratação deve ser feita pela conta do cliente.",
 });

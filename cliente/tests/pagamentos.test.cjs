@@ -56,6 +56,7 @@ test('RF03: resposta do carrinho usa preços populados e sinaliza produto removi
   let dados = await helpers.respostaCarrinho(carrinho);
   assert.equal(dados.resumo.subtotal, 9980);
   assert.equal(dados.itens[0].estoqueDisponivel, 3);
+  assert.equal(dados.itens[0].imagemUrl, '/api/produto/kit/imagem');
   carrinho.itens.push({ produtoId: null, quantidade: 1 });
   dados = await helpers.respostaCarrinho(carrinho);
   assert.equal(dados.resumo.podeContinuar, false);

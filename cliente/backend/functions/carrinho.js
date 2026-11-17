@@ -59,7 +59,7 @@ function criarCarrinhoHelpers({ Carrinho, clienteIdDoCarrinho }) {
   async function respostaCarrinho(carrinho) {
     await carrinho.populate(
       "itens.produtoId",
-      "slug nome tipo preco imagemUrl kit.nivel kit.faixaEtaria material.categoria ativo estoque estoqueSeguranca",
+      "slug nome tipo preco kit.nivel kit.faixaEtaria material.categoria ativo estoque estoqueSeguranca",
     );
 
     const itens = carrinho.itens
@@ -76,7 +76,7 @@ function criarCarrinhoHelpers({ Carrinho, clienteIdDoCarrinho }) {
               ? item.produtoId.kit?.faixaEtaria || item.produtoId.kit?.nivel || "Kit"
               : item.produtoId.material?.categoria || "Material avulso",
           preco: item.produtoId.preco,
-          imagemUrl: item.produtoId.imagemUrl || "",
+          imagemUrl: `/api/produto/${encodeURIComponent(item.slug)}/imagem`,
           quantidade: item.quantidade,
           ativo: item.produtoId.ativo,
           estoqueDisponivel: disponivel,
