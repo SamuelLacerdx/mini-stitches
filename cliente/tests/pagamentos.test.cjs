@@ -304,7 +304,7 @@ test('handler do checkout tokeniza cartão salvo somente com ID e CVV e envia ap
     freteSelecionado: {}, freteSelecionadoId: 1, valorFrete: 1500, parcelasSelecionadas: '1', cep: '01001000',
     pagamento: 'cartao', formData: formulario, entregaResumo: {}, pedidoPendente: null,
     envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null }, sessionStorage: { getItem: () => null, setItem() {} },
-    crypto: { randomUUID }, setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert: assert.fail,
+    crypto: { randomUUID }, setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, toast: assert.fail,
     detectarBandeiraCartao: () => 'visa', mpInstance: { async createCardToken(dados) { tokenizado = dados; return { id: 'token-teste' }; } },
     fetch: async (_url, opcoes) => { enviado = JSON.parse(opcoes.body); return {}; },
     lerRespostaPagamento: async () => ({ sucesso: true }), concluirPagamento: async () => {} });
@@ -2514,7 +2514,7 @@ test('PAG-13: frontend do perfil envia PAN/CVV ao SDK e somente token à API da 
   let dadosSdk;
   const runtime = { cartaoForm: { titular: 'Nome Teste', numero: '4111111111111111', validade: '12/30', cvv: '123', cpfTitular: '00000000000' },
     envioCartaoRef: { current: false }, setSalvandoCartao() {}, setCartaoForm: (dados) => formularios.push(dados),
-    setCartoes() {}, setMostrarFormularioCartao() {}, alert() {},
+    setCartoes() {}, setMostrarFormularioCartao() {}, toast() {},
     window: { MercadoPago: class { async createCardToken(dados) { dadosSdk = dados; return { id: 'token-gerado-pelo-sdk' }; } } },
     fetch: async (url, opcoes) => {
       chamadas.push({ url, opcoes });
@@ -2954,7 +2954,7 @@ test('PAG-15: handler do checkout envia cotação e token, e recebe o resumo ofi
       validade: '12/30', cvv: '123', cpfTitular: '00000000000', bandeira: 'visa' },
     envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null },
     sessionStorage: { getItem: () => null, setItem() {} }, crypto: { randomUUID },
-    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert(mensagem) { assert.fail(mensagem); },
+    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, toast(mensagem) { assert.fail(mensagem); },
     detectarBandeiraCartao: () => 'visa', mpInstance: { createCardToken: async () => ({ id: 'token-teste' }) },
     lerRespostaPagamento: async (resposta) => resposta.json(),
     concluirPagamento: async (_tipo, dados) => { confirmado = dados.resumo; },
@@ -2981,7 +2981,7 @@ test('PAG-15: handler do checkout bloqueia resumo ausente ou expirado antes de t
     let atualizacoes = 0;
     await executarCheckoutTeste({ resumo, cartItems: [{}], subtotal: 4990, freteSelecionado: {},
       formData: { email: 'teste@example.com', cpf: '00000000000', nome: 'Cliente Teste' },
-      envioPagamentoRef: { current: false }, setLoading() {}, setResultado() {}, alert() {},
+      envioPagamentoRef: { current: false }, setLoading() {}, setResultado() {}, toast() {},
       atualizarResumo() { atualizacoes++; },
       mpInstance: { createCardToken: async () => { tokenizacoes++; } },
     });
@@ -3272,7 +3272,7 @@ test('PAG-16: falha de rede ao enviar pagamento preserva referência e abre recu
     window: { history: { state: null, replaceState: (_estado, _titulo, url) => referencias.push(['url', url]) } },
     mpInstance: { createCardToken: async () => ({ id: 'token-teste' }) }, detectarBandeiraCartao: () => 'visa',
     setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {},
-    onRetomar: (chave) => retomadas.push(chave), alert: (mensagem) => assert.fail(mensagem),
+    onRetomar: (chave) => retomadas.push(chave), toast: (mensagem) => assert.fail(mensagem),
     fetch: async () => { posts++; throw new Error('Resposta de rede perdida'); },
   });
   assert.equal(posts, 1);
@@ -3294,7 +3294,7 @@ test('PAG-16: falha na tokenização não persiste referência de uma cobrança 
     envioPagamentoRef: { current: false }, chavePagamentoRef: { current: null }, crypto: { randomUUID },
     sessionStorage: { getItem: () => null, setItem: () => { persistencias++; } },
     mpInstance: { createCardToken: async () => { throw new Error('erro com cartão'); } }, detectarBandeiraCartao: () => 'visa',
-    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, alert: (mensagem) => avisos.push(mensagem),
+    setLoading() {}, setResultado() {}, setFormData() {}, atualizarResumo() {}, toast: (mensagem) => avisos.push(mensagem),
     onRetomar: () => { retomadas++; }, fetch: async () => { posts++; },
   });
   assert.equal(posts + persistencias + retomadas, 0);
