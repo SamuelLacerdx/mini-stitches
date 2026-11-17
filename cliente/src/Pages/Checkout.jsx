@@ -1,4 +1,9 @@
 import { usePedido } from '../hooks/usePedido';
+import { useResumoCheckout } from '../hooks/useResumoCheckout';
+import RecuperarPagamento from '../Componentes/RecuperarPagamento';
+import { origemRecuperacao } from '../utils/recuperacaoPagamento.mjs';
+import { dadosEnderecoCheckout, cartaoDisponivelCheckout } from '../utils/perfilCheckout.mjs';
+import { financeiroPedido, situacaoFinanceira } from '../utils/pedido.mjs';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -57,30 +62,49 @@ const enderecoTemDadosValidos = (endereco) => {
   });
 };
 
-export default function FinalizarCompra() {
+export default function Checkout() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [origem, setOrigem] = useState(() => origemRecuperacao(location.search, {
+    getItem: (chave) => sessionStorage.getItem(chave),
+  }) || (location.state?.pedido?.numero ? { pedido: location.state.pedido.numero } : null));
+  const novaCompra = () => {
+    try { sessionStorage.removeItem('mini-stitches:tentativa-pagamento'); } catch { /* Storage pode estar indisponível. */ }
+    navigate('/checkout', { replace: true, state: null });
+    setOrigem(null);
+  };
+  if (origem) return <RecuperarPagamento key={origem.chave || origem.pedido} origem={origem} onNovaCompra={novaCompra} />;
+  return <FinalizarCompra onRetomar={(chave) => { if (chave) setOrigem({ chave }); }} />;
+}
+
+function FinalizarCompra({ onRetomar }) {
   const location = useLocation();
   const navigate = useNavigate();
   const pedidoPendente = location.state?.pedido || null;
   // Estados de UI e Controle
   const [pagamento, setPagamento] = useState('cartao');
   const [cep, setCep] = useState('');
-  const [opcoesFrete, setOpcoesFrete] = useState([]);
-  const [freteSelecionadoId, setFreteSelecionadoId] = useState(null);
-  const [calculandoFrete, setCalculandoFrete] = useState(false);
-  const [erroFrete, setErroFrete] = useState('');
-  const ultimaCotacaoRef = useRef(0);
+  const [servicoSolicitadoId, setFreteSelecionadoId] = useState(null);
+  const cepAtualRef = useRef('');
   const [loading, setLoading] = useState(false);
+  const envioPagamentoRef = useRef(false);
+  const chavePagamentoRef = useRef(null);
   const [resultado, setResultado] = useState(null); // Armazena sucesso, QR code, Link Boleto
+  const [resumoConfirmado, setResumoConfirmado] = useState(null);
   const { resultado: acompanhamento, tentarNovamente } = usePedido(resultado?.pedido?.numero, { somentePagamento: true });
-  const statusPagamento = acompanhamento?.pedido?.status || resultado?.pedido?.status;
-  const pagamentoAprovado = ['pago', 'em_separacao', 'enviado', 'entregue'].includes(statusPagamento)
-    || (!resultado?.pedido && resultado?.dados?.status === 'approved');
-  const pagamentoCancelado = statusPagamento === 'cancelado';
+  const pedidoAtual = acompanhamento?.pedido || resultado?.pedido || resultado?.dados;
+  const financeiroAtual = financeiroPedido(pedidoAtual);
+  const pagamentoAprovado = financeiroAtual === 'aprovado' && pedidoAtual?.statusLogistico !== 'cancelado';
+  const pagamentoCancelado = ['recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado', 'em_contestacao', 'contestado'].includes(financeiroAtual)
+    || pedidoAtual?.statusLogistico === 'cancelado';
   const [mpInstance, setMpInstance] = useState(null);
-  const [cartItems, setCartItems] = useState([]);
-  const [carregandoCarrinho, setCarregandoCarrinho] = useState(true);
-  const [erroCarrinho, setErroCarrinho] = useState('');
   const [salvandoEndereco, setSalvandoEndereco] = useState(false);
+  const [enderecosSalvos, setEnderecosSalvos] = useState([]);
+  const [enderecoSalvoId, setEnderecoSalvoId] = useState('');
+  const [cartoesSalvos, setCartoesSalvos] = useState([]);
+  const [cartaoSalvoId, setCartaoSalvoId] = useState('');
+  const cartaoSalvo = cartoesSalvos.find((cartao) => String(cartao._id) === cartaoSalvoId);
+  const [erroPerfil, setErroPerfil] = useState('');
 
   // Estados do Formulário
   const [formData, setFormData] = useState({
@@ -104,9 +128,26 @@ export default function FinalizarCompra() {
     parcelas: '1',
     bandeira: ''
   });
+  const entregaResumo = { cep: cep.replace(/\D/g, ''), endereco: [
+    `${formData.endereco.trim()}, ${formData.numero.trim()}`, formData.complemento.trim(),
+    formData.bairro.trim(), `${formData.cidade.trim()}/${formData.estado}`,
+  ].filter(Boolean).join(' - ') };
+  const { resumo: resumoAtual, atualizar: atualizarResumo, erro: erroCarrinho, carregando: atualizandoResumo } = useResumoCheckout({
+    cep, metodo: pagamento, parcelas: formData.parcelas, servicoId: servicoSolicitadoId,
+    pedidoNumero: pedidoPendente?.numero || '', entrega: entregaResumo, ativo: !loading && !resultado,
+  });
+  const resumo = resumoConfirmado || resumoAtual;
+  const carregandoCarrinho = !resumoConfirmado && atualizandoResumo;
+  const cartItems = resumo?.itens || [];
+  const opcoesFrete = resumo?.opcoesFrete || [];
+  const freteSelecionadoId = resumo?.servicoId ?? servicoSolicitadoId;
+  const calculandoFrete = carregandoCarrinho;
+  const erroFrete = cep && cep.replace(/\D/g, '').length !== 8 ? 'Informe um CEP com 8 dígitos.' : '';
+  useEffect(() => { cepAtualRef.current = cep.replace(/\D/g, ''); }, [cep]);
 
   // Inicializa o Mercado Pago ao montar o componente
   useEffect(() => {
+    let ativo = true;
     const carregarPerfil = async () => {
       try {
         const resposta = await fetch('/api/perfil', { credentials: 'include' });
@@ -114,15 +155,19 @@ export default function FinalizarCompra() {
           navigate(`/login?redirect=${encodeURIComponent('/checkout')}`, { replace: true });
           return;
         }
-        if (!resposta.ok) return;
+        if (!resposta.ok) throw new Error('Perfil indisponível.');
 
         const dados = await resposta.json();
         const usuario = dados.usuario || {};
+        if (!ativo) return;
         const enderecos = Array.isArray(usuario.enderecos) ? usuario.enderecos : [];
+        setEnderecosSalvos(enderecos);
+        setCartoesSalvos(Array.isArray(usuario.cartoes) ? usuario.cartoes : []);
         const enderecoPrincipal =
           enderecos.find((item) => item?.principal && enderecoTemDadosValidos(item)) ||
           enderecos.find((item) => enderecoTemDadosValidos(item)) ||
           null;
+        setEnderecoSalvoId(enderecoPrincipal?._id ? String(enderecoPrincipal._id) : '');
 
         const enderecoAtual = enderecoPrincipal && enderecoTemDadosValidos(enderecoPrincipal)
           ? {
@@ -159,36 +204,8 @@ export default function FinalizarCompra() {
         }));
 
         setCep(formatarCep(enderecoAtual.cep));
-      } catch (error) {
-        console.error('Não foi possível carregar o perfil do usuário:', error);
-      }
-    };
-
-    const carregarCarrinho = async () => {
-      if (pedidoPendente) {
-        setCartItems(
-          (pedidoPendente.itens || []).map((item) => ({
-            nome: item.nome,
-            slug: item.slug,
-            quantidade: item.quantidade,
-            preco: item.precoUnit,
-          })),
-        );
-        setCarregandoCarrinho(false);
-        return;
-      }
-
-      try {
-        const resposta = await fetch('/api/carrinho', { credentials: 'include' });
-        const dados = await resposta.json();
-        if (!resposta.ok) {
-          throw new Error(dados.erro || 'Não foi possível carregar o carrinho.');
-        }
-        setCartItems(dados.itens || []);
-      } catch (erro) {
-        setErroCarrinho(erro.message || 'Não foi possível carregar o carrinho.');
-      } finally {
-        setCarregandoCarrinho(false);
+      } catch {
+        if (ativo) setErroPerfil('Não foi possível carregar os dados salvos. Preencha os dados ou recarregue a página.');
       }
     };
 
@@ -207,15 +224,33 @@ export default function FinalizarCompra() {
     };
 
     carregarPerfil();
-    carregarCarrinho();
     inicializarMercadoPago();
+    return () => { ativo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Manipulador de inputs
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (['endereco', 'numero', 'complemento', 'bairro', 'cidade', 'estado'].includes(name)) setEnderecoSalvoId('');
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const escolherEndereco = (id) => {
+    const selecionado = enderecosSalvos.find((item) => String(item._id) === id);
+    const dados = dadosEnderecoCheckout(selecionado);
+    setEnderecoSalvoId(id);
+    setFormData((anterior) => ({ ...anterior, ...dados }));
+    setCep(formatarCep(dados.cep));
+    cepAtualRef.current = dados.cep;
+    limparFrete();
+    atualizarResumo();
+  };
+
+  const escolherCartao = (id) => {
+    setCartaoSalvoId(id);
+    setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '', bandeira: '' }));
+    atualizarResumo();
   };
 
   const salvarEnderecoPrincipal = async () => {
@@ -252,6 +287,8 @@ export default function FinalizarCompra() {
       }
 
       alert('Endereço salvo como principal.');
+      setEnderecosSalvos(dados.enderecos || []);
+      setEnderecoSalvoId(String(dados.enderecos?.find((item) => item.principal)?._id || ''));
     } catch (erro) {
       alert(erro.message || 'Não foi possível salvar o endereço.');
     } finally {
@@ -259,141 +296,55 @@ export default function FinalizarCompra() {
     }
   };
 
-  const limparFrete = () => {
-    // Invalida qualquer cotação ainda em andamento para um CEP anterior.
-    ultimaCotacaoRef.current += 1;
-    setCalculandoFrete(false);
-    setOpcoesFrete([]);
-    setFreteSelecionadoId(null);
-    setErroFrete('');
-  };
+  const limparFrete = () => { setFreteSelecionadoId(null); };
 
   const preencherEnderecoPeloCep = async (cepLimpo) => {
     try {
       const resposta = await fetch(`/api/cep/${cepLimpo}`);
       if (!resposta.ok) return;
       const { endereco } = await resposta.json();
-      if (!endereco) return;
-
-      // Só completa campos vazios para não apagar o que o cliente digitou.
-      setFormData((prev) => ({
-        ...prev,
-        endereco: prev.endereco || endereco.rua || '',
-        bairro: prev.bairro || endereco.bairro || '',
-        cidade: prev.cidade || endereco.cidade || '',
-        estado: prev.estado || endereco.estado || '',
-      }));
-    } catch {
-      // Preenchimento automático é opcional; o cliente pode digitar.
-    }
+      if (!endereco || cepAtualRef.current !== cepLimpo) return;
+      setFormData((prev) => ({ ...prev, endereco: prev.endereco || endereco.rua || '',
+        bairro: prev.bairro || endereco.bairro || '', cidade: prev.cidade || endereco.cidade || '',
+        estado: prev.estado || endereco.estado || '' }));
+    } catch { /* O preenchimento automático é opcional. */ }
   };
 
-  const calcularFrete = async (cepInformado = cep) => {
-    const cepLimpo = String(cepInformado).replace(/\D/g, '');
-    if (cepLimpo.length !== 8) {
-      limparFrete();
-      setErroFrete('Informe um CEP com 8 dígitos.');
-      return;
-    }
-
-    limparFrete();
-    const idCotacao = ultimaCotacaoRef.current;
-    setCalculandoFrete(true);
+  const calcularFrete = () => {
+    const cepLimpo = cep.replace(/\D/g, '');
+    if (cepLimpo.length !== 8) return;
     preencherEnderecoPeloCep(cepLimpo);
-
-    try {
-      const resposta = await fetch('/api/frete', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cep: cepLimpo,
-          ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
-        }),
-      });
-      const dados = await resposta.json().catch(() => ({}));
-      if (idCotacao !== ultimaCotacaoRef.current) return;
-
-      if (!resposta.ok) {
-        throw new Error(dados.erro || 'Não foi possível calcular o frete.');
-      }
-
-      const opcoes = Array.isArray(dados.opcoes) ? dados.opcoes : [];
-      setOpcoesFrete(opcoes);
-      // A API já devolve ordenado do mais barato para o mais caro.
-      setFreteSelecionadoId(opcoes[0]?.servicoId ?? null);
-    } catch (erro) {
-      if (idCotacao !== ultimaCotacaoRef.current) return;
-      setErroFrete(erro.message || 'Não foi possível calcular o frete.');
-    } finally {
-      if (idCotacao === ultimaCotacaoRef.current) {
-        setCalculandoFrete(false);
-      }
-    }
+    limparFrete();
+    atualizarResumo();
   };
 
   const handleCepChange = (e) => {
+    setEnderecoSalvoId('');
     const novoCep = formatarCep(e.target.value);
+    cepAtualRef.current = novoCep.replace(/\D/g, '');
     setCep(novoCep);
     limparFrete();
-    if (novoCep.replace(/\D/g, '').length === 8) {
-      calcularFrete(novoCep);
-    }
+    if (cepAtualRef.current.length === 8) preencherEnderecoPeloCep(cepAtualRef.current);
   };
 
-  // Calcula o frete automaticamente quando o CEP já está preenchido ao abrir
-  // a tela (por exemplo, vindo do endereço principal do perfil).
-  const freteAutoCalculadoRef = useRef(false);
-  useEffect(() => {
-    if (freteAutoCalculadoRef.current) return;
-    if (cep.replace(/\D/g, '').length !== 8) return;
-    if (carregandoCarrinho) return;
-    if (opcoesFrete.length || calculandoFrete) return;
-
-    freteAutoCalculadoRef.current = true;
-    const id = setTimeout(() => calcularFrete(cep), 0);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cep, carregandoCarrinho, opcoesFrete.length, calculandoFrete]);
-
-  const subtotal = cartItems.reduce(
-    (total, item) => total + Number(item.preco || 0) * Number(item.quantidade || 0),
-    0,
-  );
-  const quantidadeTotalItens = cartItems.reduce(
-    (total, item) => total + Number(item.quantidade || 0),
-    0,
-  );
-  const freteSelecionado =
-    opcoesFrete.find((opcao) => opcao.servicoId === freteSelecionadoId) || null;
-  const valorFrete = freteSelecionado ? Number(freteSelecionado.preco || 0) : 0;
-  const totalComFrete = subtotal + valorFrete;
-  const pixProdutos = Math.round(subtotal * 0.95);
-  const pixDesconto = subtotal - pixProdutos;
-  const pixTotal = pixProdutos + valorFrete;
-  const opcoesParcelamento = Array.from({ length: 6 }, (_, index) => {
-    const parcela = index + 1;
-    const base = Math.floor(totalComFrete / parcela);
-    if (parcela > 1 && base < 4000) return null;
-    const resto = totalComFrete % parcela;
-    const valores = Array.from({ length: parcela }, (_, indice) => base + (indice < resto ? 1 : 0));
-    const label = resto === 0
-      ? `${parcela}x de ${formatarPreco(base)} sem juros`
-      : `${parcela}x sem juros: ${valores.map(formatarPreco).join(' + ')}`;
-
-    return {
-      parcela,
-      label,
-      value: String(parcela),
-    };
-  }).filter(Boolean);
-  const parcelasSelecionadas = opcoesParcelamento.some((opcao) => opcao.value === formData.parcelas)
-    ? formData.parcelas : '1';
+  const subtotal = resumo?.subtotal ?? 0;
+  const quantidadeTotalItens = resumo?.quantidadeItens ?? 0;
+  const freteSelecionado = opcoesFrete.find((opcao) => opcao.servicoId === freteSelecionadoId) || null;
+  const valorFrete = resumo?.frete ?? 0;
+  const totalComFrete = resumo?.total ?? 0;
+  const pixDesconto = resumo?.desconto ?? 0;
+  const pixTotal = resumo?.total ?? 0;
+  const opcoesParcelamento = (resumo?.opcoesParcelas || []).map(({ quantidade, valores }) => ({
+    parcela: quantidade, label: valores.every((valor) => valor === valores[0])
+      ? `${quantidade}x de ${formatarPreco(valores[0])} sem juros`
+      : `${quantidade}x sem juros: ${valores.map(formatarPreco).join(' + ')}`,
+  }));
+  const parcelasSelecionadas = String(resumo?.parcelas || 1);
 
   // Registra o pedido no servidor depois que o pagamento foi criado, para ele
   // aparecer em "Meus pedidos". O pagamento já existe neste ponto, então uma
   // falha aqui não pode esconder o QR Code / boleto do cliente.
-  const registrarPedido = async (pagamentoId) => {
+  const registrarPedido = async (pagamentoId, resumoPago) => {
     try {
       const resposta = await fetch('/api/pedidos', {
         method: 'POST',
@@ -401,12 +352,12 @@ export default function FinalizarCompra() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pagamentoId: String(pagamentoId),
-          freteCentavos: valorFrete,
-          servicoId: freteSelecionadoId,
+          freteCentavos: resumoPago.frete,
+          servicoId: resumoPago.servicoId,
           cliente: { nome: formData.nome.trim(), email: formData.email.trim() },
           entrega: {
-            cep: cep.replace(/\D/g, ''),
-            endereco: [
+            cep: resumoPago.cep,
+            endereco: resumoPago.enderecoConfirmado || [
               `${formData.endereco.trim()}, ${formData.numero.trim()}`,
               formData.complemento.trim(),
               formData.bairro.trim(),
@@ -424,14 +375,40 @@ export default function FinalizarCompra() {
       }
       return { pedido: dados.pedido };
     } catch (erro) {
-      console.error('Falha ao registrar o pedido:', erro);
       return { erroPedido: erro.message || 'Não foi possível registrar o pedido.' };
     }
   };
 
   // Processamento do Pagamento
+  const lerRespostaPagamento = async (resposta) => {
+    const dados = await resposta.json();
+    const chaveRecuperacao = chavePagamentoRef.current;
+    if (!dados.sucesso && !dados.tentativa_id && ([400, 401, 403].includes(resposta.status) || dados.resumo_invalido || dados.nova_tentativa_permitida)) {
+      try { sessionStorage.removeItem('mini-stitches:tentativa-pagamento'); } catch { /* Referência não utilizada no provedor. */ }
+      try { window.history.replaceState(window.history.state, '', '/checkout'); } catch { /* Não há dados financeiros na URL. */ }
+    }
+    if (dados.nova_tentativa_permitida || ['rejected', 'cancelled'].includes(dados.status)) {
+      chavePagamentoRef.current = null;
+      sessionStorage.removeItem('mini-stitches:tentativa-pagamento');
+      atualizarResumo();
+    }
+    if (dados.resumo_invalido) { limparFrete(); atualizarResumo(); }
+    if (dados.tentativa_id && !dados.sucesso && !dados.nova_tentativa_permitida) onRetomar(chaveRecuperacao);
+    return { ...dados, chaveRecuperacao };
+  };
+
+  const concluirPagamento = async (tipo, dados) => {
+    setResumoConfirmado(dados.resumo);
+    const registro = ['aprovado', 'aguardando_pagamento'].includes(dados.statusFinanceiro)
+      ? await registrarPedido(dados.id_pagamento, dados.resumo) : {};
+    setResultado({ tipo, dados, ...registro });
+    onRetomar(dados.chaveRecuperacao || chavePagamentoRef.current);
+  };
+
   const handleFinalizarPedido = async (e) => {
     e.preventDefault();
+    if (envioPagamentoRef.current) return;
+    envioPagamentoRef.current = true;
     setLoading(true);
     setResultado(null);
 
@@ -445,25 +422,43 @@ export default function FinalizarCompra() {
     if (!cartItems.length || subtotal <= 0) {
       alert('Seu carrinho está vazio.');
       setLoading(false);
+      envioPagamentoRef.current = false;
       return;
     }
 
-    if (!freteSelecionado) {
-      alert('Calcule e escolha uma opção de frete antes de finalizar.');
+    if (!freteSelecionado || !resumo?.cotacao || Date.parse(resumo.validoAte) <= Date.now()) {
+      atualizarResumo();
+      alert('Atualize e confira o resumo antes de finalizar.');
       setLoading(false);
+      envioPagamentoRef.current = false;
       return;
     }
 
+    let envioIncerto = false;
     try {
+      try { chavePagamentoRef.current ??= sessionStorage.getItem('mini-stitches:tentativa-pagamento'); } catch { /* Usa a referência da URL se storage estiver bloqueado. */ }
+      chavePagamentoRef.current ??= crypto.randomUUID();
+      const chaveTentativa = chavePagamentoRef.current;
+      const guardarReferencia = () => {
+        try { sessionStorage.setItem('mini-stitches:tentativa-pagamento', chaveTentativa); } catch { /* A URL mantém a referência sem dados pessoais. */ }
+        try { window.history.replaceState(window.history.state, '', `/checkout?tentativa=${encodeURIComponent(chaveTentativa)}`); } catch { /* A sessão mantém a referência quando disponível. */ }
+      };
       // 1. PAGAMENTO PIX
       if (pagamento === 'pix') {
         if (!email || !email.includes('@')) throw new Error('E-mail inválido.');
         if (cpfLimpo.length !== 11) throw new Error('CPF inválido.');
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/pix', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
+            cotacao: resumo.cotacao,
+            entrega: entregaResumo,
+            ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -473,11 +468,12 @@ export default function FinalizarCompra() {
             sobrenome,
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
         if (json.sucesso) {
-          setResultado({ tipo: 'pix', dados: json, ...(await registrarPedido(json.id_pagamento)) });
-        } else {
+          await concluirPagamento('pix', json);
+        } else if (!json.tentativa_id) {
           throw new Error(json.mensagem || 'Erro ao processar Pix');
         }
       }
@@ -494,10 +490,17 @@ export default function FinalizarCompra() {
           throw new Error('Informe nome e sobrenome para gerar o boleto.');
         }
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/boleto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
+            cotacao: resumo.cotacao,
+            entrega: entregaResumo,
+            ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -514,11 +517,12 @@ export default function FinalizarCompra() {
             },
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
         if (json.sucesso) {
-          setResultado({ tipo: 'boleto', dados: json, ...(await registrarPedido(json.id_pagamento)) });
-        } else {
+          await concluirPagamento('boleto', json);
+        } else if (!json.tentativa_id) {
           throw new Error(json.mensagem || 'Erro ao processar Boleto');
         }
       }
@@ -534,25 +538,38 @@ export default function FinalizarCompra() {
         const bandeiraDetectada = detectarBandeiraCartao(numeroCartao);
 
         // Criar Token do Cartão
-        const cardToken = await mpInstance.createCardToken({
+        let cardToken;
+        if (cartaoSalvoId && !cartaoDisponivelCheckout(cartaoSalvo)) throw new Error('Selecione um cartão disponível ou cadastre-o novamente no perfil.');
+        try { cardToken = await mpInstance.createCardToken(cartaoSalvo ? {
+          cardId: cartaoSalvo.provedorCardId, securityCode: cvv,
+        } : {
           cardNumber: numeroCartao.replace(/\s+/g, ''),
           cardholderName: nomeCartao,
           cardExpirationMonth: month,
           cardExpirationYear: fullYear,
           securityCode: cvv,
           identification: { type: 'CPF', number: cpfTitularLimpo },
-        });
+        }); } catch { throw new Error('Não foi possível validar o cartão. Confira os dados informados.'); }
+        setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
 
         if (!cardToken || !cardToken.id) {
           throw new Error('Falha ao validar os dados do cartão.');
         }
 
+        guardarReferencia();
+        envioIncerto = true;
         const resposta = await fetch('/api/pagamento/cartao', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            chaveTentativa,
+            cliente: { nome: nomeCompleto, email: email.trim() },
+            cotacao: resumo.cotacao,
+            entrega: entregaResumo,
+            ...(pedidoPendente?.numero && { pedidoNumero: pedidoPendente.numero }),
             token: cardToken.id,
-            payment_method_id: formData.bandeira || bandeiraDetectada,
+            ...(cartaoSalvo && { cartaoSalvoId }),
+            payment_method_id: cartaoSalvo?.paymentMethodId || formData.bandeira || bandeiraDetectada,
             freteCentavos: valorFrete,
             servicoId: freteSelecionadoId,
             cep: cep.replace(/\D/g, ''),
@@ -561,24 +578,29 @@ export default function FinalizarCompra() {
             cpf: cpfLimpo,
           }),
         });
-        const json = await resposta.json();
+        const json = await lerRespostaPagamento(resposta);
+        envioIncerto = false;
 
-        if (json.sucesso && json.status === 'approved') {
-          setResultado({ tipo: 'sucesso', dados: json, ...(await registrarPedido(json.id_pagamento)) });
-        } else {
-          throw new Error(json.mensagem || 'Pagamento recusado.');
+        if (json.sucesso) {
+          await concluirPagamento('sucesso', json);
+        } else if (!json.tentativa_id) {
+          throw new Error(json.mensagem || 'Não foi possível confirmar o pagamento.');
         }
       }
     } catch (erro) {
-      alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
+      if (envioIncerto && chavePagamentoRef.current) onRetomar(chavePagamentoRef.current);
+      else alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
     } finally {
+      setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
       setLoading(false);
+      envioPagamentoRef.current = false;
     }
   };
 
   return (
     <div className="w-full bg-[#FEF8F0] min-h-screen font-['Work_Sans',sans-serif] text-[#3E2417] py-8 px-4 md:px-12 lg:px-24">
       <form onSubmit={handleFinalizarPedido} className="max-w-7xl mx-auto space-y-8">
+        <fieldset disabled={loading || Boolean(resultado)} className="contents">
         
         {/* NAVEGAÇÃO SUPERIOR */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs md:text-sm font-medium">
@@ -612,7 +634,9 @@ export default function FinalizarCompra() {
 
         {erroCarrinho && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {erroCarrinho}
+            <p>{erroCarrinho}</p>
+            <button type="button" onClick={() => { limparFrete(); atualizarResumo(); }} className="mt-2 underline">Atualizar resumo</button>
+            {pedidoPendente?.numero && <Link className="ml-4 underline" to={`/pedido-status/${encodeURIComponent(pedidoPendente.numero)}`}>Acompanhar cobrança existente</Link>}
           </div>
         )}
 
@@ -654,6 +678,13 @@ export default function FinalizarCompra() {
 
             {/* ETAPA 2: ENDEREÇO */}
             <section className="space-y-6">
+              {erroPerfil && <p role="alert" className="text-sm text-red-700">{erroPerfil}</p>}
+              {enderecosSalvos.length > 0 && <label className="block space-y-2 text-sm">Endereço do perfil
+                <select value={enderecoSalvoId} onChange={(e) => escolherEndereco(e.target.value)} className="w-full rounded-md border border-[#C58752]/50 bg-white p-3">
+                  <option value="">Informar outro endereço</option>
+                  {enderecosSalvos.map((item) => <option key={item._id} value={String(item._id)}>{item.apelido || 'Endereço'}{item.principal ? ' (principal)' : ''} — {item.rua}, {item.numero} — {item.cidade}/{item.estado}</option>)}
+                </select>
+              </label>}
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
                   <span className="w-8 h-8 rounded-full bg-[#F7C6E5] text-[#3E2417] font-bold text-sm flex items-center justify-center">2</span>
@@ -800,7 +831,14 @@ export default function FinalizarCompra() {
                 {/* FORM CARTÃO */}
                 {pagamento === 'cartao' && (
                   <div className="space-y-5 pt-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {cartoesSalvos.length > 0 && <label className="block space-y-2 text-sm">Cartão do perfil
+                      <select value={cartaoSalvoId} onChange={(e) => escolherCartao(e.target.value)} className="w-full rounded-md border border-[#C58752]/50 bg-white p-3">
+                        <option value="">Usar outro cartão</option>
+                        {cartoesSalvos.map((item) => <option key={item._id} value={String(item._id)} disabled={!cartaoDisponivelCheckout(item)}>{item.bandeira} •••• {item.finalCartao} — {item.validade}{!cartaoDisponivelCheckout(item) ? ' — cadastre novamente no perfil' : ''}</option>)}
+                      </select>
+                    </label>}
+                    {cartaoSalvo && <p className="text-sm">Confirme o CVV do cartão selecionado para esta compra.</p>}
+                    {!cartaoSalvo && <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">Número do cartão *</label>
                         <input required={pagamento === 'cartao'} name="numeroCartao" value={formData.numeroCartao} onChange={handleChange} type="text" placeholder="0000 0000 0000 0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
@@ -809,20 +847,20 @@ export default function FinalizarCompra() {
                         <label className="block text-sm font-medium text-[#3E2417]">Nome impresso no cartão *</label>
                         <input required={pagamento === 'cartao'} name="nomeCartao" value={formData.nomeCartao} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
                       </div>
-                    </div>
+                    </div>}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <div className="space-y-1.5">
+                      {!cartaoSalvo && <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">Validade *</label>
                         <input required={pagamento === 'cartao'} name="validade" value={formData.validade} onChange={handleChange} type="text" placeholder="MM/AA" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
-                      </div>
+                      </div>}
                       <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">CVV *</label>
-                        <input required={pagamento === 'cartao'} name="cvv" value={formData.cvv} onChange={handleChange} type="text" maxLength="4" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <input required={pagamento === 'cartao'} name="cvv" value={formData.cvv} onChange={handleChange} type="password" maxLength="4" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
                       </div>
-                      <div className="space-y-1.5">
+                      {!cartaoSalvo && <div className="space-y-1.5">
                         <label className="block text-sm font-medium text-[#3E2417]">CPF do titular *</label>
                         <input required={pagamento === 'cartao'} name="cpfTitular" value={formData.cpfTitular} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
-                      </div>
+                      </div>}
                     </div>
                     <div className="space-y-1.5">
                       <label className="block text-sm font-medium text-[#3E2417]">Parcelamento *</label>
@@ -881,7 +919,7 @@ export default function FinalizarCompra() {
                 <div className="flex justify-between items-center gap-3 border-t border-[#3E2417]/10 pt-3">
                   <span className="font-['Archivo_Black',sans-serif] text-[13px] uppercase text-[#3E2417]">TOTAL</span>
                   <span className="font-['Archivo_Black',sans-serif] text-2xl text-[#3E2417]">
-                    {carregandoCarrinho ? 'Carregando...' : pagamento === 'pix' ? formatarPreco(pixTotal) : formatarPreco(totalComFrete)}
+                    {carregandoCarrinho ? 'Atualizando...' : resumo?.total === null || !resumo ? 'Aguardando frete' : pagamento === 'pix' ? formatarPreco(pixTotal) : formatarPreco(totalComFrete)}
                   </span>
                 </div>
               </div>
@@ -915,7 +953,12 @@ export default function FinalizarCompra() {
                     </>
                   )}
                   {pagamentoCancelado && (
-                    <p role="status" className="text-sm text-red-700">Pagamento cancelado ou não aprovado. Consulte os detalhes do pedido antes de tentar novamente.</p>
+                    <div role="status" className="text-sm text-red-700">
+                      <p>{situacaoFinanceira(financeiroAtual).titulo}</p>
+                      <p>{situacaoFinanceira(financeiroAtual).descricao}</p>
+                      {pedidoAtual?.valorReembolsado > 0 && <p>Reembolso registrado: {formatarPreco(pedidoAtual.valorReembolsado)}</p>}
+                      {pedidoAtual?.statusLogistico === 'cancelado' && financeiroAtual === 'aprovado' && <p>Pedido cancelado na operação; o pagamento aguarda confirmação de estorno.</p>}
+                    </div>
                   )}
                   {resultado.pedido && !pagamentoAprovado && !pagamentoCancelado && (
                     <p role="status" className="text-xs text-[#3E2417]">Aguardando confirmação do pagamento. Esta tela será atualizada automaticamente.</p>
@@ -947,7 +990,7 @@ export default function FinalizarCompra() {
                 <div className="space-y-4 pt-2">
                   <button
                     type="submit"
-                    disabled={loading || carregandoCarrinho || calculandoFrete || !cartItems.length || !freteSelecionado}
+                    disabled={loading || carregandoCarrinho || calculandoFrete || !cartItems.length || !freteSelecionado || !resumo?.cotacao}
                     className="w-full bg-[#3E2417] hover:bg-[#2A180F] disabled:opacity-50 text-white font-['Archivo_Black',sans-serif] text-sm py-4 rounded-lg transition-colors uppercase flex items-center justify-center gap-2"
                   >
                     <span>
@@ -967,6 +1010,7 @@ export default function FinalizarCompra() {
 
           </div>
         </div>
+        </fieldset>
       </form>
     </div>
   );

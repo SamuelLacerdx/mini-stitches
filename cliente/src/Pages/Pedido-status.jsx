@@ -1,12 +1,12 @@
 import { usePedido } from '../hooks/usePedido';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ETAPAS, situacaoPedido, formatarDinheiro, formatarData, historicoPedido } from '../utils/pedido.mjs';
+import { ETAPAS, situacaoPedido, situacaoFinanceira, financeiroPedido, formatarDinheiro, formatarData, historicoPedido } from '../utils/pedido.mjs';
 
 const card = 'rounded-2xl border border-[#C58752]/25 bg-white p-5 md:p-7';
 const acao = 'inline-flex min-h-11 items-center justify-center rounded-lg bg-[#3E2417] px-5 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4';
 
-// Uma requisição por vez; pausa fora da aba e encerra em estados finais.
+// Uma requisição por vez, com pausa fora da aba e atualização após aprovação.
 export default function PedidoStatus() {
   const { id = '' } = useParams();
   const { resultado, tentarNovamente } = usePedido(id);
@@ -14,6 +14,7 @@ export default function PedidoStatus() {
   const pedido = resultado?.pedido;
   const situacao = situacaoPedido(pedido?.status);
   const historico = historicoPedido(pedido?.historicoStatus);
+  const financeiro = situacaoFinanceira(financeiroPedido(pedido));
 
   const copiarRastreio = async () => {
     try {
@@ -49,15 +50,22 @@ export default function PedidoStatus() {
             {formatarData(pedido.criadoEm) && <p className="text-sm text-[#80695B]">Realizado em {formatarData(pedido.criadoEm)}</p>}
           </header>
 
+          <section className={card} aria-label="Situação financeira">
+            <h2 className="text-lg font-bold">{financeiro.titulo}</h2>
+            <p role="status" className="mt-2 text-sm">{financeiro.descricao}</p>
+            {pedido.valorReembolsado > 0 && <p className="mt-2 font-semibold">Reembolso registrado: {formatarDinheiro(pedido.valorReembolsado)}</p>}
+            {pedido.statusLogistico === 'cancelado' && financeiroPedido(pedido) === 'aprovado' && <p className="mt-2 text-sm">O pedido foi cancelado na operação. O pagamento permanece aprovado até a confirmação de um estorno pelo provedor.</p>}
+          </section>
+
           <section aria-labelledby="status-pedido" className="space-y-5 rounded-2xl bg-[#F7C6E5]/60 p-6 md:p-8">
             <div className="space-y-2" role="status">
               <h2 id="status-pedido" className="text-2xl font-bold md:text-3xl">{situacao.titulo}</h2>
               <p>{situacao.descricao}</p>
             </div>
-            {pedido.status === 'aguardando_pagamento' && (
+            {financeiroPedido(pedido) === 'aguardando_pagamento' && pedido.statusLogistico !== 'cancelado' && (
               <div className="space-y-4">
                 <p className="text-sm">Se você já pagou, aguarde a confirmação. Para evitar cobranças duplicadas, confira o pagamento antes de tentar novamente.</p>
-                <Link to="/checkout" state={{ pedido }} className={acao}>Finalizar pagamento</Link>
+                <Link to={`/checkout?pedido=${encodeURIComponent(pedido.numero)}`} className={acao}>Consultar pagamento existente</Link>
               </div>
             )}
             {pedido.status === 'cancelado' && <Link to="/contato" className={acao}>Pedir ajuda</Link>}
@@ -96,6 +104,14 @@ export default function PedidoStatus() {
             </ol> : <p className="text-sm text-[#80695B]">Nenhuma atualização registrada.</p>}
           </section>
 
+          <section className={card} aria-label="Histórico financeiro">
+            <h2 className="mb-3 text-lg font-bold">Histórico financeiro</h2>
+            {historicoPedido(pedido.historicoFinanceiro).map((item, index) => <p key={`${item.em}-${index}`} className="py-2 text-sm">
+              {situacaoFinanceira(item.status).titulo} · {formatarData(item.em, true)}
+              {item.valorReembolsado > 0 && ` · Reembolso: ${formatarDinheiro(item.valorReembolsado)}`}
+            </p>)}
+          </section>
+
           <div className="grid items-start gap-5 md:grid-cols-2">
             <details className={card}>
               <summary className="cursor-pointer text-lg font-bold">Itens da compra ({pedido.itens.reduce((soma, item) => soma + item.quantidade, 0)})</summary>
@@ -129,7 +145,9 @@ export default function PedidoStatus() {
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#C58752]/25 pt-5 text-sm">
-            <p>Precisa de ajuda com o pedido #{pedido.numero}?</p>
+            <div><p>Precisa de ajuda com o pedido #{pedido.numero}?</p>
+              {resultado.atualizadoEm && <p>Última consulta: {formatarData(resultado.atualizadoEm, true)} · Horário de Brasília</p>}
+              <button type="button" className="min-h-11 underline" onClick={tentarNovamente}>Atualizar pedido</button></div>
             <Link to="/contato" className="inline-flex min-h-11 items-center font-semibold underline">Fale com a gente</Link>
           </footer>
         </>}

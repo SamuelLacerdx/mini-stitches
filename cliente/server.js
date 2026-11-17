@@ -7,6 +7,19 @@ const { validarCPF } = require("./backend/functions/validarCpf");
 const { consultarCEP } = require("./backend/functions/validarCep");
 const { criarAutenticacao } = require("./backend/functions/autenticacao");
 const { criarCarrinhoHelpers } = require("./backend/functions/carrinho");
+const { criarCobrancaComTentativa, identificarRequisicao, ErroIdempotencia } = require("./backend/functions/tentativasPagamento");
+const { validarWebhook, criarProcessadorWebhook } = require("./backend/functions/webhookPagamento");
+const { criarReservasEstoque, ErroReservaEstoque } = require("./backend/functions/reservasEstoque");
+const { PLANO_CLUBE, ErroAssinatura, assinaturaPublica, criarContratacaoClube } = require("./backend/functions/assinaturaClube");
+const { criarConsultaFaturas, criarConciliadorClube, registrarRotasClube } = require('./backend/functions/recorrenciaClube');
+const { criarCancelamentoClube, registrarRotasCancelamento } = require('./backend/functions/cancelamentoClube');
+const { ErroSegurancaPagamento, validarCorpoSeguro, validarTokenCartao, segredosAplicacao } = require('./backend/functions/segurancaPagamento');
+const { criarReferenciaCartao, cartoesPublicos } = require('./backend/functions/cartoesPerfil');
+const { criarCartaoCheckout } = require('./backend/functions/cartaoCheckout');
+const { criarResumoCheckout, ErroResumoCheckout } = require('./backend/functions/resumoCheckout');
+const { criarRecuperacaoPagamento, registrarRotasRecuperacao } = require('./backend/functions/recuperacaoPagamento');
+const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('./backend/functions/conciliacaoAdmin');
+const { FINANCEIROS, LOGISTICOS, financeiroDoProvedor, projetarStatus, criarAtualizadorLogistico, ErroEstadoPedido } = require("./backend/functions/estadosPedido");
 const { registrarRotasPedidosCliente, respostaPedido } = require("./backend/functions/pedidosCliente");
 const {
   cotarFrete,
@@ -27,31 +40,62 @@ const {
 } = require("./backend/functions/calculosPagamento");
 const {
   Usuario,
-  Plano,
   Assinatura,
+  MensalidadeClube,
+  CaixaClube,
+  CalendarioClube,
+  OperacaoClube,
   Produto,
   Carrinho,
   Pedido,
+  TentativaPagamento,
+  NotificacaoPagamento,
   Troca,
 } = require("./backend/db/mongodb");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
-const { MercadoPagoConfig, Payment, PreApproval } = require("mercadopago");
+const { loggerOperacional: logger } = require('./backend/functions/logOperacional');
+const { MercadoPagoConfig, Payment, PreApproval, PaymentRefund, CardToken, Customer } = require("mercadopago");
 const app = express();
 const isDirectRun = require.main === module;
 
 const session = require("express-session");
 
-const sessionSecret = process.env.SESSION_SECRET || "mini-stitches-secret";
-const jwtSecret = process.env.JWT_SECRET || sessionSecret;
+const { sessionSecret, jwtSecret } = segredosAplicacao(process.env);
+const resumoCheckout = criarResumoCheckout({ secret: jwtSecret });
 const mpPublicKey = process.env.MP_PUBLIC_KEY || "";
 const mpAccessToken = process.env.MP_ACCESS_TOKEN || "";
 const mpClient = mpAccessToken
   ? new MercadoPagoConfig({ accessToken: mpAccessToken })
   : null;
 const paymentModule = mpClient ? new Payment(mpClient) : null;
+const customerModule = mpClient ? new Customer(mpClient) : null;
+const cardTokenModule = mpClient ? new CardToken(mpClient) : null;
+const salvarReferenciaCartao = criarReferenciaCartao({ Usuario, cardTokenModule, customerModule });
+const resolverCartaoCheckout = criarCartaoCheckout({ Usuario, cardTokenModule, customerModule });
+const reservasEstoque = criarReservasEstoque({
+  Produto, TentativaPagamento, Pedido,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
+});
+const cobrarComTentativa = criarCobrancaComTentativa({ TentativaPagamento, paymentModule, reservasEstoque });
+const atualizarLogistica = criarAtualizadorLogistico({ Pedido, reservasEstoque,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
+const processarWebhook = criarProcessadorWebhook({
+  TentativaPagamento, Pedido, NotificacaoPagamento, reservasEstoque,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao),
+  isValidObjectId: mongoose.isValidObjectId,
+});
 const preApprovalModule = mpClient ? new PreApproval(mpClient) : null;
+const refundModule = mpClient ? new PaymentRefund(mpClient) : null;
+const cancelamentoClube = criarCancelamentoClube({ Assinatura, MensalidadeClube, CaixaClube, OperacaoClube,
+  preApprovalModule, paymentModule, refundModule,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
+const contratarClube = criarContratacaoClube({ Assinatura, Usuario, preApprovalModule, env: process.env,
+  aposAutorizacao: (assinaturaId) => cancelamentoClube.processarPendentes({ assinaturaId, forcar: true }) });
+const processarRecorrencia = criarConciliadorClube({ Assinatura, MensalidadeClube, CaixaClube, CalendarioClube,
+  consultaFaturas: criarConsultaFaturas({ accessToken: mpAccessToken }), preApprovalModule, paymentModule, cancelamento: cancelamentoClube,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
 
 // URL publica do /api/webhook para o Mercado Pago avisar o status de PIX e
 // boleto. APP_URL vence; VERCEL_URL e preenchido automaticamente em cada
@@ -64,9 +108,10 @@ function obterNotificationUrl() {
   return null;
 }
 
-console.log("[mp] notification_url:", obterNotificationUrl() || "(nao definida)");
+logger.info('webhook.configuracao', { configurada: Boolean(obterNotificationUrl()) });
 const { autenticar, autenticarAdmin, clienteIdDoCarrinho } = criarAutenticacao({
   jwtSecret,
+  consultarConta: (id) => Usuario.findById(id).select('status perfil'),
 });
 const { obterCarrinho, respostaCarrinho } = criarCarrinhoHelpers({
   Carrinho,
@@ -96,79 +141,43 @@ function estoqueDisponivel(produto) {
   return (produto.estoque || 0) - (produto.estoqueSeguranca || 0);
 }
 
-// Decremento atômico: só subtrai se o estoque real comporta a quantidade
-// pedida (respeitando a margem de segurança). Retorna null se não há
-// estoque suficiente.
-async function decrementarEstoque(produtoId, quantidade) {
-  return Produto.findOneAndUpdate(
-    {
-      _id: produtoId,
-      $expr: {
-        $gte: [
-          { $subtract: ["$estoque", "$estoqueSeguranca"] },
-          quantidade,
-        ],
-      },
-    },
-    { $inc: { estoque: -quantidade } },
-    { new: true },
-  );
-}
-
-// Restaura estoque de todos os itens de um pedido (cancelamento).
-async function restaurarEstoqueDosPedidoItens(itens) {
-  await Promise.all(
-    itens.map((item) =>
-      Produto.updateOne(
-        { _id: item.produtoId },
-        { $inc: { estoque: item.quantidade } },
-      ),
-    ),
-  );
+function respostaProdutoPublico(produto) {
+  const resposta = { ...produto, estoqueDisponivel: estoqueDisponivel(produto) };
+  delete resposta.estoqueSeguranca;
+  return resposta;
 }
 
 app.post("/api/webhook", async (req, res) => {
+  const secret = String(process.env.MP_WEBHOOK_SECRET || "").trim();
+  if (!secret || !paymentModule) return res.status(503).send("Webhook indisponível");
+  const assinatura = validarWebhook(req, secret);
+  if (!assinatura) {
+    logger.warn('webhook.invalido');
+    return res.status(401).send("Notificação inválida");
+  }
+  const tipo = req.body?.type || req.query?.type;
+  const recorrente = ['subscription_authorized_payment', 'subscription_preapproval'].includes(tipo);
+  const referenciaNotificacao = !recorrente ? { pagamentoId: assinatura.paymentId }
+    : tipo === 'subscription_preapproval' ? { preapprovalId: assinatura.paymentId } : { mensalidadeId: assinatura.paymentId };
+  if (!recorrente && tipo !== "payment" && !/^payment\./.test(String(req.body?.action || ""))) {
+    return res.status(200).send("Evento não tratado");
+  }
+  const recebidoEm = new Date();
   try {
-    const body = req.body || {};
-    const eventType = String(body?.type || body?.action || "");
-    const paymentId =
-      body?.data?.id ?? req.query?.["data.id"] ?? req.query?.id ?? null;
-
-    console.log("[webhook] recebido:", { eventType, paymentId });
-
-    const deveProcessarPagamento =
-      paymentId && (eventType === "payment" || eventType.includes("payment"));
-
-    if (deveProcessarPagamento && paymentModule) {
-      const pagamento = await paymentModule.get({ id: paymentId });
-      console.log(
-        "[webhook] pagamento atualizado:",
-        paymentId,
-        pagamento?.status || "status-indisponivel",
-      );
-
-      // O webhook é registrado antes do middleware que conecta ao banco.
-      await conectarBanco();
-      const pedido = await Pedido.findOne({ pagamentoId: String(paymentId) });
-      if (pedido && pedido.status === "aguardando_pagamento") {
-        if (pagamento?.status === "approved") {
-          pedido.status = "pago";
-          await pedido.save();
-        } else if (
-          ["cancelled", "rejected", "refunded", "charged_back"].includes(
-            pagamento?.status,
-          )
-        ) {
-          pedido.status = "cancelado";
-          await pedido.save();
-          await restaurarEstoqueDosPedidoItens(pedido.itens);
-        }
-      }
+    await conectarBanco();
+    if (recorrente) {
+      await processarRecorrencia({ tipo, id: assinatura.paymentId, recebidoEm });
+      logger.info('webhook.conciliado', { ...referenciaNotificacao, resultado: 'recorrente' });
+    } else {
+      const pagamento = await paymentModule.get({ id: assinatura.paymentId });
+      const resultado = await processarWebhook({ pagamento, ...assinatura, recebidoEm });
+      if (resultado === 'sem_vinculo') await processarRecorrencia({ tipo: 'payment', id: assinatura.paymentId,
+        referencia: pagamento.external_reference, recebidoEm });
+      logger.info('webhook.conciliado', { pagamentoId: assinatura.paymentId, resultado });
     }
-
     return res.status(200).send("OK");
-  } catch (erro) {
-    console.error("[webhook] erro:", erro.message || erro);
+  } catch {
+    logger.error('webhook.pendente', referenciaNotificacao);
     return res.status(503).send("Tente novamente");
   }
 });
@@ -190,8 +199,8 @@ app.use(async (req, res, next) => {
   try {
     await conectarBanco();
     next();
-  } catch (erro) {
-    console.error("Erro na conexão:", erro.message);
+  } catch {
+    logger.error('banco.indisponivel');
     res.status(503).json({ erro: "Serviço indisponível. Tente novamente." });
   }
 });
@@ -210,13 +219,82 @@ function dataValida(texto) {
 const sohTextos = (...valores) =>
   valores.every((valor) => typeof valor === "string");
 
-async function obterSubtotalCarrinhoCentavos(req) {
+async function obterCalculoCarrinho(req) {
+  if (req.body?.pedidoNumero) {
+    const numero = req.body.pedidoNumero;
+    if (typeof numero !== 'string' || numero.length > 100) throw new ErroResumoCheckout('Pedido inválido.', 400);
+    const pedido = await Pedido.findOne({ numero, clienteId: req.session.usuarioId });
+    if (!pedido || pedido.status !== 'aguardando_pagamento') throw new ErroResumoCheckout('Pedido pendente não encontrado.', 404);
+    if (pedido.pagamentoId || pedido.tentativaId) throw new ErroResumoCheckout('Este pedido já possui uma cobrança. Acompanhe sua situação antes de pagar novamente.');
+    await pedido.populate('itens.produtoId', 'nome preco ativo slug');
+    return criarItensPedido(pedido.itens);
+  }
   const carrinho = await obterCarrinho(req);
   await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-  const itensValidos = carrinho.itens.filter(
-    (item) => item.produtoId && item.produtoId.ativo !== false,
-  );
-  return criarItensPedido(itensValidos).subtotal;
+  return criarItensPedido(carrinho.itens);
+}
+
+function dadosTentativa(req, calculo, metodo, frete, total, parcelas = 1) {
+  const cep = normalizarCEP(req.body?.entrega?.cep ?? req.body?.cep);
+  if (!cep) throw new ErroCalculoPagamento("Informe um CEP válido para a tentativa.");
+  const servicoId = calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS ? 0 : Number(req.body.servicoId);
+  const cotacaoId = resumoCheckout.validar({ cotacao: req.body.cotacao, clienteId: req.session.usuarioId,
+    calculo, cep, servicoId, frete, metodo, parcelas, pedidoNumero: req.body.pedidoNumero || '', entrega: req.body.entrega });
+  return {
+    cotacaoId,
+    pedidoOrigemNumero: req.body.pedidoNumero || '',
+    enderecoConfirmado: req.body.entrega?.endereco || '',
+    ...(typeof req.body.cliente?.nome === 'string' && typeof req.body.cliente?.email === 'string' &&
+      req.body.cliente.nome.trim() && req.body.cliente.nome.length <= 120 && req.body.cliente.email.includes('@') && req.body.cliente.email.length <= 254 &&
+      { clienteContato: { nome: req.body.cliente.nome.trim(), email: req.body.cliente.email.trim().toLowerCase() } }),
+    ...req.identidadePagamento,
+    clienteId: req.session.usuarioId,
+    metodo,
+    itens: calculo.itensPedido,
+    subtotal: calculo.subtotal,
+    frete,
+    desconto: calculo.subtotal + frete - total,
+    total,
+    parcelas,
+    cep,
+    servicoId,
+  };
+}
+
+function formatarTentativa({ resposta, tentativaId, tentativa }) {
+  const comum = { sucesso: true, id_pagamento: resposta.id, tentativa_id: tentativaId, status: resposta.status,
+    resumo: { itens: tentativa.itens.map(({ produtoId, nome, slug, quantidade, precoUnit }) => ({ produtoId: String(produtoId), nome, slug, quantidade, precoUnit })),
+      quantidadeItens: tentativa.itens.reduce((soma, item) => soma + item.quantidade, 0),
+      subtotal: tentativa.subtotal, desconto: tentativa.desconto, frete: tentativa.frete, total: tentativa.total,
+      metodo: tentativa.metodo, parcelas: tentativa.parcelas, servicoId: tentativa.servicoId,
+      cep: tentativa.cep, enderecoConfirmado: tentativa.enderecoConfirmado,
+      valoresParcelas: tentativa.metodo === 'cartao' ? calcularParcelasCentavos(tentativa.total, tentativa.parcelas) : [],
+      opcoesParcelas: [], opcoesFrete: [{ servicoId: tentativa.servicoId, servico: 'Frete contratado', preco: tentativa.frete }],
+      cotacao: null },
+    ...financeiroDoProvedor(resposta, tentativa.total) };
+  if (tentativa.metodo === "pix") return {
+    ...comum,
+    valor_original: (tentativa.subtotal + tentativa.frete) / 100,
+    valor_com_desconto: tentativa.total / 100,
+    qr_code_pix: resposta.point_of_interaction?.transaction_data?.qr_code || "",
+    qr_code_base64: resposta.point_of_interaction?.transaction_data?.qr_code_base64 || "",
+  };
+  if (tentativa.metodo === "boleto") return {
+    ...comum, status: resposta.status,
+    codigo_de_barras: resposta.barcode?.content || "",
+    link_boleto_pdf: resposta.transaction_details?.external_resource_url || "",
+  };
+  const valores = calcularParcelasCentavos(tentativa.total, tentativa.parcelas);
+  return { ...comum, status: resposta.status, status_detail: resposta.status_detail,
+    parcelas: resposta.installments, valor_parcela: valores[0] / 100,
+    valores_parcelas_centavos: valores,
+    mensagem: resposta.status === "approved" ? "Pagamento aprovado." : "Pagamento processado." };
+}
+
+async function recuperarTentativa(req, metodo) {
+  req.identidadePagamento = identificarRequisicao(req, metodo);
+  const existente = await cobrarComTentativa.buscar({ clienteId: req.session.usuarioId, ...req.identidadePagamento });
+  return existente ? formatarTentativa(existente) : null;
 }
 
 function obterFreteCentavos(body) {
@@ -267,8 +345,44 @@ app.get("/api/config", (_req, res) => {
   res.json({ publicKey: mpPublicKey });
 });
 
+app.post('/api/checkout/resumo', autenticar, async (req, res) => {
+  try {
+    validarCorpoSeguro(req.body || {});
+    if (req.body.entrega && (typeof req.body.entrega.endereco !== 'string' || req.body.entrega.endereco.length > 1000)) {
+      throw new ErroResumoCheckout('Endereço de entrega inválido.', 400);
+    }
+    const calculo = await obterCalculoCarrinho(req);
+    const metodo = req.body.metodo || 'cartao';
+    const informado = req.body.cep;
+    const cep = informado ? normalizarCEP(informado) : null;
+    if (informado && !cep) throw new ErroResumoCheckout('Informe um CEP válido.', 400);
+    let opcoesFrete = [];
+    let selecionado;
+    if (cep) {
+      const itens = calculo.itensPedido.map((item) => ({ quantidade: item.quantidade, produtoId: { _id: item.produtoId, preco: item.precoUnit } }));
+      const opcoes = calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS
+        ? [{ servicoId: 0, servico: 'Frete grátis', transportadora: 'Mini Stitches', preco: 0, prazoMin: 0, prazoMax: 0 }]
+        : await cotarFrete({ cepDestino: cep, itens });
+      opcoesFrete = opcoes.filter((opcao) => Number.isSafeInteger(opcao.servicoId) && opcao.servicoId >= 0 && Number.isSafeInteger(opcao.preco) && opcao.preco >= 0)
+        .map(({ servicoId, servico, transportadora, logo, preco, prazoMin, prazoMax }) => ({ servicoId, servico, transportadora, logo, preco, prazoMin, prazoMax }))
+        .sort((a, b) => a.preco - b.preco);
+      selecionado = req.body.servicoId === undefined || req.body.servicoId === null || calculo.subtotal > LIMITE_FRETE_GRATIS_CENTAVOS
+        ? opcoesFrete[0] : opcoesFrete.find((opcao) => opcao.servicoId === Number(req.body.servicoId));
+      if (!selecionado) throw new ErroResumoCheckout('O serviço de frete não está disponível. Atualize o resumo.');
+    }
+    res.json({ resumo: resumoCheckout.emitir({ clienteId: req.session.usuarioId, calculo, metodo, cep,
+      parcelas: Number(req.body.parcelas || 1), servicoId: selecionado?.servicoId, frete: selecionado?.preco,
+      opcoesFrete, pedidoNumero: req.body.pedidoNumero || '', entrega: req.body.entrega }) });
+  } catch (erro) {
+    const conhecido = erro instanceof ErroResumoCheckout || erro instanceof ErroCalculoPagamento || erro instanceof ErroFrete || erro instanceof ErroSegurancaPagamento;
+    res.status(conhecido ? erro.status || 400 : 503).json({ erro: conhecido ? erro.message : 'Não foi possível calcular o resumo.' });
+  }
+});
+
 app.post("/api/pagamento/pix", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "pix");
+    if (existente) return res.json(existente);
     const { email, nome, sobrenome, cpf, nomeCompleto } = req.body || {};
 
     if (!mpClient || !paymentModule) {
@@ -294,9 +408,9 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       });
     }
 
-    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
-    const valorBaseCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
+    const calculo = await obterCalculoCarrinho(req);
+    const subtotalCentavos = calculo.subtotal;
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos, calculo.itensPedido);
     const pix = calcularPixCentavos(
       subtotalCentavos,
       freteCentavos,
@@ -305,7 +419,8 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
     const valorComDesconto = valorComDescontoCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const resposta = await paymentModule.create({
+    const cobranca = await cobrarComTentativa({
+      ...dadosTentativa(req, calculo, "pix", freteCentavos, pix.total),
       body: {
         transaction_amount: valorComDesconto,
         description: "Compra via PIX (5% de desconto)",
@@ -324,32 +439,35 @@ app.post("/api/pagamento/pix", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      valor_original: valorBaseCentavos / 100,
-      valor_com_desconto: valorComDesconto,
-      qr_code_pix: resposta.point_of_interaction.transaction_data.qr_code,
-      qr_code_base64:
-        resposta.point_of_interaction.transaction_data.qr_code_base64,
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
+    }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro na geração do PIX:", erro);
+    logger.error('pagamento.pix_falhou');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o Pix.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
+      ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
 });
 
 app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "boleto");
+    if (existente) return res.json(existente);
     const { email, cpf, endereco, nomeCompleto, nome, sobrenome } = req.body || {};
 
     if (!mpClient || !paymentModule) {
@@ -387,12 +505,14 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       cidade: String(endereco?.cidade || "").trim() || "Cidade",
       estado: String(endereco?.estado || "").trim().toUpperCase() || "SP",
     };
-    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const calculo = await obterCalculoCarrinho(req);
+    const subtotalCentavos = calculo.subtotal;
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos, calculo.itensPedido);
     const valorTotal = calcularValorBaseCentavos(subtotalCentavos, freteCentavos) / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const resposta = await paymentModule.create({
+    const cobranca = await cobrarComTentativa({
+      ...dadosTentativa(req, calculo, "boleto", freteCentavos, subtotalCentavos + freteCentavos),
       body: {
         transaction_amount: Number(valorTotal),
         description: "Compra via boleto",
@@ -418,30 +538,35 @@ app.post("/api/pagamento/boleto", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      codigo_de_barras: resposta.barcode?.content || "",
-      link_boleto_pdf: resposta.transaction_details?.external_resource_url || "",
-      status: resposta.status,
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
+    }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro na geração do boleto:", erro);
+    logger.error('pagamento.boleto_falhou');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o boleto.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
+      ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
 });
 
 app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
   try {
+    const existente = await recuperarTentativa(req, "cartao");
+    if (existente) return res.json(existente);
     const { token, payment_method_id, parcelas, email, cpf } =
       req.body || {};
 
@@ -451,6 +576,14 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
         mensagem: "Dados do cartão incompletos.",
       });
     }
+    validarTokenCartao(token);
+    const cartaoSalvo = req.body.cartaoSalvoId ? await resolverCartaoCheckout(req.session.usuarioId, req.body.cartaoSalvoId, token) : null;
+    if (cartaoSalvo && cartaoSalvo.payment_method_id !== payment_method_id) {
+      throw new ErroSegurancaPagamento('O cartão selecionado não corresponde ao meio de pagamento.');
+    }
+    if (!['visa', 'master', 'elo', 'amex', 'hipercard', 'diners'].includes(payment_method_id)) {
+      return res.status(400).json({ sucesso: false, mensagem: 'Meio de pagamento de cartão inválido.' });
+    }
 
     if (!mpClient || !paymentModule) {
       return res.status(400).json({
@@ -459,23 +592,27 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       });
     }
 
-    const subtotalCentavos = await obterSubtotalCarrinhoCentavos(req);
-    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos);
+    const calculo = await obterCalculoCarrinho(req);
+    const subtotalCentavos = calculo.subtotal;
+    const freteCentavos = await obterFreteAplicavelCentavos(req, subtotalCentavos, calculo.itensPedido);
     const totalCentavos = calcularValorBaseCentavos(subtotalCentavos, freteCentavos);
     const quantidadeParcelas = parcelas === undefined ? 1
       : typeof parcelas === "string" && /^[1-6]$/.test(parcelas) ? Number(parcelas)
         : typeof parcelas === "number" ? parcelas : NaN;
-    const valoresParcelas = calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
+    calcularParcelasCentavos(totalCentavos, quantidadeParcelas);
     const valorTotal = totalCentavos / 100;
 
     const notificationUrl = obterNotificationUrl();
-    const resposta = await paymentModule.create({
+    const cobranca = await cobrarComTentativa({
+      ...dadosTentativa(req, calculo, "cartao", freteCentavos, totalCentavos, quantidadeParcelas),
       body: {
         token,
         payment_method_id,
         transaction_amount: Number(valorTotal),
         installments: quantidadeParcelas,
+        ...(cartaoSalvo?.issuer_id && { issuer_id: cartaoSalvo.issuer_id }),
         payer: {
+          ...(cartaoSalvo?.payer || {}),
           email,
           identification: {
             type: "CPF",
@@ -486,89 +623,55 @@ app.post("/api/pagamento/cartao", autenticar, async (req, res) => {
       },
     });
 
-    return res.status(200).json({
-      sucesso: true,
-      id_pagamento: resposta.id,
-      status: resposta.status,
-      status_detail: resposta.status_detail,
-      parcelas: resposta.installments,
-      valor_parcela: valoresParcelas[0] / 100,
-      valores_parcelas_centavos: valoresParcelas,
-      mensagem:
-        resposta.status === "approved"
-          ? "Pagamento aprovado."
-          : "Pagamento processado.",
-    });
+    return res.status(200).json(formatarTentativa(cobranca));
   } catch (erro) {
+    if (erro instanceof ErroResumoCheckout) return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ sucesso: false, mensagem: erro.message });
+    if (erro instanceof ErroReservaEstoque) {
+      return res.status(409).json({ sucesso: false, mensagem: erro.message, nova_tentativa_permitida: true });
+    }
+    if (erro instanceof ErroIdempotencia) {
+      return res.status(erro.status).json({ sucesso: false, mensagem: erro.message, tentativa_id: erro.tentativaId });
+    }
     if (erro instanceof ErroCalculoPagamento) {
-      return res.status(400).json({ sucesso: false, mensagem: erro.message });
+      return res.status(400).json({ sucesso: false, mensagem: erro.message, resumo_invalido: true });
     }
     if (erro instanceof ErroFrete) {
       return res.status(erro.status).json({ sucesso: false, mensagem: erro.message });
     }
-    console.error("Erro no pagamento com cartão:", erro);
+    logger.error('pagamento.cartao_falhou');
     return res.status(500).json({
       sucesso: false,
-      mensagem: erro.message || "Erro ao processar o cartão.",
+      mensagem: 'Não foi possível confirmar o pagamento. Consulte a tentativa antes de repetir.',
+      ...(erro.tentativaId && { tentativa_id: erro.tentativaId }),
     });
   }
 });
 
-app.post("/api/assinatura/criar", async (req, res) => {
+app.get("/api/assinatura/plano", (_req, res) => res.json({ plano: PLANO_CLUBE }));
+
+registrarRotasClube({ app, autenticar, autenticarAdmin, MensalidadeClube, CaixaClube, CalendarioClube,
+  executarTransacao: (operacao) => mongoose.connection.transaction(operacao) });
+registrarRotasCancelamento({ app, autenticar, autenticarAdmin, cancelamento: cancelamentoClube,
+  processarRecorrencia, Assinatura, OperacaoClube, cronSecret: process.env.CRON_SECRET });
+
+app.get("/api/assinaturas", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
   try {
-    const body = req.body || {};
-    const email = body.email || body.payer_email || "";
-    const tokenCartao = body.tokenCartao || body.card_token_id || "";
-    const valorMensal = Number(
-      body.valorMensal ?? body.amount ?? body.transaction_amount ?? 69.9,
-    );
-    const tituloAssinatura =
-      body.tituloAssinatura ||
-      body.reason ||
-      body.title ||
-      "Assinatura Mini Stitches";
-    const backUrl =
-      body.back_url ||
-      body.backUrl ||
-      process.env.MP_BACK_URL ||
-      "https://example.com/assinatura";
+    const assinaturas = await Assinatura.find({ clienteId: req.session.usuarioId }).sort({ solicitadoEm: -1 }).lean();
+    res.json({ assinaturas: assinaturas.map(assinaturaPublica) });
+  } catch { res.status(503).json({ erro: "Não foi possível consultar suas assinaturas." }); }
+});
 
-    if (!email || !tokenCartao || !mpClient || !preApprovalModule) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: "Dados da assinatura incompletos.",
-      });
-    }
-
-    const valorFinal = Number.isFinite(valorMensal) ? valorMensal : 69.9;
-
-    const resposta = await preApprovalModule.create({
-      body: {
-        reason: tituloAssinatura,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          transaction_amount: valorFinal,
-          currency_id: "BRL",
-        },
-        payer_email: email,
-        back_url: backUrl,
-        card_token_id: tokenCartao,
-      },
-    });
-
-    return res.status(200).json({
-      sucesso: true,
-      id_assinatura: resposta.id,
-      status: resposta.status,
-      init_point: resposta.init_point,
-    });
+app.post("/api/assinatura/criar", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const assinatura = await contratarClube(req.session.usuarioId, req.body || {});
+    return res.json({ sucesso: true, assinatura });
   } catch (erro) {
-    console.error("Erro na criação da assinatura:", erro);
-    return res.status(500).json({
-      sucesso: false,
-      mensagem: erro.message || "Erro ao criar a assinatura.",
-    });
+    if (erro instanceof ErroAssinatura || erro instanceof ErroSegurancaPagamento) return res.status(erro.status).json({ sucesso: false,
+      mensagem: erro.message, ...(erro.assinaturaId && { assinatura_id: erro.assinaturaId }) });
+    return res.status(503).json({ sucesso: false, mensagem: "Não foi possível concluir a contratação. Consulte o atendimento antes de repetir." });
   }
 });
 
@@ -585,8 +688,8 @@ app.get("/api/cep/:cep", async (req, res) => {
     }
 
     res.json({ endereco });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res
       .status(502)
       .json({ erro: "Não foi possível consultar o CEP. Tente novamente." });
@@ -643,7 +746,7 @@ app.post("/api/cadastro", async (req, res) => {
       return res.status(409).send(mensagem);
     }
 
-    console.error(err);
+    logger.error('api.falha');
     res.status(500).send("Erro interno do servidor.");
   }
 });
@@ -661,7 +764,7 @@ app.post("/api/login", async (req, res) => {
     }).select("+senhaHash");
 
     // Mesma mensagem nos dois casos: não revela quais e-mails têm conta.
-    if (!usuario || !(await bcrypt.compare(senha, usuario.senhaHash))) {
+    if (!usuario || usuario.status !== true || !(await bcrypt.compare(senha, usuario.senhaHash))) {
       return res.status(401).json({ erro: "E-mail ou senha incorretos." });
     }
 
@@ -683,8 +786,8 @@ app.post("/api/login", async (req, res) => {
     return res.json({
       destino: usuario.perfil === "admin" ? "/admin" : "/perfil",
     });
-  } catch (err) {
-    console.error(err);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro interno do servidor." });
   }
 });
@@ -722,18 +825,11 @@ app.get("/api/perfil", autenticar, async (req, res) => {
           ? usuario.nascimento.toISOString().slice(0, 10)
           : "",
         enderecos: usuario.enderecos,
-        cartoes: (usuario.cartoes || []).map((c) => ({
-          _id: c._id,
-          titular: c.titular,
-          finalCartao: c.finalCartao,
-          validade: c.validade,
-          bandeira: c.bandeira,
-          status: c.status,
-        })),
+        cartoes: cartoesPublicos(usuario.cartoes),
       },
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao carregar perfil." });
   }
 });
@@ -782,7 +878,7 @@ app.patch("/perfil/atualizar", autenticar, async (req, res) => {
       return res.status(409).send("Este e-mail já está cadastrado.");
     }
 
-    console.error(err);
+    logger.error('api.falha');
     res.status(500).send("Erro interno do servidor.");
   }
 });
@@ -849,8 +945,8 @@ app.post("/perfil/enderecos", autenticar, async (req, res) => {
     await usuario.save();
 
     res.status(201).json({ enderecos: usuario.enderecos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao salvar o endereço." });
   }
 });
@@ -880,8 +976,8 @@ app.patch(
       await usuario.save();
 
       res.json({ enderecos: usuario.enderecos });
-    } catch (error) {
-      console.error(error);
+    } catch {
+      logger.error('api.falha');
       res.status(500).json({ erro: "Erro ao definir o endereço principal." });
     }
   },
@@ -911,79 +1007,21 @@ app.delete("/perfil/enderecos/:enderecoId", autenticar, async (req, res) => {
     await usuario.save();
 
     res.json({ enderecos: usuario.enderecos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao excluir o endereço." });
   }
 });
 
 // ── Cartões ──────────────────────────────────────────────────────────
 
-const BANDEIRAS = {
-  4: "visa",
-  5: "master",
-  6: "elo",
-  3: "amex",
-};
-
-function detectarBandeira(numero) {
-  if (/^606282|^3841/.test(numero)) return "hipercard";
-  if (/^36|^38|^30[0-5]/.test(numero)) return "diners";
-  if (/^4/.test(numero)) return "visa";
-  if (/^5[1-5]/.test(numero)) return "master";
-  if (/^3[47]/.test(numero)) return "amex";
-  return "elo";
-}
-
 app.post("/perfil/cartoes", autenticar, async (req, res) => {
   try {
-    const { titular, numero, validade } = req.body || {};
-
-    if (
-      typeof titular !== "string" || !titular.trim() ||
-      typeof numero !== "string" || !numero.trim() ||
-      typeof validade !== "string" || !validade.trim()
-    ) {
-      return res.status(400).json({ erro: "Preencha todos os campos." });
-    }
-
-    const soDigitos = numero.replace(/\D/g, "");
-    if (soDigitos.length < 13 || soDigitos.length > 19) {
-      return res.status(400).json({ erro: "Número do cartão inválido." });
-    }
-
-    if (!/^\d{2}\/\d{2}$/.test(validade.trim())) {
-      return res.status(400).json({ erro: "Validade deve ser MM/AA." });
-    }
-
-    const usuario = await Usuario.findById(req.session.usuarioId);
-    if (!usuario) {
-      return res.status(404).json({ erro: "Usuário não encontrado." });
-    }
-
-    usuario.cartoes.push({
-      titular: titular.trim(),
-      finalCartao: soDigitos.slice(-4),
-      validade: validade.trim(),
-      bandeira: detectarBandeira(soDigitos),
-      status: true,
-      criadoEm: new Date(),
-    });
-    await usuario.save();
-
-    res.status(201).json({
-      cartoes: usuario.cartoes.map((c) => ({
-        _id: c._id,
-        titular: c.titular,
-        finalCartao: c.finalCartao,
-        validade: c.validade,
-        bandeira: c.bandeira,
-        status: c.status,
-      })),
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar o cartão." });
+    res.status(201).json({ cartoes: await salvarReferenciaCartao(req.session.usuarioId, req.body || {}) });
+  } catch (erro) {
+    if (erro instanceof ErroSegurancaPagamento) return res.status(400).json({ erro: erro.message });
+    logger.error('cartao.referencia_falhou');
+    res.status(503).json({ erro: 'Não foi possível validar o cartão. Tente novamente.' });
   }
 });
 
@@ -1016,8 +1054,8 @@ app.delete("/perfil/cartoes/:cartaoId", autenticar, async (req, res) => {
         status: c.status,
       })),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao excluir o cartão." });
   }
 });
@@ -1123,8 +1161,8 @@ app.post("/admin/estoque", autenticarAdmin, async (req, res) => {
 
     const novoProduto = await Produto.create(item);
     res.status(201).json({ produto: novoProduto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao salvar o produto." });
   }
 });
@@ -1247,8 +1285,8 @@ app.patch("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
 
     const produtoAtualizado = await Produto.findById(id).lean();
     res.json({ produto: produtoAtualizado });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao atualizar o produto." });
   }
 });
@@ -1258,8 +1296,8 @@ app.get("/admin/estoque", autenticarAdmin, async (req, res) => {
     const produtos = await Produto.find().lean();
 
     res.json({ produtos });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao listar produtos." });
   }
 });
@@ -1280,8 +1318,8 @@ app.delete("/admin/estoque/:id", autenticarAdmin, async (req, res) => {
     await Produto.deleteOne({ _id: id });
 
     res.json({ mensagem: "Produto removido com sucesso." });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao excluir o produto." });
   }
 });
@@ -1296,13 +1334,10 @@ app.get("/api/produtos", async (req, res) => {
     }
 
     const produtos = await Produto.find(filtro).sort({ nome: 1 }).lean();
-    const resultado = produtos.map(({ estoqueSeguranca: _es, ...p }) => ({
-      ...p,
-      estoqueDisponivel: estoqueDisponivel(p),
-    }));
+    const resultado = produtos.map(respostaProdutoPublico);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produtos: resultado });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao listar produtos." });
   }
 });
@@ -1316,71 +1351,18 @@ app.get("/api/produto/:slug", async (req, res) => {
       return res.status(404).json({ erro: "Produto não encontrado." });
     }
 
-    const { estoqueSeguranca: _es, ...produto } = produtoRaw;
-    produto.estoqueDisponivel = estoqueDisponivel(produtoRaw);
+    const produto = respostaProdutoPublico(produtoRaw);
     res.set("Cache-Control", CACHE_PUBLICO).json({ produto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao buscar produto." });
   }
 });
 
-app.post("/admin/assinaturas", autenticarAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const nome = String(body.nome || "").trim();
-    const preco = Number(body.preco);
-    const duracao = Number(body.duracao);
-    const tipo = String(body.tipo || "mensal").toLowerCase();
-    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
-
-    if (!nome) {
-      return res.status(400).json({ erro: "Informe o nome da assinatura." });
-    }
-    if (!Number.isInteger(preco) || preco < 0) {
-      return res
-        .status(400)
-        .json({ erro: "O preço deve ser um número inteiro em centavos." });
-    }
-    if (!Number.isInteger(duracao) || duracao <= 0) {
-      return res
-        .status(400)
-        .json({ erro: "A duração deve ser um número inteiro positivo." });
-    }
-    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
-      return res.status(400).json({ erro: "Tipo de assinatura inválido." });
-    }
-
-    const assinaturaExistente = await Assinatura.findOne({ nome });
-    if (assinaturaExistente) {
-      await Assinatura.updateOne(
-        { nome },
-        { $set: { preco, duracao, tipo, ativo } },
-      );
-      return res.json({
-        assinatura: {
-          ...assinaturaExistente.toObject(),
-          preco,
-          duracao,
-          tipo,
-          ativo,
-        },
-      });
-    }
-
-    const novaAssinatura = await Assinatura.create({
-      nome,
-      preco,
-      duracao,
-      tipo,
-      ativo,
-    });
-    res.status(201).json({ assinatura: novaAssinatura });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar a assinatura." });
-  }
+const planoNaoEditavel = (_req, res) => res.status(410).json({
+  erro: "O Clube possui somente o plano mensal SUB-02. A contratação deve ser feita pela conta do cliente.",
 });
+app.post("/admin/assinaturas", autenticarAdmin, planoNaoEditavel);
 
 app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
   try {
@@ -1390,102 +1372,21 @@ app.get("/admin/assinaturas", autenticarAdmin, async (req, res) => {
       .lean();
 
     res.json({ assinaturas });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao listar assinaturas." });
   }
 });
 
-app.delete("/admin/assinaturas/:id", autenticarAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
+app.delete("/admin/assinaturas/:id", autenticarAdmin, (_req, res) => res.status(410).json({
+  erro: "Assinaturas não podem ser excluídas. O cancelamento deve preservar o histórico e interromper a recorrência no provedor.",
+}));
 
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ erro: "ID inválido." });
-    }
+app.post("/admin/planos", autenticarAdmin, planoNaoEditavel);
 
-    const assinatura = await Assinatura.findById(id);
-    if (!assinatura) {
-      return res.status(404).json({ erro: "Assinatura não encontrada." });
-    }
+app.get("/admin/planos", autenticarAdmin, (_req, res) => res.json({ planos: [PLANO_CLUBE] }));
 
-    await Assinatura.deleteOne({ _id: id });
-
-    res.json({ mensagem: "Assinatura excluída com sucesso." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao excluir assinatura." });
-  }
-});
-
-app.post("/admin/planos", autenticarAdmin, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const nome = String(body.nome || "").trim();
-    const valor = Number(body.valor);
-    const tipo = String(body.tipo || "mensal").toLowerCase();
-    const ativo = body.ativo !== undefined ? Boolean(body.ativo) : true;
-
-    if (!nome) {
-      return res.status(400).json({ erro: "Informe o nome do plano." });
-    }
-    if (!Number.isInteger(valor) || valor < 0) {
-      return res
-        .status(400)
-        .json({ erro: "O valor deve ser um número inteiro em centavos." });
-    }
-    if (!["diaria", "semanal", "mensal", "anual"].includes(tipo)) {
-      return res.status(400).json({ erro: "Tipo de plano inválido." });
-    }
-
-    const planoExistente = await Plano.findOne({ nome });
-    if (planoExistente) {
-      await Plano.updateOne({ nome }, { $set: { valor, tipo, ativo } });
-      return res.json({
-        plano: { ...planoExistente.toObject(), valor, tipo, ativo },
-      });
-    }
-
-    const novoPlano = await Plano.create({ nome, valor, tipo, ativo });
-    res.status(201).json({ plano: novoPlano });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao salvar o plano." });
-  }
-});
-
-app.get("/admin/planos", autenticarAdmin, async (req, res) => {
-  try {
-    const planos = await Plano.find().lean();
-
-    res.json({ planos });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao listar planos." });
-  }
-});
-
-app.delete("/admin/planos/:id", autenticarAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ erro: "ID inválido." });
-    }
-
-    const plano = await Plano.findById(id);
-    if (!plano) {
-      return res.status(404).json({ erro: "Plano não encontrado." });
-    }
-
-    await Plano.deleteOne({ _id: id });
-
-    res.json({ mensagem: "Plano excluído com sucesso." });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao excluir plano." });
-  }
-});
+app.delete("/admin/planos/:id", autenticarAdmin, planoNaoEditavel);
 
 app.get("/produto/:slug", async (req, res) => {
   try {
@@ -1497,34 +1398,37 @@ app.get("/produto/:slug", async (req, res) => {
     }
 
     res.json({ produto });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao buscar produto." });
   }
 });
 
-app.get("/assinatura/:id", async (req, res) => {
+app.get("/assinatura/:id", autenticar, async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
   try {
     const { id } = req.params;
 
-    const assinatura = await Assinatura.findById(id).lean();
+    if (!mongoose.isValidObjectId(id)) return res.status(404).json({ erro: "Assinatura não encontrada." });
+    const assinatura = await Assinatura.findOne({ _id: id, clienteId: req.session.usuarioId }).lean();
     if (!assinatura) {
       return res.status(404).json({ erro: "Assinatura não encontrada." });
     }
 
-    res.json({ assinatura });
-  } catch (error) {
-    console.error(error);
+    res.json({ assinatura: assinaturaPublica(assinatura) });
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao buscar assinatura." });
   }
 });
 
 app.get("/api/carrinho", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const carrinho = await obterCarrinho(req);
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível carregar o carrinho." });
   }
 });
@@ -1602,7 +1506,7 @@ app.post("/api/frete", async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("[api/frete] erro:", error?.message || error);
+    logger.error('frete.consulta_falhou');
 
     if (error instanceof ErroFrete) {
       return res.status(error.status).json({ erro: error.message });
@@ -1619,8 +1523,13 @@ registrarRotasPedidosCliente(app, {
 // Registra o pedido depois que o pagamento foi criado no Mercado Pago.
 // Itens e preços vêm do carrinho no servidor; status, forma de pagamento e
 // valor pago vêm do próprio Mercado Pago, nunca do navegador.
-app.post("/api/pedidos", autenticar, async (req, res) => {
+app.post('/api/pedidos', autenticar, registrarPedidoDoPagamento);
+registrarRotasRecuperacao({ app, autenticar,
+  recuperacao: criarRecuperacaoPagamento({ TentativaPagamento, Pedido, formatarTentativa }), registrarPedido: registrarPedidoDoPagamento });
+
+async function registrarPedidoDoPagamento(req, res) {
   try {
+    validarCorpoSeguro(req.body || {});
     const { pagamentoId, freteCentavos, cliente, entrega } = req.body || {};
     const idPagamento = String(pagamentoId || "").trim();
     const freteInformado = Number(freteCentavos);
@@ -1681,24 +1590,13 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         quantidade: item.quantidade,
         precoUnit: item.precoUnit,
       }));
-    } else {
-      const carrinho = await obterCarrinho(req);
-      await carrinho.populate("itens.produtoId", "nome preco ativo slug");
-      const itensValidos = carrinho.itens.filter(
-        (item) => item.produtoId && item.produtoId.ativo !== false,
-      );
-      itens = criarItensPedido(itensValidos).itensPedido;
-    }
-
-    if (!itens.length) {
-      return res.status(400).json({ erro: "Seu carrinho está vazio." });
     }
 
     let pagamentoMP;
     try {
       pagamentoMP = await paymentModule.get({ id: idPagamento });
-    } catch (erro) {
-      console.error("[api/pedidos] pagamento não encontrado:", erro?.message);
+    } catch {
+      logger.error('pedido.pagamento_ausente');
       return res.status(400).json({ erro: "Pagamento não encontrado." });
     }
 
@@ -1720,60 +1618,58 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
           ? "boleto"
           : "cartao";
 
+    const referencia = String(pagamentoMP.external_reference || "");
+    const tentativa = mongoose.isValidObjectId(referencia)
+      ? await TentativaPagamento.findOne({ _id: referencia, clienteId: req.session.usuarioId })
+      : null;
+    if (!tentativa || tentativa.estoqueEstado !== "reservado" || tentativa.metodo !== pagamento) {
+      return res.status(409).json({ erro: "Pagamento sem reserva válida. Solicite conciliação antes de continuar." });
+    }
+    if (tentativa.cep !== cep || tentativa.frete !== freteInformado) {
+      return res.status(400).json({ erro: "A entrega não confere com a tentativa de pagamento." });
+    }
+    if (tentativa.enderecoConfirmado && tentativa.enderecoConfirmado !== endereco) {
+      return res.status(400).json({ erro: 'O endereço mudou após a confirmação do resumo.' });
+    }
+    itens = tentativa.itens.map((item) => ({
+      produtoId: item.produtoId, nome: item.nome, slug: item.slug,
+      quantidade: item.quantidade, precoUnit: item.precoUnit,
+    }));
+
     const subtotal = itens.reduce(
       (soma, item) => soma + item.quantidade * item.precoUnit,
       0,
     );
-    const frete = await obterFreteAplicavelCentavos(req, subtotal, itens);
+    const frete = tentativa.frete;
     const valorCheio = subtotal + frete;
     const valorPago = Math.round(Number(pagamentoMP.transaction_amount) * 100);
     const valorEsperado = pagamento === "pix"
       ? calcularPixCentavos(subtotal, frete).total
       : valorCheio;
 
-    // Tolerância de 1 centavo para arredondamentos do desconto.
+    // O registro recuperado deve corresponder exatamente à cobrança em BRL.
     if (
-      !Number.isFinite(valorPago) ||
-      Math.abs(valorPago - valorEsperado) > 1
+      pagamentoMP.currency_id !== 'BRL' || !Number.isSafeInteger(valorPago) ||
+      valorPago !== valorEsperado || valorPago !== tentativa.total
     ) {
-      console.error("[api/pedidos] valor pago não confere:", {
-        idPagamento,
-        valorPago,
-        valorEsperado,
-      });
+      logger.error('pedido.valor_divergente', { pagamentoId: idPagamento, tentativaId: String(tentativa._id) });
       return res
         .status(400)
         .json({ erro: "O valor pago não confere com o pedido." });
     }
 
     const total = pagamento === "pix" ? valorPago : valorCheio;
+    const financeiro = financeiroDoProvedor(pagamentoMP, total);
+    const estadosIniciais = { ...financeiro,
+      ...(Number.isFinite(Date.parse(pagamentoMP.date_last_updated)) && { pagamentoAtualizadoEm: new Date(pagamentoMP.date_last_updated) }),
+      ...(Number.isFinite(Date.parse(pagamentoMP.date_approved)) && { pagamentoAprovadoEm: new Date(pagamentoMP.date_approved) }),
+      statusLogistico: financeiro.statusFinanceiro === "aprovado" ? "pronto_para_preparo" : "aguardando_liberacao" };
     const clienteId = clienteIdDoCarrinho(req);
-
-    // Decremento atômico: reserva o estoque de cada item antes de criar o
-    // pedido. Se algum falhar, desfaz os que já foram reservados.
-    if (!pedidoPendente) {
-      const reservados = [];
-      for (const item of itens) {
-        const ok = await decrementarEstoque(item.produtoId, item.quantidade);
-        if (!ok) {
-          await Promise.all(
-            reservados.map((r) =>
-              Produto.updateOne(
-                { _id: r.produtoId },
-                { $inc: { estoque: r.quantidade } },
-              ),
-            ),
-          );
-          return res.status(409).json({
-            erro: `Estoque insuficiente para "${item.nome}".`,
-          });
-        }
-        reservados.push(item);
-      }
-    }
 
     let pedido;
     if (pedidoPendente) {
+      pedidoPendente.tentativaId = tentativa._id;
+      pedidoPendente.itens = itens;
       pedidoPendente.pagamento = pagamento;
       pedidoPendente.pagamentoId = idPagamento;
       pedidoPendente.subtotal = subtotal;
@@ -1781,6 +1677,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
       pedidoPendente.desconto = valorCheio - total;
       pedidoPendente.total = total;
       pedidoPendente.status = status;
+      Object.assign(pedidoPendente, estadosIniciais);
+      pedidoPendente.status = projetarStatus(estadosIniciais.statusFinanceiro, estadosIniciais.statusLogistico);
       pedidoPendente.cliente = { nome, email };
       pedidoPendente.entrega = { cep, endereco };
       try {
@@ -1797,6 +1695,7 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     try {
       pedido = await Pedido.create({
+        tentativaId: tentativa._id,
         clienteId: clienteId || null,
         pagamento,
         pagamentoId: idPagamento,
@@ -1804,7 +1703,8 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
         frete,
         desconto: valorCheio - total,
         total,
-        status,
+        status: projetarStatus(estadosIniciais.statusFinanceiro, estadosIniciais.statusLogistico),
+        ...estadosIniciais,
         cliente: { nome, email },
         entrega: { cep, endereco },
         itens,
@@ -1812,11 +1712,10 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
     } catch (erro) {
       if (erro?.code === 11000) {
         pedido = await Pedido.findOne({ pagamentoId: idPagamento });
-        if (!pedido) { await restaurarEstoqueDosPedidoItens(itens); throw erro; }
+        if (!pedido) throw erro;
         if (String(pedido.clienteId) !== String(req.session.usuarioId)) return res.status(404).json({ erro: "Pedido não encontrado." });
         return res.json({ pedido: respostaPedido(pedido) });
       }
-      await restaurarEstoqueDosPedidoItens(itens);
       throw erro;
     }
 
@@ -1826,23 +1725,22 @@ app.post("/api/pedidos", autenticar, async (req, res) => {
 
     return res.status(201).json({ pedido: respostaPedido(pedido) });
   } catch (error) {
+    if (error instanceof ErroSegurancaPagamento) return res.status(400).json({ erro: error.message });
     if (error instanceof ErroCalculoPagamento) {
       return res.status(400).json({ erro: error.message });
     }
     if (error instanceof ErroFrete) {
       return res.status(error.status).json({ erro: error.message });
     }
-    console.error("[api/pedidos] erro:", error?.message || error);
+    logger.error('pedido.registro_falhou');
     return res
       .status(500)
       .json({ erro: "Não foi possível registrar o pedido." });
   }
-});
+}
 
 // Pedidos que contam como faturamento: o pagamento já foi aprovado.
 const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
-// Status controlados apenas pelo gateway de pagamento (webhook).
-const STATUS_SO_GATEWAY = ["aguardando_pagamento", "pago"];
 const STATUS_PEDIDO_ADMIN = [
   "aguardando_pagamento",
   ...STATUS_FATURADOS,
@@ -1856,8 +1754,15 @@ function respostaPedidoAdmin(pedido) {
     cliente: pedido.cliente,
     entrega: pedido.entrega,
     historicoStatus: pedido.historicoStatus || [],
+    historicoFinanceiro: pedido.historicoFinanceiro || [],
+    historicoLogistico: pedido.historicoLogistico || [],
   };
 }
+
+registrarConciliacaoAdmin({ app, autenticarAdmin, consultar: criarConsultaConciliacao({
+  tentativas: TentativaPagamento, pedidos: Pedido, mensalidades: MensalidadeClube,
+  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube,
+}) });
 
 app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
   try {
@@ -1865,13 +1770,15 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
       Pedido.aggregate([
         {
           $group: {
-            _id: "$status",
+            _id: { status: "$status", financeiro: { $ifNull: ["$statusFinanceiro", {
+              $cond: [{ $in: ["$status", STATUS_FATURADOS] }, "aprovado", "desconhecido"],
+            }] } },
             quantidade: { $sum: 1 },
-            total: { $sum: "$total" },
+            total: { $sum: { $subtract: ["$total", { $ifNull: ["$valorReembolsado", 0] }] } },
           },
         },
       ]),
-      Assinatura.countDocuments({ canceladoEm: null }),
+      Assinatura.countDocuments({ canceladoEm: null, statusAdesao: "ativa" }),
       Pedido.find().sort({ criadoEm: -1 }).limit(5).lean(),
     ]);
 
@@ -1883,9 +1790,9 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
     let pedidosFaturados = 0;
 
     for (const grupo of porStatus) {
-      statusPedidos[grupo._id] = grupo.quantidade;
+      statusPedidos[grupo._id.status] = (statusPedidos[grupo._id.status] || 0) + grupo.quantidade;
       totalPedidos += grupo.quantidade;
-      if (STATUS_FATURADOS.includes(grupo._id)) {
+      if (["aprovado", "parcialmente_reembolsado"].includes(grupo._id.financeiro)) {
         faturado += grupo.total;
         pedidosFaturados += grupo.quantidade;
       }
@@ -1901,8 +1808,8 @@ app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {
       statusPedidos,
       ultimosPedidos: ultimosPedidos.map(respostaPedidoAdmin),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao carregar o painel." });
   }
 });
@@ -1912,14 +1819,15 @@ app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
     const filtro = {};
     const status = String(req.query.status || "");
     if (STATUS_PEDIDO_ADMIN.includes(status)) filtro.status = status;
+    if (FINANCEIROS.includes(req.query.statusFinanceiro)) filtro.statusFinanceiro = req.query.statusFinanceiro;
 
     const pedidos = await Pedido.find(filtro)
       .sort({ criadoEm: -1 })
       .limit(200)
       .lean();
     res.json({ pedidos: pedidos.map(respostaPedidoAdmin) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao listar pedidos." });
   }
 });
@@ -1927,49 +1835,22 @@ app.get("/admin/pedidos", autenticarAdmin, async (req, res) => {
 app.patch("/admin/pedidos/:id/status", autenticarAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const status = String(req.body?.status || "");
+    if (["statusFinanceiro", "valorReembolsado", "pagamentoId", "statusProvedor"].some((campo) => Object.hasOwn(req.body || {}, campo))) {
+      return res.status(403).json({ erro: "O estado financeiro é controlado pelo provedor de pagamento." });
+    }
+    const status = String(req.body?.statusLogistico ?? req.body?.status ?? "");
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ erro: "ID inválido." });
     }
-    if (!STATUS_PEDIDO_ADMIN.includes(status)) {
+    if (!STATUS_PEDIDO_ADMIN.includes(status) && !LOGISTICOS.includes(status)) {
       return res.status(400).json({ erro: "Status inválido." });
     }
 
-    const pedido = await Pedido.findById(id);
-    if (!pedido) {
-      return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    // "Aguardando pagamento" e "Pago" são definidos só pelo Mercado Pago
-    // (webhook): o admin não pode atribuí-los nem tirar um pedido de
-    // "Aguardando pagamento". Um pedido "Pago" pode avançar no fluxo.
-    if (status !== pedido.status) {
-      if (STATUS_SO_GATEWAY.includes(status)) {
-        return res.status(403).json({
-          erro: "Esse status é definido automaticamente pelo pagamento.",
-        });
-      }
-      if (pedido.status === "aguardando_pagamento") {
-        return res.status(403).json({
-          erro: "Pedido aguardando pagamento só muda pela confirmação do pagamento.",
-        });
-      }
-    }
-
-    const statusAnterior = pedido.status;
-    pedido.status = status;
-    if (req.body?.rastreio !== undefined) {
-      pedido.rastreio = String(req.body.rastreio || "").trim();
-    }
-    await pedido.save();
-
-    if (status === "cancelado" && statusAnterior !== "cancelado") {
-      await restaurarEstoqueDosPedidoItens(pedido.itens);
-    }
-
-    res.json({ pedido: respostaPedidoAdmin(pedido.toObject()) });
+    const pedido = await atualizarLogistica({ id, status, rastreio: req.body?.rastreio });
+    res.json({ pedido: respostaPedidoAdmin(pedido) });
   } catch (error) {
-    console.error(error);
+    if (error instanceof ErroEstadoPedido) return res.status(error.status).json({ erro: error.message });
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao atualizar o pedido." });
   }
 });
@@ -2072,8 +1953,8 @@ app.post("/api/trocas", async (req, res) => {
         criadoEm: troca.criadoEm,
       },
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível registrar a solicitação." });
   }
 });
@@ -2110,8 +1991,8 @@ app.get("/api/trocas", autenticar, async (req, res) => {
       .limit(50)
       .lean();
     res.json({ trocas: trocas.map(respostaTroca) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível carregar suas trocas." });
   }
 });
@@ -2136,8 +2017,8 @@ app.post("/api/trocas/consultar", async (req, res) => {
       .sort({ criadoEm: -1 })
       .lean();
     res.json({ trocas: trocas.map(respostaTroca) });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível consultar as solicitações." });
   }
 });
@@ -2171,8 +2052,8 @@ app.get("/admin/trocas", autenticarAdmin, async (req, res) => {
           : null,
       })),
     });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao listar trocas." });
   }
 });
@@ -2197,13 +2078,14 @@ app.patch("/admin/trocas/:id", autenticarAdmin, async (req, res) => {
       return res.status(404).json({ erro: "Solicitação não encontrada." });
     }
     res.json({ troca });
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Erro ao atualizar a solicitação." });
   }
 });
 
 app.post("/api/carrinho", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const slug = String(req.body?.slug || "").trim();
     const quantidade = Number(req.body?.quantidade ?? 1);
@@ -2244,13 +2126,14 @@ app.post("/api/carrinho", async (req, res) => {
 
     await carrinho.save();
     res.status(200).json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível adicionar ao carrinho." });
   }
 });
 
 app.patch("/api/carrinho/:produtoId", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const { produtoId } = req.params;
     const quantidade = Number(req.body?.quantidade);
@@ -2285,13 +2168,14 @@ app.patch("/api/carrinho/:produtoId", async (req, res) => {
     item.quantidade = quantidade;
     await carrinho.save();
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível atualizar o carrinho." });
   }
 });
 
 app.delete("/api/carrinho/:produtoId", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const { produtoId } = req.params;
     if (!mongoose.isValidObjectId(produtoId)) {
@@ -2304,27 +2188,14 @@ app.delete("/api/carrinho/:produtoId", async (req, res) => {
     );
     await carrinho.save();
     res.json(await respostaCarrinho(carrinho));
-  } catch (error) {
-    console.error(error);
+  } catch {
+    logger.error('api.falha');
     res.status(500).json({ erro: "Não foi possível remover o item." });
   }
 });
 
-app.get("/plano/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const plano = await Plano.findById(id).lean();
-    if (!plano) {
-      return res.status(404).json({ erro: "Plano não encontrado." });
-    }
-
-    res.json({ plano });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ erro: "Erro ao buscar plano." });
-  }
-});
+app.get("/plano/:id", (req, res) => req.params.id === PLANO_CLUBE.codigo
+  ? res.json({ plano: PLANO_CLUBE }) : res.status(404).json({ erro: "Plano não encontrado." }));
 
 // ── Redefinição de senha ────────────────────────────────────────────
 
@@ -2369,8 +2240,8 @@ app.post("/api/esqueci-senha", async (req, res) => {
     }
 
     res.json({ mensagem: "Se o e-mail estiver cadastrado, enviamos um link." });
-  } catch (erro) {
-    console.error("Erro em /api/esqueci-senha:", erro.message || erro);
+  } catch {
+    logger.error('conta.recuperacao_falhou');
     res.status(500).json({ mensagem: "Erro ao processar a solicitação." });
   }
 });
@@ -2403,8 +2274,8 @@ app.post("/api/nova-senha", async (req, res) => {
     await usuario.save();
 
     res.json({ mensagem: "Senha alterada com sucesso!" });
-  } catch (erro) {
-    console.error("Erro em /api/nova-senha:", erro.message || erro);
+  } catch {
+    logger.error('conta.redefinicao_falhou');
     res.status(500).json({ mensagem: "Erro ao redefinir a senha." });
   }
 });
@@ -2417,7 +2288,7 @@ app.post("/sair", (req, res) => {
   });
   req.session.destroy((error) => {
     if (error) {
-      console.error(error);
+      logger.error('api.falha');
       return res
         .status(500)
         .json({ erro: "Não foi possível encerrar a sessão." });
@@ -2458,15 +2329,15 @@ async function iniciar() {
   try {
     await conectarBanco();
 
-    console.log("MongoDB conectado!");
+    logger.info('banco.conectado');
 
     await Usuario.init();
 
     app.listen(4000, () => {
-      console.log("Abra http://localhost:4000");
+      logger.info('servidor.iniciado');
     });
-  } catch (erro) {
-    console.error("Erro na conexão:", erro.message);
+  } catch {
+    logger.error('banco.indisponivel');
   }
 }
 

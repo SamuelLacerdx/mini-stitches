@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const { FINANCEIROS, LOGISTICOS } = require("../functions/estadosPedido");
+const { PLANO_CLUBE } = require("../functions/assinaturaClube");
 
 const enderecoSchema = new mongoose.Schema({
   apelido: { type: String, trim: true },
@@ -13,6 +15,8 @@ const enderecoSchema = new mongoose.Schema({
 });
 
 const cartaoSchema = new mongoose.Schema({
+  provedorCardId: String,
+  paymentMethodId: String,
   titular: String,
   finalCartao: { type: String, minLength: 4, maxLength: 4 },
   validade: String,
@@ -20,7 +24,6 @@ const cartaoSchema = new mongoose.Schema({
     type: String,
     enum: ["visa", "master", "elo", "amex", "hipercard", "diners"],
   },
-  tokenGateway: { type: String, select: false },
   status: { type: Boolean },
   criadoEm: { type: Date },
 });
@@ -41,14 +44,30 @@ const usuarioSchema = new mongoose.Schema({
 
   enderecos: { type: [enderecoSchema], default: [] },
   cartoes: { type: [cartaoSchema], default: [] },
+  provedorCustomerId: String,
 });
 
 const planoSchema = new mongoose.Schema({
+  codigo: { type: String },
+  titulo: { type: String },
   nome: { type: String, required: true, enum: ["mensal", "trimestral"] },
-  valor: { type: Number, enum: [8990, 24000] },
+  valor: { type: Number, enum: [PLANO_CLUBE.valor, 8990, 24000] },
 });
 
 const assinaturaSchema = new mongoose.Schema({
+  chaveTentativa: { type: String, maxlength: 80 },
+  solicitadoEm: { type: Date, default: Date.now },
+  aceiteEm: { type: Date },
+  preapprovalId: { type: String },
+  statusProvedor: { type: String },
+  versaoConciliacao: { type: Number, default: 0 },
+  primeiraFaturaId: String,
+  primeiraCompetencia: String,
+  diaCobrancaOriginal: { type: Number, min: 1, max: 31 },
+  statusAdesao: { type: String, enum: ["iniciando", "resultado_desconhecido", "aguardando_pagamento", "ativa", "cancelada"] },
+  frete: { type: Number, min: 0, default: 0 },
+  enderecoOrigemId: { type: mongoose.Schema.Types.ObjectId },
+  entrega: { rua: String, numero: String, complemento: String, bairro: String, cidade: String, estado: String, cep: String },
   clienteId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Usuario",
@@ -56,19 +75,104 @@ const assinaturaSchema = new mongoose.Schema({
     index: true,
   },
   plano: { type: planoSchema, required: true },
-  assinadoEm: { type: Date, required: true, default: Date.now },
+  assinadoEm: { type: Date },
   statusCaixa: {
     type: String,
-    enum: ["preparando", "enviada", "entregue"],
-    default: "preparando",
+    enum: ["aguardando_pagamento", "preparando", "enviada", "entregue"],
+    default: "aguardando_pagamento",
   },
   canceladoEm: { type: Date, default: null },
+  cancelamentoEstado: { type: String, enum: ['pendente', 'confirmado'] },
+  cancelamentoConfirmadoEm: Date,
+});
+
+assinaturaSchema.index({ clienteId: 1, chaveTentativa: 1 }, { unique: true,
+  partialFilterExpression: { chaveTentativa: { $type: "string" } } });
+assinaturaSchema.index({ preapprovalId: 1 }, { unique: true, sparse: true });
+assinaturaSchema.pre("validate", function () {
+  if (this.isNew && (this.plano?.codigo !== PLANO_CLUBE.codigo || this.plano?.nome !== PLANO_CLUBE.tipo ||
+    this.plano?.valor !== PLANO_CLUBE.valor || this.frete !== PLANO_CLUBE.frete)) {
+    throw new Error("Novas assinaturas devem usar o plano mensal SUB-02 de 9490 centavos com entrega incluída.");
+  }
 });
 
 const inteiro = {
   validator: Number.isInteger,
   message: "{PATH} deve ser um número inteiro (centavos).",
 };
+
+const mensalidadeClubeSchema = new mongoose.Schema({
+  _id: { type: String },
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  preapprovalId: { type: String, required: true },
+  pagamentoId: String,
+  tentativasAnteriores: [{ pagamentoId: String, statusFinanceiro: { type: String, enum: FINANCEIROS }, provedorAtualizadoEm: Date }],
+  valor: { type: Number, required: true, enum: [PLANO_CLUBE.valor], validate: inteiro },
+  statusFinanceiro: { type: String, required: true, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
+  aprovadoEm: Date,
+  recebidoEm: { type: Date, required: true },
+  provedorAtualizadoEm: { type: Date, required: true },
+  vencimentoProvedor: { type: Date, required: true },
+  vencimentoContratual: String,
+  cobrancaDivergente: { type: Boolean, default: false },
+  competencia: { type: String, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  sequencia: { type: Number, min: 0, validate: inteiro },
+});
+mensalidadeClubeSchema.index({ pagamentoId: 1 }, { unique: true, sparse: true });
+mensalidadeClubeSchema.index({ assinaturaId: 1, competencia: 1 }, { unique: true,
+  partialFilterExpression: { competencia: { $type: 'string' } } });
+
+const calendarioClubeSchema = new mongoose.Schema({
+  _id: { type: String, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  postagemPrevista: { type: String, required: true },
+  confirmadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  confirmadoEm: { type: Date, required: true },
+});
+
+const caixaClubeSchema = new mongoose.Schema({
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true, index: true },
+  mensalidadeId: { type: String, required: true, unique: true },
+  pagamentoId: { type: String, required: true, unique: true },
+  competencia: { type: String, required: true, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  lote: { type: String, required: true, match: /^20\d{2}-(0[1-9]|1[0-2])$/ },
+  aprovadoEm: { type: Date, required: true },
+  statusFinanceiro: { type: String, required: true, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
+  bloqueada: { type: Boolean, required: true, default: true },
+  bloqueadaParaReembolso: { type: Boolean, default: false },
+  reembolsoEstado: { type: String, enum: ['solicitado', 'concluido'] },
+  reembolsoSolicitadoEm: Date,
+  entrega: { rua: String, numero: String, complemento: String, bairro: String, cidade: String, estado: String, cep: String },
+  postagemPrevista: String,
+  statusPreparacao: { type: String, enum: ['aguardando', 'preparando', 'enviada', 'entregue'], default: 'aguardando' },
+  rastreio: String,
+  ocorrencias: [{ motivo: String, novaPrevisao: String, registradoEm: Date, clienteInformadoEm: Date }],
+});
+caixaClubeSchema.index({ assinaturaId: 1, competencia: 1 }, { unique: true });
+
+const operacaoClubeSchema = new mongoose.Schema({
+  _id: { type: String },
+  tipo: { type: String, enum: ['cancelar_assinatura', 'cancelar_pagamento', 'reembolsar_pagamento'], required: true },
+  assinaturaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Assinatura', required: true, index: true },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
+  pagamentoId: String,
+  chaveIdempotencia: { type: String, required: true },
+  estado: { type: String, enum: ['pendente', 'processando', 'aguardando_provedor', 'concluida'], required: true },
+  identificadoEm: { type: Date, required: true },
+  limiteSolicitacaoEm: Date,
+  proximaExecucaoEm: Date,
+  lockToken: String,
+  lockAte: Date,
+  tentativas: { type: Number, default: 0, min: 0, validate: inteiro },
+  valorSolicitado: { type: Number, min: 1, max: PLANO_CLUBE.valor, validate: inteiro },
+  solicitadoEm: Date,
+  reembolsoId: String,
+  finalizadoEm: Date,
+});
+operacaoClubeSchema.index({ estado: 1, proximaExecucaoEm: 1 });
 
 const tutorialSchema = new mongoose.Schema({
   titulo: { type: String, required: true, trim: true },
@@ -228,7 +332,81 @@ const historicoStatusSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Registro anterior à chamada externa. Não armazena payload do gateway,
+// token de cartão, CPF, número de cartão ou CVV.
+const tentativaPagamentoSchema = new mongoose.Schema({
+  pedidoOrigemNumero: { type: String, maxlength: 100 },
+  clienteContato: { nome: { type: String, maxlength: 120 }, email: { type: String, maxlength: 254 } },
+  cotacaoId: { type: String },
+  enderecoConfirmado: { type: String, maxlength: 1000 },
+  clienteId: { type: mongoose.Schema.Types.ObjectId, ref: "Usuario", required: true, index: true },
+  metodo: { type: String, enum: ["pix", "boleto", "cartao"], required: true },
+  chaveTentativa: { type: String, maxlength: 80 },
+  hashRequisicao: { type: String },
+  itens: {
+    type: [itemPedidoSchema],
+    required: true,
+    validate: { validator: (itens) => itens.length > 0, message: "A tentativa precisa ter itens." },
+  },
+  subtotal: { type: Number, required: true, min: 0, validate: inteiro },
+  frete: { type: Number, required: true, min: 0, validate: inteiro },
+  desconto: { type: Number, required: true, min: 0, validate: inteiro },
+  total: { type: Number, required: true, min: 1, validate: inteiro },
+  parcelas: { type: Number, required: true, min: 1, max: 6, validate: inteiro },
+  cep: { type: String, required: true, match: /^\d{8}$/ },
+  servicoId: { type: Number, min: 0, validate: inteiro },
+  estado: {
+    type: String,
+    enum: ["registrada", "resposta_recebida", "resultado_desconhecido", "nao_cobrada"],
+    default: "registrada",
+    required: true,
+  },
+  pagamentoId: { type: String },
+  statusProvedor: { type: String, maxlength: 80 },
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
+  provedorAtualizadoEm: { type: Date },
+  aprovadoEm: { type: Date },
+  ultimaNotificacaoEm: { type: Date },
+  respostaGateway: { type: mongoose.Schema.Types.Mixed, select: false },
+  estoqueEstado: {
+    type: String, enum: ["nao_reservado", "reservado", "liberado"], default: "nao_reservado",
+  },
+}, { timestamps: { createdAt: "criadoEm", updatedAt: "atualizadoEm" } });
+
+tentativaPagamentoSchema.index({ clienteId: 1, chaveTentativa: 1 }, {
+  unique: true,
+  partialFilterExpression: { chaveTentativa: { $type: "string" } },
+});
+tentativaPagamentoSchema.index({ cotacaoId: 1 }, { unique: true,
+  partialFilterExpression: { cotacaoId: { $type: 'string' } } });
+
+tentativaPagamentoSchema.pre("validate", function () {
+  const subtotal = this.itens.reduce((soma, item) => soma + item.precoUnit * item.quantidade, 0);
+  if (!Number.isSafeInteger(subtotal) || this.subtotal !== subtotal ||
+    !Number.isSafeInteger(this.total) || this.total !== this.subtotal + this.frete - this.desconto) {
+    throw new Error("Os valores da tentativa não conferem com os itens.");
+  }
+});
+
 const pedidoSchema = new mongoose.Schema({
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  statusLogistico: { type: String, enum: LOGISTICOS },
+  valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
+  historicoFinanceiro: [{
+    status: { type: String, enum: FINANCEIROS, required: true },
+    valorReembolsado: { type: Number, min: 0, default: 0, validate: inteiro },
+    em: { type: Date, required: true },
+  }],
+  historicoLogistico: [{
+    status: { type: String, enum: LOGISTICOS, required: true },
+    em: { type: Date, required: true },
+  }],
+  pagamentoAtualizadoEm: { type: Date },
+  pagamentoAprovadoEm: { type: Date },
+  tentativaId: { type: mongoose.Schema.Types.ObjectId, ref: "TentativaPagamento" },
+  estoqueRestituido: { type: Boolean, default: false },
+  estoqueRestituicaoPendente: { type: Boolean, default: false },
   numero: { type: String, unique: true, trim: true }, // MS-1001
 
   // null = compra como convidado
@@ -308,6 +486,13 @@ pedidoSchema.pre("validate", async function () {
 // validate() antes de save() não duplica o status inicial.
 // Mongoose 9 não passa mais `next` para hooks "pre": basta retornar.
 pedidoSchema.pre("save", function () {
+  if (this.statusFinanceiro && (this.isNew || this.isModified("statusFinanceiro") || this.isModified("valorReembolsado"))) {
+    this.historicoFinanceiro.push({ status: this.statusFinanceiro, valorReembolsado: this.valorReembolsado,
+      em: (this.statusFinanceiro === "aprovado" && this.pagamentoAprovadoEm) || this.pagamentoAtualizadoEm || new Date() });
+  }
+  if (this.statusLogistico && (this.isNew || this.isModified("statusLogistico"))) {
+    this.historicoLogistico.push({ status: this.statusLogistico, em: new Date() });
+  }
   if (this.isNew || this.isModified("status")) {
     const ultimo = this.historicoStatus[this.historicoStatus.length - 1];
     if (!ultimo || ultimo.status !== this.status) {
@@ -379,11 +564,28 @@ carrinhoSchema.index(
 );
 
 const Usuario = mongoose.model("Usuario", usuarioSchema);
+const notificacaoPagamentoSchema = new mongoose.Schema({
+  _id: { type: String },
+  pagamentoId: { type: String, required: true, index: true },
+  statusProvedor: { type: String, required: true },
+  statusFinanceiro: { type: String, enum: FINANCEIROS },
+  valorReembolsado: { type: Number, min: 0, validate: inteiro },
+  provedorAtualizadoEm: { type: Date, required: true },
+  aprovadoEm: { type: Date },
+  recebidoEm: { type: Date, required: true },
+  requestId: { type: String, required: true },
+});
+const NotificacaoPagamento = mongoose.model("NotificacaoPagamento", notificacaoPagamentoSchema);
 const Plano = mongoose.model("Plano", planoSchema);
 const Assinatura = mongoose.model("Assinatura", assinaturaSchema);
+const MensalidadeClube = mongoose.model('MensalidadeClube', mensalidadeClubeSchema);
+const CaixaClube = mongoose.model('CaixaClube', caixaClubeSchema);
+const CalendarioClube = mongoose.model('CalendarioClube', calendarioClubeSchema);
+const OperacaoClube = mongoose.model('OperacaoClube', operacaoClubeSchema);
 const Produto = mongoose.model("Produto", produtoSchema);
 const Contador = mongoose.model("Contador", contadorSchema);
 const Pedido = mongoose.model("Pedido", pedidoSchema);
+const TentativaPagamento = mongoose.model("TentativaPagamento", tentativaPagamentoSchema);
 const Troca = mongoose.model("Troca", trocaSchema);
 const Carrinho = mongoose.model("Carrinho", carrinhoSchema);
 
@@ -391,9 +593,15 @@ module.exports = {
   Usuario,
   Plano,
   Assinatura,
+  MensalidadeClube,
+  CaixaClube,
+  CalendarioClube,
+  OperacaoClube,
   Produto,
   Contador,
   Pedido,
+  TentativaPagamento,
+  NotificacaoPagamento,
   Troca,
   Carrinho,
 };

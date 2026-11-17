@@ -14,8 +14,8 @@ function calcularSubtotalCentavos(itens) {
 
   return itens.reduce((subtotal, item) => {
     const produto = item?.produtoId;
-    const quantidade = Number(item?.quantidade);
-    const preco = Number(produto?.preco);
+    const quantidade = item?.quantidade;
+    const preco = produto?.preco;
     if (!produto || produto.ativo === false || !Number.isSafeInteger(quantidade) || quantidade < 1 || !Number.isSafeInteger(preco) || preco < 0) {
       throw new ErroCalculoPagamento("Há um produto inválido no carrinho.");
     }
@@ -55,12 +55,14 @@ function calcularValorBaseCentavos(subtotalCentavos, freteCentavos) {
 }
 
 function calcularPixCentavos(subtotalCentavos, freteCentavos) {
-  const subtotal = Number(subtotalCentavos);
-  const frete = Number(freteCentavos);
+  const subtotal = subtotalCentavos;
+  const frete = freteCentavos;
   if (!Number.isSafeInteger(subtotal) || subtotal < 0 || !Number.isSafeInteger(frete) || frete < 0) {
     throw new ErroCalculoPagamento("Os valores do Pix são inválidos.");
   }
-  const produtosLiquidos = Math.round(subtotal * 0.95);
+  // RN03: calcula uma vez e arredonda meio centavo para cima, sem ponto
+  // flutuante intermediário nem perda perto de Number.MAX_SAFE_INTEGER.
+  const produtosLiquidos = Number((BigInt(subtotal) * 95n + 50n) / 100n);
   const desconto = subtotal - produtosLiquidos;
   const total = produtosLiquidos + frete;
   if (![produtosLiquidos, desconto, total].every(Number.isSafeInteger)) {

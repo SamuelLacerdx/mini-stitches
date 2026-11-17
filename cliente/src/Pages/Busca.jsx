@@ -11,20 +11,23 @@ const formatarPreco = (valor) => {
 export default function Busca() {
   const [searchParams] = useSearchParams();
   const q = searchParams.get("q") || "";
-  const [produtos, setProdutos] = useState([]);
-  const [carregando, setCarregando] = useState(true);
+  const [resultado, setResultado] = useState({ termo: null, produtos: [] });
+  const produtos = resultado.termo === q ? resultado.produtos : [];
+  const carregando = Boolean(q.trim() && resultado.termo !== q);
 
   useEffect(() => {
-    if (!q.trim()) {
-      setProdutos([]);
-      setCarregando(false);
-      return;
-    }
-
-    setCarregando(true);
+    if (!q.trim()) return;
+    const controle = new AbortController();
+    let ativo = true;
     Promise.all([
-      fetch("/api/produtos?tipo=kit").then((r) => r.json()),
-      fetch("/api/produtos?tipo=material").then((r) => r.json()),
+      fetch("/api/produtos?tipo=kit", { signal: controle.signal }).then((r) => {
+        if (!r.ok) throw new Error('Consulta indisponível.');
+        return r.json();
+      }),
+      fetch("/api/produtos?tipo=material", { signal: controle.signal }).then((r) => {
+        if (!r.ok) throw new Error('Consulta indisponível.');
+        return r.json();
+      }),
     ])
       .then(([kits, materiais]) => {
         const todos = [
@@ -32,12 +35,10 @@ export default function Busca() {
           ...(materiais.produtos || []),
         ];
         const termo = q.toLowerCase();
-        setProdutos(
-          todos.filter((p) => p.nome?.toLowerCase().includes(termo)),
-        );
+        if (ativo) setResultado({ termo: q, produtos: todos.filter((p) => p.nome?.toLowerCase().includes(termo)) });
       })
-      .catch(() => setProdutos([]))
-      .finally(() => setCarregando(false));
+      .catch(() => { if (ativo) setResultado({ termo: q, produtos: [] }); });
+    return () => { ativo = false; controle.abort(); };
   }, [q]);
 
   if (!q.trim()) return <NotFound />;

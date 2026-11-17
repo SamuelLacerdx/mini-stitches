@@ -1,3 +1,5 @@
+const { loggerOperacional: logger } = require('./logOperacional');
+
 class ErroFrete extends Error {
   constructor(status, mensagem) {
     super(mensagem);
@@ -158,7 +160,7 @@ async function chamarMelhorEnvio(config, payload) {
       signal: AbortSignal.timeout(8000),
     });
   } catch (erro) {
-    console.error("[frete] falha ao contatar o Melhor Envio:", erro?.message);
+    logger.error('frete.provedor_indisponivel');
     if (erro?.name === "TimeoutError" || erro?.name === "AbortError") {
       throw new ErroFrete(
         504,
@@ -239,10 +241,7 @@ async function cotarFrete({ cepDestino, itens }) {
   }
 
   if (!resposta.ok) {
-    console.error("[frete] resposta inesperada do Melhor Envio:", {
-      status: resposta.status,
-      body: corpo || texto.slice(0, 500),
-    });
+    logger.error('frete.resposta_invalida', { httpStatus: resposta.status });
 
     if (resposta.status === 422) {
       throw new ErroFrete(
@@ -251,9 +250,7 @@ async function cotarFrete({ cepDestino, itens }) {
       );
     }
     if ([401, 403].includes(resposta.status)) {
-      console.error(
-        "[frete] token recusado: confira MELHOR_ENVIO_TOKEN e MELHOR_ENVIO_SANDBOX.",
-      );
+      logger.error('frete.autorizacao_recusada');
     }
     throw new ErroFrete(502, "Não foi possível calcular o frete neste momento.");
   }

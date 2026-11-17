@@ -1,8 +1,12 @@
+const { estadosPedido } = require("./estadosPedido");
+const { loggerOperacional: logger } = require('./logOperacional');
+
 function respostaPedido(pedido) {
   return {
     numero: pedido.numero,
     criadoEm: pedido.criadoEm,
     status: pedido.status,
+    ...estadosPedido(pedido),
     pagamento: pedido.pagamento,
     subtotal: pedido.subtotal,
     frete: pedido.frete,
@@ -37,11 +41,11 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
   app.get('/api/pedidos', autenticar, async (req, res) => {
     try {
       const pedidos = await Pedido.find({ clienteId: req.session.usuarioId })
-        .select('numero criadoEm status pagamento subtotal frete desconto total rastreio itens.nome itens.slug itens.quantidade itens.precoUnit')
+        .select('numero criadoEm status statusFinanceiro statusLogistico valorReembolsado pagamento subtotal frete desconto total rastreio itens.nome itens.slug itens.quantidade itens.precoUnit')
         .sort({ criadoEm: -1 }).limit(50).lean();
       res.json({ pedidos: pedidos.map(respostaPedido) });
-    } catch (erro) {
-      console.error('[pedidos] erro ao listar:', erro.message);
+    } catch {
+      logger.error('pedido.listagem_falhou');
       res.status(500).json({ erro: 'Não foi possível carregar os pedidos.' });
     }
   });
@@ -49,11 +53,11 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
   app.get('/api/pedidos/:id/status', autenticar, async (req, res) => {
     try {
       const filtro = filtroDoCliente(req);
-      const pedido = filtro && await Pedido.findOne(filtro).select('status -_id').lean();
+      const pedido = filtro && await Pedido.findOne(filtro).select('status statusFinanceiro statusLogistico valorReembolsado -_id').lean();
       if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado.' });
-      return res.json({ status: pedido.status });
-    } catch (erro) {
-      console.error('[pedidos] erro ao consultar status:', erro.message);
+      return res.json({ status: pedido.status, ...estadosPedido(pedido) });
+    } catch {
+      logger.error('pedido.status_falhou');
       return res.status(500).json({ erro: 'Não foi possível carregar o status do pedido.' });
     }
   });
@@ -62,7 +66,7 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
     try {
       const filtro = filtroDoCliente(req);
       const pedido = filtro && await Pedido.findOne(filtro)
-        .select('numero criadoEm status pagamento subtotal frete desconto total rastreio itens.nome itens.slug itens.quantidade itens.precoUnit cliente.nome entrega historicoStatus')
+        .select('numero criadoEm status statusFinanceiro statusLogistico valorReembolsado pagamento subtotal frete desconto total rastreio itens.nome itens.slug itens.quantidade itens.precoUnit cliente.nome entrega historicoStatus historicoFinanceiro historicoLogistico')
         .lean();
       if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado.' });
       return res.json({
@@ -71,10 +75,12 @@ function registrarRotasPedidosCliente(app, { Pedido, autenticar, isValidObjectId
           cliente: { nome: pedido.cliente?.nome || '' },
           entrega: { cep: pedido.entrega?.cep || '', endereco: pedido.entrega?.endereco || '' },
           historicoStatus: (pedido.historicoStatus || []).map(({ status, em }) => ({ status, em })),
+          historicoFinanceiro: (pedido.historicoFinanceiro || []).map(({ status, em, valorReembolsado }) => ({ status, em, valorReembolsado })),
+          historicoLogistico: (pedido.historicoLogistico || []).map(({ status, em }) => ({ status, em })),
         },
       });
-    } catch (erro) {
-      console.error('[pedidos] erro ao consultar pedido:', erro.message);
+    } catch {
+      logger.error('pedido.consulta_falhou');
       return res.status(500).json({ erro: 'Não foi possível carregar o pedido.' });
     }
   });

@@ -1,104 +1,15 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCarrinho } from '../context/CarrinhoContext';
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
-  }).format(Number(valorEmCentavos || 0) / 100);
+  }).format(Number(valorEmCentavos ?? 0) / 100);
 
 export default function Carrinho() {
-  const navigate = useNavigate();
-  const [itens, setItens] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState("");
-
-  useEffect(() => {
-    let ativo = true;
-
-    fetch("/api/carrinho", { credentials: "include" })
-      .then(async (resposta) => {
-        const dados = await resposta.json();
-        if (!resposta.ok) {
-          throw new Error(
-            dados.erro || "Não foi possível carregar o carrinho.",
-          );
-        }
-        return dados;
-      })
-      .then((dados) => {
-        if (ativo) {
-          setItens(dados.itens || []);
-        }
-      })
-      .catch((error) => {
-        if (ativo) {
-          setErro(error.message || "Não foi possível carregar o carrinho.");
-        }
-      })
-      .finally(() => {
-        if (ativo) {
-          setCarregando(false);
-        }
-      });
-
-    return () => {
-      ativo = false;
-    };
-  }, []);
-
-  const alterarCarrinho = async (produtoId, metodo, quantidade) => {
-    try {
-      setSalvando(true);
-      setErro("");
-
-      const resposta = await fetch(`/api/carrinho/${produtoId}`, {
-        method: metodo,
-        credentials: "include",
-        headers:
-          metodo === "PATCH" ? { "Content-Type": "application/json" } : {},
-        body: metodo === "PATCH" ? JSON.stringify({ quantidade }) : undefined,
-      });
-      const dados = await resposta.json();
-      if (!resposta.ok) {
-        throw new Error(dados.erro || "Não foi possível atualizar o carrinho.");
-      }
-
-      setItens(dados.itens || []);
-    } catch (error) {
-      setErro(error.message || "Não foi possível atualizar o carrinho.");
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  const subtotal = itens.reduce(
-    (total, item) => total + item.preco * item.quantidade,
-    0,
-  );
-  const pixTotal = Math.round(subtotal * 0.95);
-
-  const irParaCheckout = async () => {
-    if (itens.length === 0) {
-      setErro(
-        "Seu carrinho está vazio. Adicione algum produto antes de continuar.",
-      );
-      return;
-    }
-
-    try {
-      const resposta = await fetch("/api/perfil", { credentials: "include" });
-      if (resposta.status === 401) {
-        navigate(`/login?redirect=${encodeURIComponent("/checkout")}`);
-        return;
-      }
-    } catch {
-      // Falha de rede: o checkout e o servidor revalidam a autenticação.
-    }
-
-    navigate("/checkout");
-  };
+  const { itens, resumo, carregando, salvando, erro, alterar: alterarCarrinho, finalizarCompra: irParaCheckout, finalizando } = useCarrinho();
+  const subtotal = resumo?.subtotal;
+  const pixTotal = resumo?.produtosPix;
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full flex flex-col lg:flex-row gap-12">
@@ -229,11 +140,11 @@ export default function Carrinho() {
 
         <button
           type="button"
-          disabled={itens.length === 0 || carregando || salvando}
+          disabled={!resumo?.podeContinuar || carregando || salvando || finalizando || Boolean(erro)}
           onClick={irParaCheckout}
           className="w-full bg-[#3E2417] hover:bg-[#602D15] disabled:opacity-50 text-white py-4 rounded-lg font-['Archivo_Black'] text-base transition-colors mt-2"
         >
-          FINALIZAR COMPRA
+          {finalizando ? 'AGUARDE...' : 'FINALIZAR COMPRA'}
         </button>
       </div>
     </div>

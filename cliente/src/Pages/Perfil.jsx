@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { financeiroPedido, situacaoFinanceira } from "../utils/pedido.mjs";
 
 const enderecoVazio = {
   apelido: "",
@@ -18,7 +19,7 @@ const STATUS_PEDIDO = {
     rotulo: "Aguardando pagamento",
     classe: "bg-yellow-100",
   },
-  pago: { rotulo: "Pago", classe: "bg-green-100" },
+  pago: { rotulo: "Aguardando preparo", classe: "bg-green-100" },
   em_separacao: { rotulo: "Em separação", classe: "bg-orange-100" },
   enviado: { rotulo: "Enviado", classe: "bg-blue-100" },
   entregue: { rotulo: "Entregue", classe: "bg-pink-200" },
@@ -52,6 +53,8 @@ export default function Perfil() {
   const [cartoes, setCartoes] = useState([]);
   const [mostrarFormularioCartao, setMostrarFormularioCartao] = useState(false);
   const [cartaoForm, setCartaoForm] = useState({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
+  const [salvandoCartao, setSalvandoCartao] = useState(false);
+  const envioCartaoRef = useRef(false);
   const [senhaStatus, setSenhaStatus] = useState("");
 
   async function sair(event) {
@@ -275,21 +278,42 @@ export default function Perfil() {
 
   async function salvarCartao(e) {
     e.preventDefault();
+    if (envioCartaoRef.current) return;
+    envioCartaoRef.current = true;
+    setSalvandoCartao(true);
     try {
+      const config = await fetch('/api/config');
+      const dadosConfig = await config.json();
+      if (!config.ok || !dadosConfig.publicKey || !window.MercadoPago) throw new Error('Validação de cartão indisponível.');
+      const sdk = new window.MercadoPago(dadosConfig.publicKey, { locale: 'pt-BR' });
+      const [mes, ano] = cartaoForm.validade.split('/');
+      let token;
+      try {
+        token = await sdk.createCardToken({ cardNumber: cartaoForm.numero.replace(/\D/g, ''),
+          cardholderName: cartaoForm.titular, cardExpirationMonth: mes,
+          cardExpirationYear: ano?.length === 2 ? `20${ano}` : ano, securityCode: cartaoForm.cvv,
+          identification: { type: 'CPF', number: cartaoForm.cpfTitular.replace(/\D/g, '') } });
+      } catch { throw new Error('Não foi possível validar o cartão. Confira os dados.'); }
+      if (!token?.id) throw new Error('Não foi possível validar o cartão.');
+      setCartaoForm({ titular: '', numero: '', validade: '', cvv: '', cpfTitular: '' });
       const resposta = await fetch("/perfil/cartoes", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cartaoForm),
+        body: JSON.stringify({ tokenCartao: token.id }),
       });
       const data = await resposta.json();
       if (!resposta.ok) throw new Error(data.erro || "Erro ao salvar cartão.");
       setCartoes(data.cartoes);
       setCartaoForm({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
       setMostrarFormularioCartao(false);
-      alert("Cartão salvo!");
+      alert('Referência do cartão salva. Os pagamentos exigem uma nova validação.');
     } catch (error) {
       alert(error.message || "Erro ao salvar cartão.");
+    } finally {
+      setCartaoForm({ titular: '', numero: '', validade: '', cvv: '', cpfTitular: '' });
+      envioCartaoRef.current = false;
+      setSalvandoCartao(false);
     }
   }
 
@@ -679,7 +703,8 @@ export default function Perfil() {
           ))}
 
           <p className="text-xs text-stone-500 leading-relaxed max-w-3xl">
-            Por segurança, guardamos só a bandeira e os 4 últimos números.
+            Guardamos apenas uma referência mascarada para consulta. Ela não permite cobrar nem
+            reutilizar o cartão: informe os dados novamente no checkout ou na contratação do Clube.
           </p>
 
           {mostrarFormularioCartao && (
@@ -731,7 +756,7 @@ export default function Perfil() {
                 <div>
                   <label className="block mb-1">CVV *</label>
                   <input
-                    type="text"
+                    type="password"
                     value={cartaoForm.cvv}
                     onChange={(e) => setCartaoForm((prev) => ({ ...prev, cvv: e.target.value }))}
                     className="w-full h-9 px-3 bg-white rounded border border-orange-400/30"
@@ -756,13 +781,14 @@ export default function Perfil() {
               <div className="flex gap-3">
                 <button
                   type="submit"
+                  disabled={salvandoCartao}
                   className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
                 >
-                  SALVAR CARTÃO
+                  {salvandoCartao ? 'VALIDANDO...' : 'SALVAR REFERÊNCIA'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMostrarFormularioCartao(false)}
+                  onClick={() => { setMostrarFormularioCartao(false); setCartaoForm({ titular: '', numero: '', validade: '', cvv: '', cpfTitular: '' }); }}
                   className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
                 >
                   CANCELAR
@@ -796,7 +822,7 @@ export default function Perfil() {
               classe: "bg-stone-200",
             };
             const aguardandoPagamento =
-              pedido.status === "aguardando_pagamento";
+              financeiroPedido(pedido) === "aguardando_pagamento" && pedido.statusLogistico !== "cancelado";
             const conteudo = (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -818,6 +844,7 @@ export default function Perfil() {
                     .map((item) => `${item.quantidade}× ${item.nome}`)
                     .join(", ")}
                 </p>
+                <p className="font-semibold">{situacaoFinanceira(financeiroPedido(pedido)).titulo}</p>
 
               </>
             );
