@@ -1761,7 +1761,7 @@ function respostaPedidoAdmin(pedido) {
 
 registrarConciliacaoAdmin({ app, autenticarAdmin, consultar: criarConsultaConciliacao({
   tentativas: TentativaPagamento, pedidos: Pedido, mensalidades: MensalidadeClube,
-  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube,
+  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube, usuarios: Usuario,
 }) });
 
 app.get("/admin/dashboard", autenticarAdmin, async (req, res) => {

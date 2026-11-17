@@ -14,6 +14,25 @@ const data = (valor) => valor && Number.isFinite(new Date(valor).getTime())
   ? new Date(valor).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Indisponível';
 const campoClasse = 'rounded-lg border border-stone-300 bg-white p-2';
 const FINANCEIROS = ['aguardando_pagamento', 'aprovado', 'recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado', 'em_contestacao', 'contestado', 'desconhecido'];
+const abreviarId = (valor) => !valor || valor.length < 18 ? valor : `${valor.slice(0, 8)}…${valor.slice(-6)}`;
+
+function Identificador({ valor, rotulo }) {
+  const [estado, setEstado] = useState('');
+  if (!valor) return null;
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(valor);
+      setEstado('Copiado');
+    } catch {
+      setEstado('Não foi possível copiar');
+    }
+  }
+  return <span className="inline-flex max-w-full items-center gap-2">
+    <span title={valor} className="break-all">{abreviarId(valor)}</span>
+    <button type="button" className="shrink-0 underline" onClick={copiar} aria-label={`Copiar ${rotulo} completo`}>Copiar</button>
+    {estado && <span role="status" className="text-xs">{estado}</span>}
+  </span>;
+}
 
 export default function ConciliacaoAdmin() {
   const [filtros, setFiltros] = useState({ origem: 'tentativas', campo: '_id', referencia: '', competencia: '' });
@@ -58,8 +77,9 @@ export default function ConciliacaoAdmin() {
           Estoque: item.estoqueEstado, Pedido: item.pedidoNumero, Pagamento: item.pagamentoId,
           Assinatura: item.assinaturaId, Autorização: item.preapprovalId, Adesão: item.adesao,
           Mensalidade: item.mensalidadeId, 'Mês da caixa': item.competencia, 'Preparação / entrega': item.statusLogistico,
-        }).filter(([, valor]) => valor).map(([rotulo, valor]) => <div key={rotulo} className="break-all"><dt className="font-semibold">{rotulo}</dt><dd>{valor}</dd></div>)}
+        }).filter(([, valor]) => valor).map(([rotulo, valor]) => <div key={rotulo} className="break-all"><dt className="font-semibold">{rotulo}</dt><dd>{['Cliente', 'Tentativa', 'Pagamento', 'Assinatura', 'Autorização', 'Mensalidade'].includes(rotulo) ? <Identificador valor={String(valor)} rotulo={rotulo} /> : valor}</dd></div>)}
       </dl>
+      <p className="text-base"><span className="font-semibold">Cliente:</span> {item.clienteNome || 'Cliente não localizado'} <span className="text-sm">({item.clienteId ? <Identificador valor={item.clienteId} rotulo="cliente" /> : 'ID indisponível'})</span></p>
       {item.origem !== 'assinaturas' && <div className="space-y-1">
         <p className="font-semibold">{situacaoFinanceira(item.statusFinanceiro).titulo}</p>
         <p>Total original: {moeda(item.total)} · Reembolso confirmado: {moeda(item.valorReembolsado)} · Total menos reembolso: {moeda(item.saldo)}</p>
