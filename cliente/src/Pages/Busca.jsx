@@ -2,6 +2,22 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import NotFound from "./NotFound";
 
+const semAcento = (s) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+function buscaFlexivel(palavrasBusca, textoCompleto) {
+  const texto = semAcento(textoCompleto);
+  const tokens = texto.split(/\s+/);
+  return palavrasBusca.every(
+    (b) =>
+      texto.includes(b) ||
+      tokens.some((t) => {
+        const n = Math.max(3, Math.ceil(Math.min(b.length, t.length) * 0.65));
+        return n <= b.length && n <= t.length && b.slice(0, n) === t.slice(0, n);
+      }),
+  );
+}
+
 const formatarPreco = (valor) => {
   const numero = Number(valor ?? 0);
   if (!Number.isFinite(numero)) return "R$ 0,00";
@@ -34,8 +50,21 @@ export default function Busca() {
           ...(kits.produtos || []),
           ...(materiais.produtos || []),
         ];
-        const termo = q.toLowerCase();
-        if (ativo) setResultado({ termo: q, produtos: todos.filter((p) => p.nome?.toLowerCase().includes(termo)) });
+        const palavras = semAcento(q).split(/\s+/).filter(Boolean);
+        if (ativo) setResultado({ termo: q, produtos: todos.filter((p) => {
+          const campos = [
+            p.nome,
+            p.nomeChamada,
+            p.tipo,
+            p.nivel,
+            p.faixaEtaria,
+            p.caixa,
+            p.material?.descricao,
+            p.material?.categoria,
+            ...(Array.isArray(p.kit?.descricao) ? p.kit.descricao : []),
+          ].filter(Boolean).join(" ");
+          return buscaFlexivel(palavras, campos);
+        }) });
       })
       .catch(() => { if (ativo) setResultado({ termo: q, produtos: [] }); });
     return () => { ativo = false; controle.abort(); };
