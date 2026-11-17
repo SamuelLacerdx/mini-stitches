@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import logoMarca from "../assets/logo.svg";
+import { useCarrinho } from '../context/CarrinhoContext';
 import {
   Search,
   ShoppingBag,
@@ -18,6 +19,7 @@ export default function Header() {
 }
 
 function ConteudoHeader() {
+  const { abrir, aberto } = useCarrinho();
   const [usuario, setUsuario] = useState(null);
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
@@ -174,13 +176,18 @@ function ConteudoHeader() {
               )}
             </div>
 
-            <Link
-              to="/carrinho"
+            <button
+              type="button"
+              onClick={abrir}
+              aria-label="Abrir carrinho"
+              aria-haspopup="dialog"
+              aria-expanded={aberto}
+              aria-controls="carrinho-lateral"
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
             >
               <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
               <span className="hidden sm:inline">CARRINHO</span>
-            </Link>
+            </button>
 
             <Link
               to={

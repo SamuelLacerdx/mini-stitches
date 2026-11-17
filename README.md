@@ -21,6 +21,26 @@ As capturas mostram a interface da página inicial e do catálogo. O produto exi
 - Área administrativa para gerenciar produtos e conteúdos de kits.
 - Páginas informativas para o Clube da Caixinha, tutoriais, trocas, história e contato.
 
+### Carrinho lateral (RF03)
+
+O ícone do cabeçalho e a inclusão de produtos abrem a gaveta baseada no
+[frame do Figma](https://www.figma.com/design/Uf2QlLEWJ0fxL1AWvJmqSG?node-id=2038-843).
+Ela permite alterar quantidades, remover produtos e acessar o checkout ou a
+página completa do carrinho. Escape e o botão de fechar restauram o foco anterior.
+
+O servidor retorna o resumo em centavos junto de cada leitura ou alteração do
+carrinho, usando os preços atuais do cadastro. O Pix desconta 5% dos produtos;
+as parcelas de 2x a 6x respeitam o mínimo de R$ 40 e distribuem os centavos sem
+alterar o total. O frete gratuito exige subtotal acima de R$ 399,90. O resumo da
+gaveta considera somente os produtos: cotação por CEP e total final, incluindo
+frete, são confirmados no checkout. Produtos indisponíveis, estoque insuficiente
+e falhas de atualização impedem continuar até a correção.
+
+Os testes em `cliente/tests/pagamentos.test.cjs` cobrem resumo, limites,
+arredondamento, produtos removidos, respostas atrasadas, alterações duplicadas,
+atualização durante escrita e falhas de sessão. A validação visual local usa
+dados fictícios e não substitui a integração com os serviços externos.
+
 ## Tecnologias
 
 - **Interface:** React 19, React Router 7, Vite 8, Tailwind CSS 4 e Lucide React.

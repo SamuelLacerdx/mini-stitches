@@ -1,5 +1,5 @@
-export function notificarAlteracaoCarrinho() {
-  window.dispatchEvent(new Event('carrinho-atualizado'));
+export function notificarAlteracaoCarrinho(opcoes = {}) {
+  window.dispatchEvent(new CustomEvent('carrinho-atualizado', { detail: opcoes }));
   try { localStorage.setItem('mini-stitches:carrinho-revisao', crypto.randomUUID()); }
   catch { /* A validação no servidor continua obrigatória sem storage. */ }
 }

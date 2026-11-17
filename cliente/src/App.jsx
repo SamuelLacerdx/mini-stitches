@@ -21,10 +21,13 @@ import Busca from "./Pages/Busca";
 import PedidoStatus from "./Pages/Pedido-status";
 import EsqueciSenha from "./Pages/EsqueciSenha";
 import NovaSenha from "./Pages/NovaSenha";
+import CarrinhoProvider from './Componentes/CarrinhoProvider';
+import CarrinhoLateral from './Componentes/CarrinhoLateral';
 
 export default function App() {
   return (
     <BrowserRouter>
+      <CarrinhoProvider>
       <div className="flex min-h-screen flex-col justify-between">
         <Header />
         <main className="flex grow">
@@ -53,7 +56,9 @@ export default function App() {
           </Routes>
         </main>
         <Footer />
+        <CarrinhoLateral />
       </div>
+      </CarrinhoProvider>
     </BrowserRouter>
   );
 }

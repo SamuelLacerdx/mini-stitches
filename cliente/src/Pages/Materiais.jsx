@@ -66,7 +66,7 @@ export default function Materiais() {
         throw new Error(dados.erro || "Não foi possível adicionar ao carrinho.");
       }
 
-      notificarAlteracaoCarrinho();
+      notificarAlteracaoCarrinho({ abrir: true });
       setMensagens((prev) => ({
         ...prev,
         [item._id]: {

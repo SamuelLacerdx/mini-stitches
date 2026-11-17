@@ -101,7 +101,7 @@ export default function DetalheProd() {
       }
 
       setMensagemCarrinho(`${produto.nome} foi adicionado ao carrinho.`);
-      notificarAlteracaoCarrinho();
+      notificarAlteracaoCarrinho({ abrir: true });
       setItemAdicionado(true);
     } catch (error) {
       setMensagemCarrinho(

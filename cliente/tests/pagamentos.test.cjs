@@ -15,6 +15,131 @@ const { criarReferenciaCartao } = require('../backend/functions/cartoesPerfil');
 const { segredosAplicacao } = require('../backend/functions/segurancaPagamento');
 const { criarConsultaConciliacao, registrarConciliacaoAdmin } = require('../backend/functions/conciliacaoAdmin');
 const { criarLoggerOperacional, referenciaOperacional } = require('../backend/functions/logOperacional');
+const { resumirCarrinho } = require('../backend/functions/resumoCarrinho');
+
+const itemGaveta = (preco = 12990, quantidade = 1) => ({ produtoId: 'produto-gaveta', preco, quantidade, ativo: true, estoqueDisponivel: 20 });
+const respostaGaveta = (itens = [itemGaveta()]) => ({ itens, resumo: resumirCarrinho(itens) });
+
+test('RF03: resumo do carrinho calcula Pix uma única vez e distribui centavos das parcelas', () => {
+  const resumo = resumirCarrinho([itemGaveta(), itemGaveta(2490), itemGaveta(2490)]);
+  assert.equal(resumo.subtotal, 17970);
+  assert.equal(resumo.produtosPix, 17072);
+  assert.equal(resumo.descontoPix, 898);
+  assert.deepEqual(resumo.parcelas, [4493, 4493, 4492, 4492]);
+  assert.equal(resumo.quantidadeItens, 3);
+  assert.equal(resumo.podeContinuar, true);
+});
+
+test('RF03: resumo respeita limite de frete, 1x a 6x e mínimo de R$ 40', () => {
+  for (const [subtotal, quantidadeParcelas] of [[3999, 1], [7999, 1], [8000, 2], [12001, 3], [39990, 6], [39991, 6]]) {
+    const resumo = resumirCarrinho([itemGaveta(subtotal)]);
+    assert.equal(resumo.parcelas.length, quantidadeParcelas);
+    assert.equal(resumo.freteGratis, subtotal > 39990);
+    assert.equal(resumo.parcelas.reduce((soma, valor) => soma + valor, 0), subtotal);
+    assert.ok(quantidadeParcelas === 1 || resumo.parcelas.every((valor) => valor >= 4000));
+  }
+});
+
+test('RF03: carrinho vazio, cadastro inválido, inativo e estoque insuficiente bloqueiam checkout', () => {
+  assert.equal(resumirCarrinho([]).podeContinuar, false);
+  for (const item of [{ ...itemGaveta(), ativo: false }, itemGaveta('1000'), itemGaveta(1000, 0),
+    itemGaveta(1000, 21), { ...itemGaveta(), estoqueDisponivel: undefined }]) {
+    assert.equal(resumirCarrinho([item]).podeContinuar, false);
+  }
+});
+
+test('RF03: resposta do carrinho usa preços populados e sinaliza produto removido', async () => {
+  const { criarCarrinhoHelpers } = require('../backend/functions/carrinho');
+  const carrinho = { itens: [{ produtoId: { _id: 'produto', nome: 'Kit', preco: 4990, ativo: true, estoque: 4, estoqueSeguranca: 1 },
+    quantidade: 2, slug: 'kit' }], async populate() {} };
+  const helpers = criarCarrinhoHelpers({});
+  let dados = await helpers.respostaCarrinho(carrinho);
+  assert.equal(dados.resumo.subtotal, 9980);
+  assert.equal(dados.itens[0].estoqueDisponivel, 3);
+  carrinho.itens.push({ produtoId: null, quantidade: 1 });
+  dados = await helpers.respostaCarrinho(carrinho);
+  assert.equal(dados.resumo.podeContinuar, false);
+  assert.match(dados.resumo.erro, /removidos/);
+});
+
+test('RF03: rótulo de parcelas mantém a soma exata quando há mais de um centavo restante', async () => {
+  const { formatarParcelasCarrinho } = await import('../src/utils/carrinho.mjs');
+  const texto = formatarParcelasCarrinho([4493, 4493, 4492, 4492]).replace(/\u00a0/g, ' ');
+  assert.equal(texto, '4x: 2 de R$ 44,93 + 2 de R$ 44,92');
+  assert.match(formatarParcelasCarrinho([4000, 4000]), /^2x de/);
+});
+
+test('RF03: resposta atrasada de leitura não desfaz atualização do carrinho', async () => {
+  const { criarControleCarrinho } = await import('../src/utils/carrinho.mjs');
+  let concluirLeitura;
+  const controle = criarControleCarrinho(async (_url, opcoes) => opcoes.method
+    ? { ok: true, json: async () => respostaGaveta([itemGaveta(12990, 2)]) }
+    : new Promise((resolve) => { concluirLeitura = resolve; }));
+  const leitura = controle.carregar();
+  await controle.alterar('produto', 'PATCH', 2);
+  concluirLeitura({ ok: true, json: async () => respostaGaveta([itemGaveta(12990, 1)]) });
+  await leitura;
+  assert.equal(controle.ler().itens[0].quantidade, 2);
+  assert.equal(controle.ler().resumo.subtotal, 25980);
+});
+
+test('RF03: bloqueio síncrono impede duas mutações por duplo clique', async () => {
+  const { criarControleCarrinho } = await import('../src/utils/carrinho.mjs');
+  let concluir, chamadas = 0;
+  const controle = criarControleCarrinho(async () => { chamadas++; return new Promise((resolve) => { concluir = resolve; }); });
+  const primeira = controle.alterar('produto', 'PATCH', 2);
+  assert.equal(await controle.alterar('produto', 'PATCH', 3), false);
+  assert.equal(chamadas, 1);
+  concluir({ ok: true, json: async () => respostaGaveta([itemGaveta(12990, 2)]) });
+  assert.equal(await primeira, true);
+  assert.equal(controle.ler().salvando, false);
+});
+
+test('RF03: atualização externa durante a gravação aguarda a mutação terminar', async () => {
+  const { criarControleCarrinho } = await import('../src/utils/carrinho.mjs');
+  let concluir, leituras = 0;
+  const controle = criarControleCarrinho(async (_url, opcoes) => {
+    if (opcoes.method) return new Promise((resolve) => { concluir = resolve; });
+    leituras++; return { ok: true, json: async () => respostaGaveta([itemGaveta(12990, 3)]) };
+  });
+  const gravacao = controle.alterar('produto', 'PATCH', 2);
+  await controle.carregar();
+  assert.equal(leituras, 0);
+  concluir({ ok: true, json: async () => respostaGaveta([itemGaveta(12990, 2)]) });
+  await gravacao;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(leituras, 1);
+  assert.equal(controle.ler().itens[0].quantidade, 3);
+});
+
+test('RF03: conflito mantém itens anteriores e autenticação negada remove dados da memória', async () => {
+  const { criarControleCarrinho } = await import('../src/utils/carrinho.mjs');
+  let status = 200;
+  const controle = criarControleCarrinho(async () => ({ ok: status === 200, status,
+    json: async () => status === 200 ? respostaGaveta() : { erro: 'Não disponível.' } }));
+  await controle.carregar();
+  status = 409;
+  assert.equal(await controle.alterar('produto', 'PATCH', 21), false);
+  assert.equal(controle.ler().itens.length, 1);
+  assert.equal(controle.ler().erro, 'Não disponível.');
+  status = 403;
+  await controle.carregar();
+  assert.equal(controle.ler().itens.length, 0);
+  assert.equal(controle.ler().resumo, null);
+});
+
+test('RF03: cancelar leitura e desinscrever evita publicar dados tardios', async () => {
+  const { criarControleCarrinho } = await import('../src/utils/carrinho.mjs');
+  let concluir, alteracoes = 0;
+  const controle = criarControleCarrinho(async () => new Promise((resolve) => { concluir = resolve; }));
+  const cancelar = controle.assinar(() => alteracoes++);
+  const pendente = controle.carregar();
+  cancelar(); controle.cancelarLeitura();
+  concluir({ ok: true, json: async () => respostaGaveta() });
+  await pendente;
+  assert.equal(alteracoes, 1);
+  assert.equal(controle.ler().itens.length, 0);
+});
 
 function carteiraCheckoutTeste() {
   const cartao = { _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', status: true, provedorCardId: 'card-remoto-1',

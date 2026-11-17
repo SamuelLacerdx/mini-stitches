@@ -1423,6 +1423,7 @@ app.get("/assinatura/:id", autenticar, async (req, res) => {
 });
 
 app.get("/api/carrinho", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const carrinho = await obterCarrinho(req);
     res.json(await respostaCarrinho(carrinho));
@@ -2084,6 +2085,7 @@ app.patch("/admin/trocas/:id", autenticarAdmin, async (req, res) => {
 });
 
 app.post("/api/carrinho", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const slug = String(req.body?.slug || "").trim();
     const quantidade = Number(req.body?.quantidade ?? 1);
@@ -2131,6 +2133,7 @@ app.post("/api/carrinho", async (req, res) => {
 });
 
 app.patch("/api/carrinho/:produtoId", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const { produtoId } = req.params;
     const quantidade = Number(req.body?.quantidade);
@@ -2172,6 +2175,7 @@ app.patch("/api/carrinho/:produtoId", async (req, res) => {
 });
 
 app.delete("/api/carrinho/:produtoId", async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
     const { produtoId } = req.params;
     if (!mongoose.isValidObjectId(produtoId)) {

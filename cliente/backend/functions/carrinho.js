@@ -1,3 +1,5 @@
+const { resumirCarrinho } = require('./resumoCarrinho');
+
 function criarCarrinhoHelpers({ Carrinho, clienteIdDoCarrinho }) {
   async function obterCarrinho(req) {
     const clienteId = clienteIdDoCarrinho(req);
@@ -81,7 +83,12 @@ function criarCarrinhoHelpers({ Carrinho, clienteIdDoCarrinho }) {
         };
       });
 
-    return { itens };
+    const resumo = resumirCarrinho(itens);
+    if (itens.length !== carrinho.itens.length) {
+      resumo.podeContinuar = false;
+      resumo.erro = 'Há produtos removidos do catálogo. Atualize o carrinho antes de continuar.';
+    }
+    return { itens, resumo };
   }
 
   return { obterCarrinho, respostaCarrinho };
