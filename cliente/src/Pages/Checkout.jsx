@@ -6,6 +6,7 @@ import { dadosEnderecoCheckout, cartaoDisponivelCheckout } from '../utils/perfil
 import { financeiroPedido, situacaoFinanceira } from '../utils/pedido.mjs';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
 
 const formatarPreco = (valorEmCentavos) =>
   new Intl.NumberFormat('pt-BR', {
@@ -80,6 +81,7 @@ export default function Checkout() {
 function FinalizarCompra({ onRetomar }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const toast = useToast();
   const pedidoPendente = location.state?.pedido || null;
   // Estados de UI e Controle
   const [pagamento, setPagamento] = useState('cartao');
@@ -268,7 +270,7 @@ function FinalizarCompra({ onRetomar }) {
     };
 
     if (!dadosEndereco.rua || !dadosEndereco.numero || !dadosEndereco.bairro || !dadosEndereco.cidade || !dadosEndereco.estado || !dadosEndereco.cep) {
-      alert('Preencha os dados do endereço antes de salvar.');
+      toast('Preencha os dados do endereço antes de salvar.', 'erro');
       return;
     }
 
@@ -286,11 +288,11 @@ function FinalizarCompra({ onRetomar }) {
         throw new Error(dados.erro || 'Não foi possível salvar o endereço.');
       }
 
-      alert('Endereço salvo como principal.');
+      toast('Endereço salvo como principal.', 'sucesso');
       setEnderecosSalvos(dados.enderecos || []);
       setEnderecoSalvoId(String(dados.enderecos?.find((item) => item.principal)?._id || ''));
     } catch (erro) {
-      alert(erro.message || 'Não foi possível salvar o endereço.');
+      toast(erro.message || 'Não foi possível salvar o endereço.', 'erro');
     } finally {
       setSalvandoEndereco(false);
     }
@@ -420,7 +422,7 @@ function FinalizarCompra({ onRetomar }) {
     const sobrenome = partesNome.slice(1).join(' ') || '';
 
     if (!cartItems.length || subtotal <= 0) {
-      alert('Seu carrinho está vazio.');
+      toast('Seu carrinho está vazio.', 'erro');
       setLoading(false);
       envioPagamentoRef.current = false;
       return;
@@ -428,7 +430,7 @@ function FinalizarCompra({ onRetomar }) {
 
     if (!freteSelecionado || !resumo?.cotacao || Date.parse(resumo.validoAte) <= Date.now()) {
       atualizarResumo();
-      alert('Atualize e confira o resumo antes de finalizar.');
+      toast('Atualize e confira o resumo antes de finalizar.', 'erro');
       setLoading(false);
       envioPagamentoRef.current = false;
       return;
@@ -589,7 +591,7 @@ function FinalizarCompra({ onRetomar }) {
       }
     } catch (erro) {
       if (envioIncerto && chavePagamentoRef.current) onRetomar(chavePagamentoRef.current);
-      else alert(erro.message || 'Ocorreu um erro ao processar o pagamento.');
+      else toast(erro.message || 'Ocorreu um erro ao processar o pagamento.', 'erro');
     } finally {
       setFormData((anterior) => ({ ...anterior, numeroCartao: '', nomeCartao: '', validade: '', cvv: '', cpfTitular: '' }));
       setLoading(false);

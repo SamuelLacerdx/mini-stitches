@@ -1,4 +1,5 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useToast } from "../context/ToastContext";
 
 // Só aceita caminhos internos para evitar redirecionamento aberto.
 const destinoSeguro = (valor) =>
@@ -8,6 +9,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = destinoSeguro(searchParams.get("redirect"));
+  const toast = useToast();
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -26,7 +28,7 @@ export default function Login() {
 
       navigate(redirect || data.destino || "/perfil", { replace: true });
     } catch (error) {
-      window.alert(error.message || "Não foi possível fazer login.");
+      toast(error.message || "Não foi possível fazer login.", "erro");
     }
   }
 

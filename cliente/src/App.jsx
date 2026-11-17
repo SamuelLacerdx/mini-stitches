@@ -23,10 +23,12 @@ import EsqueciSenha from "./Pages/EsqueciSenha";
 import NovaSenha from "./Pages/NovaSenha";
 import CarrinhoProvider from './Componentes/CarrinhoProvider';
 import CarrinhoLateral from './Componentes/CarrinhoLateral';
+import ToastProvider from './context/ToastContext';
 
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <CarrinhoProvider>
       <div className="flex min-h-screen flex-col justify-between">
         <Header />
@@ -59,6 +61,7 @@ export default function App() {
         <CarrinhoLateral />
       </div>
       </CarrinhoProvider>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

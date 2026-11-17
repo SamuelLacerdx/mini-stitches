@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "../context/ToastContext";
 import ConciliacaoAdmin from '../Componentes/ConciliacaoAdmin';
 import {
   ClubeAdmin,
@@ -87,6 +88,7 @@ const reduzirImagem = async (arquivo, ladoMaximo = 1200) => {
 
 export default function Admin() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [abaAtiva, setAbaAtiva] = useState("VISÃO GERAL");
   const [mostrarCadastro, setMostrarCadastro] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -109,7 +111,7 @@ export default function Admin() {
 
       navigate("/");
     } catch (error) {
-      window.alert(error.message || "Não foi possível sair da conta.");
+      toast(error.message || "Não foi possível sair da conta.", "erro");
     }
   };
 

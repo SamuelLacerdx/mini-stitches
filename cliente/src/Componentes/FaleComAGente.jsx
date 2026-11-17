@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Mail, MapPin, Clock } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 export default function FaleComAGente() {
   const [form, setForm] = useState({ nome: '', email: '', mensagem: '' });
+  const toast = useToast();
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -10,7 +12,7 @@ export default function FaleComAGente() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    alert(`Obrigado, ${form.nome}! Sua mensagem foi enviada com sucesso.`);
+    toast(`Obrigado, ${form.nome}! Sua mensagem foi enviada com sucesso.`, 'sucesso');
     setForm({ nome: '', email: '', mensagem: '' });
   };
 

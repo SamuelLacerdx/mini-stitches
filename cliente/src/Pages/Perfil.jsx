@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useToast } from "../context/ToastContext";
 import { financeiroPedido, situacaoFinanceira } from "../utils/pedido.mjs";
 
 const enderecoVazio = {
@@ -39,6 +40,7 @@ const formatarPreco = (centavos) =>
 
 export default function Perfil() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [usuario, setUsuario] = useState({ enderecos: [] });
   const [enderecoForm, setEnderecoForm] = useState(enderecoVazio);
   const [mostrarFormularioEndereco, setMostrarFormularioEndereco] =
@@ -72,7 +74,7 @@ export default function Perfil() {
 
       navigate("/");
     } catch (error) {
-      alert(error.message || "Não foi possível sair da conta.");
+      toast(error.message || "Não foi possível sair da conta.", "erro");
     }
   }
 
@@ -86,7 +88,7 @@ export default function Perfil() {
         setUsuario(data.usuario);
         setCartoes(data.usuario.cartoes || []);
       })
-      .catch((error) => alert(error.message || "Erro ao carregar perfil."));
+      .catch((error) => toast(error.message || "Erro ao carregar perfil.", "erro"));
 
     fetch("/api/pedidos", { credentials: "include" })
       .then(async (resposta) => {
@@ -142,11 +144,11 @@ export default function Perfil() {
     }
 
     if (!resposta.ok) {
-      alert(data.erro || "Erro ao atualizar perfil");
+      toast(data.erro || "Erro ao atualizar perfil", "erro");
       return;
     }
 
-    alert("Perfil atualizado!");
+    toast("Perfil atualizado!", "sucesso");
   }
 
   async function enviarLinkSenha() {
@@ -184,9 +186,9 @@ export default function Perfil() {
       setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
       setEnderecoForm(enderecoVazio);
       setMostrarFormularioEndereco(false);
-      alert("Endereço salvo!");
+      toast("Endereço salvo!", "sucesso");
     } catch (error) {
-      alert(error.message || "Erro ao salvar o endereço.");
+      toast(error.message || "Erro ao salvar o endereço.", "erro");
     }
   }
 
@@ -206,7 +208,7 @@ export default function Perfil() {
 
       setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
     } catch (error) {
-      alert(error.message || "Erro ao definir endereço principal.");
+      toast(error.message || "Erro ao definir endereço principal.", "erro");
     }
   }
 
@@ -227,7 +229,7 @@ export default function Perfil() {
 
       setUsuario((prev) => ({ ...prev, enderecos: data.enderecos }));
     } catch (error) {
-      alert(error.message || "Erro ao excluir o endereço.");
+      toast(error.message || "Erro ao excluir o endereço.", "erro");
     }
   }
 
@@ -307,9 +309,9 @@ export default function Perfil() {
       setCartoes(data.cartoes);
       setCartaoForm({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
       setMostrarFormularioCartao(false);
-      alert('Referência do cartão salva. Os pagamentos exigem uma nova validação.');
+      toast('Referência do cartão salva. Os pagamentos exigem uma nova validação.', 'sucesso');
     } catch (error) {
-      alert(error.message || "Erro ao salvar cartão.");
+      toast(error.message || "Erro ao salvar cartão.", "erro");
     } finally {
       setCartaoForm({ titular: '', numero: '', validade: '', cvv: '', cpfTitular: '' });
       envioCartaoRef.current = false;
@@ -328,7 +330,7 @@ export default function Perfil() {
       if (!resposta.ok) throw new Error(data.erro || "Erro ao excluir cartão.");
       setCartoes(data.cartoes);
     } catch (error) {
-      alert(error.message || "Erro ao excluir cartão.");
+      toast(error.message || "Erro ao excluir cartão.", "erro");
     }
   }
 
