@@ -19,22 +19,19 @@ export default function CarrinhoProvider({ children }) {
   const abrir = () => { focoAnterior.current = document.activeElement; setErroCheckout(''); setVisibilidade({ key, aberto: true }); controle.carregar(); };
   useEffect(() => {
     const atualizar = (evento) => {
-      if (evento.detail?.abrir) { focoAnterior.current = document.activeElement; setErroCheckout(''); setVisibilidade({ key, aberto: true }); }
+      if (evento.detail?.abrir) { focoAnterior.current = document.activeElement; setErroCheckout(''); setVisibilidade((atual) => ({ ...atual, aberto: true })); }
       if (evento.detail?.origem !== 'gaveta') controle.carregar();
     };
     const outraAba = (evento) => { if (evento.key === 'mini-stitches:carrinho-revisao') controle.carregar(); };
-    const foco = () => controle.carregar();
     window.addEventListener('carrinho-atualizado', atualizar);
     window.addEventListener('storage', outraAba);
-    window.addEventListener('focus', foco);
     controle.carregar();
     return () => {
       window.removeEventListener('carrinho-atualizado', atualizar);
       window.removeEventListener('storage', outraAba);
-      window.removeEventListener('focus', foco);
       controle.cancelarLeitura();
     };
-  }, [controle, key]);
+  }, [controle]);
   const alterar = async (...argumentos) => {
     setErroCheckout('');
     if (await controle.alterar(...argumentos)) notificarAlteracaoCarrinho({ origem: 'gaveta' });
