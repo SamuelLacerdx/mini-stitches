@@ -71,21 +71,21 @@ export default function Home() {
   ];
 
   return (
-    <div className="w-full bg-[#FAF5EF] font-['Work_Sans',sans-serif]">
+    <div className="w-full bg-[#FEF9F3] font-['Work_Sans',sans-serif]">
       {/* ========================================================= */}
       {/* 2. HERO SECTION (APRESENTAÇÃO PRINCIPAL) */}
       {/* ========================================================= */}
-      <section className="bg-[#F7C6E5] px-4 py-12 text-[#3E1B0E] md:px-8 lg:py-16">
+      <section className="bg-[#F6D1E7] px-4 py-12 text-[#422518] md:px-8 lg:py-16">
         <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-8 lg:grid-cols-12">
           {/* Lado Esquerdo: Mensagem e Chamadas para Ação */}
           <div className="flex flex-col items-start gap-6 lg:col-span-7">
             {/* Tag / Selo Superior */}
-            <span className="inline-block rounded-2xl bg-[#3E1B0E] px-4 py-2 font-['Archivo_Black',sans-serif] text-xs uppercase tracking-wider text-[#FAF5EF] md:text-sm">
+            <span className="inline-block rounded-2xl bg-[#602C16] px-4 py-2 font-['Archivo',sans-serif] text-xs font-black uppercase text-[#FEF9F3] md:text-sm">
               KITS PARA FAZER COM A FAMÍLIA
             </span>
 
             {/* Título Principal */}
-            <h1 className="font-['Archivo_Black',sans-serif] text-4xl uppercase leading-tight text-[#3E1B0E] sm:text-5xl lg:text-6xl">
+            <h1 className="font-['Archivo',sans-serif] text-4xl uppercase leading-tight text-[#422518] sm:text-5xl lg:text-6xl">
               BORDANDO
               <br />
               MEMÓRIAS,
@@ -96,7 +96,7 @@ export default function Home() {
             </h1>
 
             {/* Subtítulo / Descrição */}
-            <p className="max-w-xl font-['Archivo_Black',sans-serif] text-base leading-relaxed tracking-wide text-[#3E1B0E] md:text-lg">
+            <p className="max-w-xl font-['Work_Sans',sans-serif] text-base leading-relaxed text-[#422518] md:text-lg">
               Caixas completas de crochê e bordado para crianças criarem com as
               próprias mãos. Sem tela, sem pressa, com muito orgulho no final.
             </p>
@@ -105,13 +105,13 @@ export default function Home() {
             <div className="flex flex-wrap gap-4 pt-2">
               <Link
                 to="/clube"
-                className="rounded-2xl bg-[#3E1B0E] px-6 py-3.5 font-['Archivo_Black',sans-serif] text-xs uppercase text-[#FAF5EF] transition-transform hover:scale-105 md:text-sm"
+                className="rounded-2xl bg-[#602C16] px-6 py-3.5 font-['Archivo',sans-serif] text-xs font-black uppercase text-[#FEF9F3] transition-transform hover:scale-105 md:text-sm"
               >
                 VER CLUBE DA CAIXINHA
               </Link>
               <Link
                 to="/kits"
-                className="rounded-2xl border-2 border-[#3E1B0E] px-6 py-3.5 font-['Archivo_Black',sans-serif] text-xs uppercase text-[#3E1B0E] transition-colors hover:bg-[#3E1B0E] hover:text-[#FAF5EF] md:text-sm"
+                className="rounded-2xl border-2 border-[#602C16] px-6 py-3.5 font-['Archivo',sans-serif] text-xs font-black uppercase text-[#602C16] transition-colors hover:bg-[#602C16] hover:text-[#FEF9F3] md:text-sm"
               >
                 VER TODOS OS KITS
               </Link>
@@ -134,12 +134,12 @@ export default function Home() {
       {/* ========================================================= */}
       <section className="mx-auto max-w-6xl px-4 py-16 md:px-8">
         <div className="mb-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
-          <h2 className="font-['Archivo_Black',sans-serif] text-3xl uppercase text-[#3E1B0E] sm:text-4xl">
+          <h2 className="font-['Archivo',sans-serif] text-3xl uppercase text-[#422518] sm:text-4xl">
             OS QUERIDINHOS DA CASA
           </h2>
           <Link
             to="/kits"
-            className="text-lg font-bold text-[#3E1B0E] underline transition-colors hover:text-amber-900"
+            className="text-lg font-bold text-[#422518] underline transition-colors hover:text-amber-900"
           >
             VER O CATÁLOGO INTEIRO
           </Link>
@@ -200,18 +200,18 @@ export default function Home() {
       {/* ========================================================= */}
       {/* 4. COMO FUNCIONA */}
       {/* ========================================================= */}
-      <section className="bg-[#F7C6E5] px-4 py-16 md:px-8">
+      <section className="bg-[#F6D1E7] px-4 py-16 md:px-8">
         <div className="mx-auto max-w-6xl">
-          <h2 className="mb-12 font-['Archivo_Black',sans-serif] text-3xl uppercase text-[#3E1B0E] sm:text-4xl">
+          <h2 className="mb-12 font-['Archivo',sans-serif] text-3xl uppercase text-[#422518] sm:text-4xl">
             COMO FUNCIONA
           </h2>
 
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
             {/* Passo 1 */}
             <div className="flex flex-col gap-3">
-              <Sparkles className="h-8 w-8 text-[#3E1B0E]" />
-              <span className="text-sm font-bold text-[#3E1B0E]">PASSO 1</span>
-              <h3 className="font-['Archivo_Black',sans-serif] text-2xl uppercase text-[#3E1B0E]">
+              <Sparkles className="h-8 w-8 text-[#422518]" />
+              <span className="text-sm font-bold text-[#422518]">PASSO 1</span>
+              <h3 className="font-['Archivo',sans-serif] text-2xl uppercase text-[#422518]">
                 ESCOLHAM JUNTOS
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
@@ -222,9 +222,9 @@ export default function Home() {
 
             {/* Passo 2 */}
             <div className="flex flex-col gap-3">
-              <Box className="h-8 w-8 text-[#3E1B0E]" />
-              <span className="text-sm font-bold text-[#3E1B0E]">PASSO 2</span>
-              <h3 className="font-['Archivo_Black',sans-serif] text-2xl uppercase text-[#3E1B0E]">
+              <Box className="h-8 w-8 text-[#422518]" />
+              <span className="text-sm font-bold text-[#422518]">PASSO 2</span>
+              <h3 className="font-['Archivo',sans-serif] text-2xl uppercase text-[#422518]">
                 ABRAM A CAIXA
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
@@ -235,9 +235,9 @@ export default function Home() {
 
             {/* Passo 3 */}
             <div className="flex flex-col gap-3">
-              <Heart className="h-8 w-8 text-[#3E1B0E]" />
-              <span className="text-sm font-bold text-[#3E1B0E]">PASSO 3</span>
-              <h3 className="font-['Archivo_Black',sans-serif] text-2xl uppercase text-[#3E1B0E]">
+              <Heart className="h-8 w-8 text-[#422518]" />
+              <span className="text-sm font-bold text-[#422518]">PASSO 3</span>
+              <h3 className="font-['Archivo',sans-serif] text-2xl uppercase text-[#422518]">
                 DIGAM: EU QUE FIZ!
               </h3>
               <p className="text-sm leading-relaxed text-stone-800">
@@ -253,7 +253,7 @@ export default function Home() {
       {/* 5. DEPOIMENTOS DE CLIENTES */}
       {/* ========================================================= */}
       <section className="mx-auto max-w-6xl px-4 py-16 md:px-8">
-        <h2 className="mb-10 font-['Archivo_Black',sans-serif] text-2xl uppercase text-[#3E1B0E] sm:text-3xl">
+        <h2 className="mb-10 font-['Archivo',sans-serif] text-2xl uppercase text-[#422518] sm:text-3xl">
           FAMÍLIAS QUE JÁ CRIARAM COM A GENTE
         </h2>
 

@@ -87,15 +87,15 @@ export default function Trocas() {
   };
 
   return (
-    <div className="w-full flex-1 bg-[#FEF8F0] py-12 px-6 font-['Work_Sans'] text-[#3E2417]">
+    <div className="w-full flex-1 bg-[#FEF9F3] py-12 px-6 font-['Work_Sans'] text-[#422518]">
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         
         {/* COLUNA 1: TEXTOS INFORMATIVOS */}
         <div className="space-y-6">
-          <h1 className="text-4xl md:text-5xl font-['Archivo_Black'] text-[#3E2417] leading-tight">
+          <h1 className="text-4xl md:text-5xl font-['Archivo'] text-[#422518] leading-tight">
             TROCAS E<br />DEVOLUÇÕES
           </h1>
-          <div className="space-y-4 text-base leading-relaxed text-[#3E2417]">
+          <div className="space-y-4 text-base leading-relaxed text-[#422518]">
             <p>
               Você tem 7 dias após o recebimento para desistir da compra. Kits com defeito são trocados sem custo.
             </p>
@@ -106,17 +106,17 @@ export default function Trocas() {
         </div>
 
         {/* COLUNA 2: FORMULÁRIO DE SOLICITAÇÃO */}
-        <div className="bg-[#FEF8F0] space-y-4">
+        <div className="bg-[#FEF9F3] space-y-4">
           
           {/* SELETOR DE ABA (TROCA / DEVOLUÇÃO) */}
           <div className="flex gap-0.5 p-1">
             <button
               type="button"
               onClick={() => setTipoSolicitacao('TROCA')}
-              className={`flex-1 py-3 rounded-full text-sm font-['Archivo_Black'] uppercase transition-colors cursor-pointer ${
+              className={`flex-1 py-3 rounded-full text-sm font-['Archivo'] uppercase transition-colors cursor-pointer ${
                 tipoSolicitacao === 'TROCA'
-                  ? 'bg-[#3E2417] text-white'
-                  : 'bg-white text-[#3E2417]'
+                  ? 'bg-[#422518] text-white'
+                  : 'bg-white text-[#422518]'
               }`}
             >
               TROCA
@@ -124,10 +124,10 @@ export default function Trocas() {
             <button
               type="button"
               onClick={() => setTipoSolicitacao('DEVOLUÇÃO')}
-              className={`flex-1 py-3 rounded-full text-sm font-['Archivo_Black'] uppercase transition-colors cursor-pointer ${
+              className={`flex-1 py-3 rounded-full text-sm font-['Archivo'] uppercase transition-colors cursor-pointer ${
                 tipoSolicitacao === 'DEVOLUÇÃO'
-                  ? 'bg-[#3E2417] text-white'
-                  : 'bg-white text-[#3E2417]'
+                  ? 'bg-[#422518] text-white'
+                  : 'bg-white text-[#422518]'
               }`}
             >
               DEVOLUÇÃO
@@ -146,7 +146,7 @@ export default function Trocas() {
                 onChange={handleChange}
                 placeholder="Número do pedido (ex.: MS-1001)"
                 required
-                className="w-full h-14 px-4 bg-white rounded-lg border border-pink-200 text-base text-[#3E2417] placeholder-stone-400 focus:outline-none focus:border-[#3E2417]"
+                className="w-full h-14 px-4 bg-white rounded-lg border border-pink-200 text-base text-[#422518] placeholder-stone-400 focus:outline-none focus:border-[#422518]"
               />
             </div>
 
@@ -159,7 +159,7 @@ export default function Trocas() {
                 onChange={handleChange}
                 placeholder="E-mail da compra"
                 required
-                className="w-full h-14 px-4 bg-white rounded-lg border border-pink-200 text-base text-[#3E2417] placeholder-stone-400 focus:outline-none focus:border-[#3E2417]"
+                className="w-full h-14 px-4 bg-white rounded-lg border border-pink-200 text-base text-[#422518] placeholder-stone-400 focus:outline-none focus:border-[#422518]"
               />
             </div>
 
@@ -174,7 +174,7 @@ export default function Trocas() {
                 minLength={10}
                 maxLength={1000}
                 required
-                className="w-full p-4 bg-white rounded-lg border border-pink-200 text-base text-[#3E2417] placeholder-stone-400 focus:outline-none focus:border-[#3E2417] resize-none"
+                className="w-full p-4 bg-white rounded-lg border border-pink-200 text-base text-[#422518] placeholder-stone-400 focus:outline-none focus:border-[#422518] resize-none"
               />
             </div>
 
@@ -182,7 +182,7 @@ export default function Trocas() {
             <button
               type="submit"
               disabled={enviando}
-              className="w-full h-14 bg-[#3E2417] hover:bg-[#602D15] text-white font-['Archivo_Black'] text-sm uppercase tracking-widest rounded-full transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+              className="w-full h-14 bg-[#422518] hover:bg-[#602C16] text-white font-['Archivo'] text-sm uppercase tracking-widest rounded-full transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             >
               {enviando ? 'ENVIANDO...' : 'ENVIAR SOLICITAÇÃO'}
             </button>
@@ -205,7 +205,7 @@ export default function Trocas() {
             type="button"
             onClick={handleConsultar}
             disabled={consultando}
-            className="w-full text-sm font-semibold text-[#3E2417] underline hover:opacity-80 disabled:opacity-60 cursor-pointer"
+            className="w-full text-sm font-semibold text-[#422518] underline hover:opacity-80 disabled:opacity-60 cursor-pointer"
           >
             {consultando
               ? 'Consultando...'
@@ -214,7 +214,7 @@ export default function Trocas() {
 
           {solicitacoes && (
             <div className="space-y-3">
-              <h2 className="text-sm font-['Archivo_Black'] uppercase">
+              <h2 className="text-sm font-['Archivo'] uppercase">
                 Suas solicitações
               </h2>
               {solicitacoes.length === 0 ? (

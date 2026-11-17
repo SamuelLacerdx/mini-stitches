@@ -48,7 +48,7 @@ export default function RecuperarPagamento({ origem, onNovaCompra }) {
     catch { setCopiado('Não foi possível copiar. Selecione o código abaixo.'); }
   };
 
-  return <div className="w-full bg-[#FEF8F0] px-4 py-10 text-[#3E2417]">
+  return <div className="w-full bg-[#FEF9F3] px-4 py-10 text-[#422518]">
     <section className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[#C58752]/30 bg-white p-6">
       <h1 className="text-2xl font-bold">Acompanhamento do pagamento</h1>
       <p>Esta consulta recupera o pagamento existente. Atualizar a página não solicita outra cobrança.</p>

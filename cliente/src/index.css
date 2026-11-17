@@ -2,6 +2,25 @@
 
 :root {
   color-scheme: light;
+  --color-bg: #fef9f3;
+  --color-text: #422518;
+  --color-primary: #602c16;
+  --color-blush: #f6d1e7;
+  --color-footer: #ffe6a2;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Work Sans', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Archivo', sans-serif;
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: 0;
 }
 
 html {

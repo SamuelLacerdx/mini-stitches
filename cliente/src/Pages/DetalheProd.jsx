@@ -161,12 +161,12 @@ export default function DetalheProd() {
 
   if (produto.tipo === "material") {
     return (
-      <div className="w-full flex-1 bg-[#FEF8F0] py-8 px-4 md:px-12 font-['Work_Sans'] text-[#3E2417]">
+      <div className="w-full flex-1 bg-[#FEF9F3] py-8 px-4 md:px-12 font-['Work_Sans'] text-[#422518]">
         <div className="max-w-4xl mx-auto space-y-8">
           <div>
             <Link
               to="/materiais"
-              className="inline-flex items-center text-sm font-bold text-[#3E2417] hover:opacity-80 transition-opacity"
+              className="inline-flex items-center text-sm font-bold text-[#422518] hover:opacity-80 transition-opacity"
             >
               ← Voltar para materiais
             </Link>
@@ -176,7 +176,7 @@ export default function DetalheProd() {
             <span className="text-xs font-semibold uppercase text-stone-600">
               {produto.material?.categoria || "Material"}
             </span>
-            <h1 className="mt-3 text-3xl md:text-5xl font-['Archivo_Black'] text-[#3E2417] leading-tight">
+            <h1 className="mt-3 text-3xl md:text-5xl font-['Archivo'] text-[#422518] leading-tight">
               {produto.nome}
             </h1>
 
@@ -186,25 +186,25 @@ export default function DetalheProd() {
             </p>
 
             <div className="mt-8 flex items-baseline gap-3">
-              <span className="text-3xl font-black text-[#602D15]">
+              <span className="text-3xl font-black text-[#602C16]">
                 {formatarPreco(produto.preco)}
               </span>
             </div>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <div className="flex items-center border border-[#3E2417] rounded-full px-4 py-2 bg-white">
+              <div className="flex items-center border border-[#422518] rounded-full px-4 py-2 bg-white">
                 <button
                   onClick={() => alterarQuantidade(-1)}
-                  className="text-lg font-bold px-2 text-[#3E2417] hover:opacity-70"
+                  className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"
                 >
                   -
                 </button>
-                <span className="px-4 text-sm font-['Archivo_Black']">
+                <span className="px-4 text-sm font-['Archivo']">
                   {quantidade}
                 </span>
                 <button
                   onClick={() => alterarQuantidade(1)}
-                  className="text-lg font-bold px-2 text-[#3E2417] hover:opacity-70"
+                  className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"
                 >
                   +
                 </button>
@@ -214,13 +214,13 @@ export default function DetalheProd() {
                 type="button"
                 onClick={adicionarAoCarrinho}
                 disabled={adicionandoAoCarrinho}
-                className="flex-1 min-w-[200px] bg-[#3E2417] hover:bg-[#602D15] disabled:opacity-60 text-[#FEF8F0] py-3.5 px-6 rounded-full font-['Archivo_Black'] text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                className="flex-1 min-w-[200px] bg-[#422518] hover:bg-[#602C16] disabled:opacity-60 text-[#FEF9F3] py-3.5 px-6 rounded-full font-['Archivo'] text-xs uppercase tracking-wider transition-colors cursor-pointer"
               >
                 {adicionandoAoCarrinho ? "ADICIONANDO..." : "ADICIONAR AO CARRINHO"}
               </button>
             </div>
             {mensagemCarrinho && (
-              <p role="status" className="text-sm text-[#3E2417]">
+              <p role="status" className="text-sm text-[#422518]">
                 {mensagemCarrinho}{" "}
                 {itemAdicionado && (
                   <Link to="/carrinho" className="font-bold underline">
@@ -240,12 +240,12 @@ export default function DetalheProd() {
   }
 
   return (
-    <div className="w-full flex-1 bg-[#FEF8F0] py-8 px-4 md:px-12 font-['Work_Sans'] text-[#3E2417]">
+    <div className="w-full flex-1 bg-[#FEF9F3] py-8 px-4 md:px-12 font-['Work_Sans'] text-[#422518]">
       <div className="max-w-6xl mx-auto space-y-12">
         <div>
           <Link
             to="/kits"
-            className="inline-flex items-center text-sm font-bold text-[#3E2417] hover:opacity-80 transition-opacity"
+            className="inline-flex items-center text-sm font-bold text-[#422518] hover:opacity-80 transition-opacity"
           >
             ← Voltar para os kits
           </Link>
@@ -265,7 +265,7 @@ export default function DetalheProd() {
               {kitInfo.subtitulo}
             </span>
 
-            <h1 className="text-3xl md:text-5xl font-['Archivo_Black'] text-[#3E2417] leading-tight">
+            <h1 className="text-3xl md:text-5xl font-['Archivo'] text-[#422518] leading-tight">
               {kitInfo.nome}
             </h1>
 
@@ -275,7 +275,7 @@ export default function DetalheProd() {
 
             <div className="space-y-1">
               <div className="flex items-baseline gap-3">
-                <span className="text-3xl font-black text-[#602D15]">
+                <span className="text-3xl font-black text-[#602C16]">
                   {kitInfo.precoNormal}
                 </span>
                 <span className="text-sm text-stone-500 line-through">
@@ -283,7 +283,7 @@ export default function DetalheProd() {
                 </span>
               </div>
               <p className="text-xs text-stone-600">
-                <strong className="text-[#3E2417]">{kitInfo.precoPix}</strong>{" "}
+                <strong className="text-[#422518]">{kitInfo.precoPix}</strong>{" "}
                 no Pix · {kitInfo.parcelamento}
               </p>
             </div>
@@ -294,19 +294,19 @@ export default function DetalheProd() {
             </div>
 
             <div className="flex flex-wrap items-center gap-4 pt-2">
-              <div className="flex items-center border border-[#3E2417] rounded-full px-4 py-2 bg-white">
+              <div className="flex items-center border border-[#422518] rounded-full px-4 py-2 bg-white">
                 <button
                   onClick={() => alterarQuantidade(-1)}
-                  className="text-lg font-bold px-2 text-[#3E2417] hover:opacity-70"
+                  className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"
                 >
                   -
                 </button>
-                <span className="px-4 text-sm font-['Archivo_Black']">
+                <span className="px-4 text-sm font-['Archivo']">
                   {quantidade}
                 </span>
                 <button
                   onClick={() => alterarQuantidade(1)}
-                  className="text-lg font-bold px-2 text-[#3E2417] hover:opacity-70"
+                  className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"
                 >
                   +
                 </button>
@@ -316,13 +316,13 @@ export default function DetalheProd() {
                 type="button"
                 onClick={adicionarAoCarrinho}
                 disabled={adicionandoAoCarrinho}
-                className="flex-1 min-w-[200px] bg-[#3E2417] hover:bg-[#602D15] disabled:opacity-60 text-[#FEF8F0] py-3.5 px-6 rounded-full font-['Archivo_Black'] text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                className="flex-1 min-w-[200px] bg-[#422518] hover:bg-[#602C16] disabled:opacity-60 text-[#FEF9F3] py-3.5 px-6 rounded-full font-['Archivo'] text-xs uppercase tracking-wider transition-colors cursor-pointer"
               >
                 {adicionandoAoCarrinho ? "ADICIONANDO..." : "ADICIONAR AO CARRINHO"}
               </button>
             </div>
             {mensagemCarrinho && (
-              <p role="status" className="text-sm text-[#3E2417]">
+              <p role="status" className="text-sm text-[#422518]">
                 {mensagemCarrinho}{" "}
                 {itemAdicionado && (
                   <Link to="/carrinho" className="font-bold underline">
@@ -336,7 +336,7 @@ export default function DetalheProd() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
           <div className="space-y-4">
-            <h2 className="text-xl font-['Archivo_Black'] text-[#3E2417]">
+            <h2 className="text-xl font-['Archivo'] text-[#422518]">
               VÍDEOS PASSO A PASSO
             </h2>
 
@@ -357,11 +357,11 @@ export default function DetalheProd() {
 
                         <div className="flex items-center gap-3 text-xs text-stone-600 font-medium">
                           {bloqueado ? (
-                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo_Black'] text-[#3E2417]">
+                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo'] text-[#422518]">
                               Entre para assistir
                             </span>
                           ) : (
-                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo_Black'] text-[#3E2417]">
+                            <span className="bg-white px-2 py-0.5 rounded font-['Archivo'] text-[#422518]">
                               {index === 0 && !usuarioAutenticado
                                 ? "Grátis"
                                 : "Assistir"}
@@ -418,7 +418,7 @@ export default function DetalheProd() {
           </div>
 
           <div className="bg-orange-200 p-8 rounded-[32px] space-y-4">
-            <h2 className="text-2xl font-['Archivo_Black'] text-[#3E2417]">
+            <h2 className="text-2xl font-['Archivo'] text-[#422518]">
               O QUE VEM NA CAIXA
             </h2>
             <ul className="space-y-3 text-sm text-stone-800 leading-relaxed">
@@ -428,13 +428,13 @@ export default function DetalheProd() {
                     key={`${item}-${index}`}
                     className="flex items-start gap-2"
                   >
-                    <span className="text-[#3E2417] font-bold">•</span>
+                    <span className="text-[#422518] font-bold">•</span>
                     <span>{item}</span>
                   </li>
                 ))
               ) : (
                 <li className="flex items-start gap-2">
-                  <span className="text-[#3E2417] font-bold">•</span>
+                  <span className="text-[#422518] font-bold">•</span>
                   <span>Fios, agulha, materiais e instruções do kit.</span>
                 </li>
               )}
@@ -443,7 +443,7 @@ export default function DetalheProd() {
         </div>
 
         <div className="space-y-6 pt-6 border-t border-orange-200/60">
-          <h2 className="text-2xl md:text-3xl font-['Archivo_Black'] text-[#3E2417]">
+          <h2 className="text-2xl md:text-3xl font-['Archivo'] text-[#422518]">
             TAMBÉM VÃO GOSTAR
           </h2>
 
@@ -475,11 +475,11 @@ export default function DetalheProd() {
                   className="w-full h-48 object-cover"
                 />
                 <div className="p-4 space-y-2">
-                  <span className="text-[11px] font-semibold text-[#3E2417]">
+                  <span className="text-[11px] font-semibold text-[#422518]">
                     {prod.nivel}
                   </span>
                   <h3 className="text-sm font-black text-black">{prod.nome}</h3>
-                  <span className="text-sm font-black text-[#602D15] block">
+                  <span className="text-sm font-black text-[#602C16] block">
                     {prod.preco}
                   </span>
                 </div>

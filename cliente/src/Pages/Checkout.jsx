@@ -598,20 +598,20 @@ function FinalizarCompra({ onRetomar }) {
   };
 
   return (
-    <div className="w-full bg-[#FEF8F0] min-h-screen font-['Work_Sans',sans-serif] text-[#3E2417] py-8 px-4 md:px-12 lg:px-24">
+    <div className="w-full bg-[#FEF9F3] min-h-screen font-['Work_Sans',sans-serif] text-[#422518] py-8 px-4 md:px-12 lg:px-24">
       <form onSubmit={handleFinalizarPedido} className="max-w-7xl mx-auto space-y-8">
         <fieldset disabled={loading || Boolean(resultado)} className="contents">
         
         {/* NAVEGAÇÃO SUPERIOR */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs md:text-sm font-medium">
-          <Link to="/carrinho" className="flex items-center gap-2 text-[#3E2417] hover:text-[#602D15] transition-colors">
+          <Link to="/carrinho" className="flex items-center gap-2 text-[#422518] hover:text-[#602C16] transition-colors">
             <span>←</span> Voltar ao carrinho
           </Link>
           
           <div className="flex items-center gap-2 text-[#80695B]">
             <Link to="/carrinho" className="hover:underline">Carrinho</Link>
             <span>›</span>
-            <span className="font-bold text-[#3E2417]">Dados e pagamento</span>
+            <span className="font-bold text-[#422518]">Dados e pagamento</span>
             <span>›</span>
             <span>Confirmação</span>
           </div>
@@ -620,14 +620,14 @@ function FinalizarCompra({ onRetomar }) {
         {/* CABEÇALHO DO CHECKOUT */}
         <div className="border-b border-[#C58752]/30 pb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="space-y-2">
-            <h1 className="text-4xl md:text-5xl font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase tracking-tight">
+            <h1 className="text-4xl md:text-5xl font-['Archivo',sans-serif] text-[#422518] uppercase tracking-tight">
               FINALIZAR COMPRA
             </h1>
-            <p className="text-sm md:text-base text-[#3E2417]/90">
+            <p className="text-sm md:text-base text-[#422518]/90">
               Falta pouco para começar a criar. Preencha seus dados e escolha como pagar.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs md:text-sm text-[#3E2417] font-medium bg-transparent px-4 py-2 rounded-full border border-[#C58752]/60 self-start md:self-auto">
+          <div className="flex items-center gap-2 text-xs md:text-sm text-[#422518] font-medium bg-transparent px-4 py-2 rounded-full border border-[#C58752]/60 self-start md:self-auto">
             <span>🔒</span> Ambiente seguro
           </div>
         </div>
@@ -649,27 +649,27 @@ function FinalizarCompra({ onRetomar }) {
             <section className="space-y-6">
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-full bg-[#F7C6E5] text-[#3E2417] font-bold text-sm flex items-center justify-center">1</span>
-                  <h2 className="text-xl md:text-2xl font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase">SEUS DADOS</h2>
+                  <span className="w-8 h-8 rounded-full bg-[#F6D1E7] text-[#422518] font-bold text-sm flex items-center justify-center">1</span>
+                  <h2 className="text-xl md:text-2xl font-['Archivo',sans-serif] text-[#422518] uppercase">SEUS DADOS</h2>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 ml-0 lg:ml-11">
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-[#3E2417]">Nome completo *</label>
-                  <input required name="nome" value={formData.nome} onChange={handleChange} type="text" placeholder="Como está no seu documento" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                  <label className="block text-sm font-medium text-[#422518]">Nome completo *</label>
+                  <input required name="nome" value={formData.nome} onChange={handleChange} type="text" placeholder="Como está no seu documento" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-[#3E2417]">CPF *</label>
-                  <input required name="cpf" value={formData.cpf} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                  <label className="block text-sm font-medium text-[#422518]">CPF *</label>
+                  <input required name="cpf" value={formData.cpf} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-[#3E2417]">E-mail *</label>
-                  <input required name="email" value={formData.email} onChange={handleChange} type="email" placeholder="seu@email.com" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                  <label className="block text-sm font-medium text-[#422518]">E-mail *</label>
+                  <input required name="email" value={formData.email} onChange={handleChange} type="email" placeholder="seu@email.com" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-[#3E2417]">Celular *</label>
-                  <input required name="celular" value={formData.celular} onChange={handleChange} type="tel" placeholder="(00) 00000-0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                  <label className="block text-sm font-medium text-[#422518]">Celular *</label>
+                  <input required name="celular" value={formData.celular} onChange={handleChange} type="tel" placeholder="(00) 00000-0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                 </div>
               </div>
             </section>
@@ -687,15 +687,15 @@ function FinalizarCompra({ onRetomar }) {
               </label>}
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-full bg-[#F7C6E5] text-[#3E2417] font-bold text-sm flex items-center justify-center">2</span>
-                  <h2 className="text-xl md:text-2xl font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase">ONDE VAMOS ENTREGAR?</h2>
+                  <span className="w-8 h-8 rounded-full bg-[#F6D1E7] text-[#422518] font-bold text-sm flex items-center justify-center">2</span>
+                  <h2 className="text-xl md:text-2xl font-['Archivo',sans-serif] text-[#422518] uppercase">ONDE VAMOS ENTREGAR?</h2>
                 </div>
               </div>
 
               <div className="space-y-5 ml-0 lg:ml-11">
                 <div className="flex flex-wrap items-end gap-4">
                   <div className="w-full sm:w-56 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">CEP *</label>
+                    <label className="block text-sm font-medium text-[#422518]">CEP *</label>
                     <input
                       required
                       type="text"
@@ -711,14 +711,14 @@ function FinalizarCompra({ onRetomar }) {
                       }}
                       placeholder="00000-000"
                       maxLength={9}
-                      className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm"
+                      className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={() => calcularFrete()}
                     disabled={calculandoFrete || carregandoCarrinho || !cartItems.length}
-                    className="h-12 px-6 rounded-md border-2 border-[#3E2417] text-[#3E2417] font-bold text-sm uppercase hover:bg-[#3E2417] hover:text-white disabled:opacity-50 transition-colors"
+                    className="h-12 px-6 rounded-md border-2 border-[#422518] text-[#422518] font-bold text-sm uppercase hover:bg-[#422518] hover:text-white disabled:opacity-50 transition-colors"
                   >
                     {calculandoFrete ? 'CALCULANDO...' : 'CALCULAR FRETE'}
                   </button>
@@ -726,7 +726,7 @@ function FinalizarCompra({ onRetomar }) {
                     type="button"
                     onClick={salvarEnderecoPrincipal}
                     disabled={salvandoEndereco || !formData.endereco || !formData.numero || !formData.bairro || !formData.cidade || !formData.estado || !cep}
-                    className="h-12 px-6 rounded-md bg-[#3E2417] text-white font-bold text-xs uppercase hover:bg-[#2A180F] disabled:opacity-50 transition-colors"
+                    className="h-12 px-6 rounded-md bg-[#422518] text-white font-bold text-xs uppercase hover:bg-[#2A180F] disabled:opacity-50 transition-colors"
                   >
                     {salvandoEndereco ? 'SALVANDO...' : 'SALVAR ENDEREÇO'}
                   </button>
@@ -738,13 +738,13 @@ function FinalizarCompra({ onRetomar }) {
 
                 {opcoesFrete.length > 0 && (
                   <fieldset className="space-y-2">
-                    <legend className="text-sm font-medium text-[#3E2417] mb-2">Escolha a entrega *</legend>
+                    <legend className="text-sm font-medium text-[#422518] mb-2">Escolha a entrega *</legend>
                     {opcoesFrete.map((opcao) => {
                       const selecionada = opcao.servicoId === freteSelecionadoId;
                       return (
                         <label
                           key={opcao.servicoId}
-                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selecionada ? 'bg-[#FBEDD9] border-2 border-[#3E2417]' : 'bg-white border-[#C58752]/50'}`}
+                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selecionada ? 'bg-[#FBEDD9] border-2 border-[#422518]' : 'bg-white border-[#C58752]/50'}`}
                         >
                           <input
                             type="radio"
@@ -752,7 +752,7 @@ function FinalizarCompra({ onRetomar }) {
                             value={opcao.servicoId}
                             checked={selecionada}
                             onChange={() => setFreteSelecionadoId(opcao.servicoId)}
-                            className="accent-[#3E2417]"
+                            className="accent-[#422518]"
                           />
                           {opcao.logo && <img src={opcao.logo} alt="" className="h-6 w-auto max-w-16 object-contain" />}
                           <span className="flex-1 text-sm">
@@ -768,31 +768,31 @@ function FinalizarCompra({ onRetomar }) {
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                   <div className="md:col-span-6 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Endereço *</label>
-                    <input required name="endereco" value={formData.endereco} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                    <label className="block text-sm font-medium text-[#422518]">Endereço *</label>
+                    <input required name="endereco" value={formData.endereco} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                   </div>
                   <div className="md:col-span-2 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Número *</label>
-                    <input required name="numero" value={formData.numero} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                    <label className="block text-sm font-medium text-[#422518]">Número *</label>
+                    <input required name="numero" value={formData.numero} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                   </div>
                   <div className="md:col-span-4 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Complemento</label>
-                    <input name="complemento" value={formData.complemento} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                    <label className="block text-sm font-medium text-[#422518]">Complemento</label>
+                    <input name="complemento" value={formData.complemento} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                   <div className="md:col-span-5 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Bairro *</label>
-                    <input required name="bairro" value={formData.bairro} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                    <label className="block text-sm font-medium text-[#422518]">Bairro *</label>
+                    <input required name="bairro" value={formData.bairro} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                   </div>
                   <div className="md:col-span-5 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Cidade *</label>
-                    <input required name="cidade" value={formData.cidade} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                    <label className="block text-sm font-medium text-[#422518]">Cidade *</label>
+                    <input required name="cidade" value={formData.cidade} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                   </div>
                   <div className="md:col-span-2 space-y-1.5">
-                    <label className="block text-sm font-medium text-[#3E2417]">Estado *</label>
-                    <select required name="estado" value={formData.estado} onChange={handleChange} className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm text-[#3E2417]">
+                    <label className="block text-sm font-medium text-[#422518]">Estado *</label>
+                    <select required name="estado" value={formData.estado} onChange={handleChange} className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm text-[#422518]">
                       <option value="">UF</option>
                       {UFS.map((uf) => (
                         <option key={uf} value={uf}>{uf}</option>
@@ -809,22 +809,22 @@ function FinalizarCompra({ onRetomar }) {
             <section className="space-y-6">
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-full bg-[#F7C6E5] text-[#3E2417] font-bold text-sm flex items-center justify-center">3</span>
-                  <h2 className="text-xl md:text-2xl font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase">COMO VOCÊ PREFERE PAGAR?</h2>
+                  <span className="w-8 h-8 rounded-full bg-[#F6D1E7] text-[#422518] font-bold text-sm flex items-center justify-center">3</span>
+                  <h2 className="text-xl md:text-2xl font-['Archivo',sans-serif] text-[#422518] uppercase">COMO VOCÊ PREFERE PAGAR?</h2>
                 </div>
               </div>
 
               <div className="space-y-6 ml-0 lg:ml-11">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Botões de Seleção Pix/Cartão/Boleto mantidos iguais... */}
-                  <button type="button" onClick={() => setPagamento('pix')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'pix' ? 'bg-[#FBEDD9] border-2 border-[#3E2417]' : 'bg-white border-[#C58752]/50'}`}>
-                    <div className="font-['Archivo_Black',sans-serif] text-[13px] text-[#3E2417]">PIX</div>
+                  <button type="button" onClick={() => setPagamento('pix')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'pix' ? 'bg-[#FBEDD9] border-2 border-[#422518]' : 'bg-white border-[#C58752]/50'}`}>
+                    <div className="font-['Archivo',sans-serif] text-[13px] text-[#422518]">PIX</div>
                   </button>
-                  <button type="button" onClick={() => setPagamento('cartao')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'cartao' ? 'bg-[#FBEDD9] border-2 border-[#3E2417]' : 'bg-white border-[#C58752]/50'}`}>
-                    <div className="font-['Archivo_Black',sans-serif] text-[13px] text-[#3E2417]">CARTÃO DE CRÉDITO</div>
+                  <button type="button" onClick={() => setPagamento('cartao')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'cartao' ? 'bg-[#FBEDD9] border-2 border-[#422518]' : 'bg-white border-[#C58752]/50'}`}>
+                    <div className="font-['Archivo',sans-serif] text-[13px] text-[#422518]">CARTÃO DE CRÉDITO</div>
                   </button>
-                  <button type="button" onClick={() => setPagamento('boleto')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'boleto' ? 'bg-[#FBEDD9] border-2 border-[#3E2417]' : 'bg-white border-[#C58752]/50'}`}>
-                    <div className="font-['Archivo_Black',sans-serif] text-[13px] text-[#3E2417]">BOLETO</div>
+                  <button type="button" onClick={() => setPagamento('boleto')} className={`p-4 rounded-lg text-left border flex items-center justify-between transition-all ${pagamento === 'boleto' ? 'bg-[#FBEDD9] border-2 border-[#422518]' : 'bg-white border-[#C58752]/50'}`}>
+                    <div className="font-['Archivo',sans-serif] text-[13px] text-[#422518]">BOLETO</div>
                   </button>
                 </div>
 
@@ -840,36 +840,36 @@ function FinalizarCompra({ onRetomar }) {
                     {cartaoSalvo && <p className="text-sm">Confirme o CVV do cartão selecionado para esta compra.</p>}
                     {!cartaoSalvo && <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       <div className="space-y-1.5">
-                        <label className="block text-sm font-medium text-[#3E2417]">Número do cartão *</label>
-                        <input required={pagamento === 'cartao'} name="numeroCartao" value={formData.numeroCartao} onChange={handleChange} type="text" placeholder="0000 0000 0000 0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <label className="block text-sm font-medium text-[#422518]">Número do cartão *</label>
+                        <input required={pagamento === 'cartao'} name="numeroCartao" value={formData.numeroCartao} onChange={handleChange} type="text" placeholder="0000 0000 0000 0000" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="block text-sm font-medium text-[#3E2417]">Nome impresso no cartão *</label>
-                        <input required={pagamento === 'cartao'} name="nomeCartao" value={formData.nomeCartao} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <label className="block text-sm font-medium text-[#422518]">Nome impresso no cartão *</label>
+                        <input required={pagamento === 'cartao'} name="nomeCartao" value={formData.nomeCartao} onChange={handleChange} type="text" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                       </div>
                     </div>}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                       {!cartaoSalvo && <div className="space-y-1.5">
-                        <label className="block text-sm font-medium text-[#3E2417]">Validade *</label>
-                        <input required={pagamento === 'cartao'} name="validade" value={formData.validade} onChange={handleChange} type="text" placeholder="MM/AA" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <label className="block text-sm font-medium text-[#422518]">Validade *</label>
+                        <input required={pagamento === 'cartao'} name="validade" value={formData.validade} onChange={handleChange} type="text" placeholder="MM/AA" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                       </div>}
                       <div className="space-y-1.5">
-                        <label className="block text-sm font-medium text-[#3E2417]">CVV *</label>
-                        <input required={pagamento === 'cartao'} name="cvv" value={formData.cvv} onChange={handleChange} type="password" maxLength="4" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <label className="block text-sm font-medium text-[#422518]">CVV *</label>
+                        <input required={pagamento === 'cartao'} name="cvv" value={formData.cvv} onChange={handleChange} type="password" maxLength="4" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                       </div>
                       {!cartaoSalvo && <div className="space-y-1.5">
-                        <label className="block text-sm font-medium text-[#3E2417]">CPF do titular *</label>
-                        <input required={pagamento === 'cartao'} name="cpfTitular" value={formData.cpfTitular} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm" />
+                        <label className="block text-sm font-medium text-[#422518]">CPF do titular *</label>
+                        <input required={pagamento === 'cartao'} name="cpfTitular" value={formData.cpfTitular} onChange={handleChange} type="text" placeholder="000.000.000-00" className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm" />
                       </div>}
                     </div>
                     <div className="space-y-1.5">
-                      <label className="block text-sm font-medium text-[#3E2417]">Parcelamento *</label>
+                      <label className="block text-sm font-medium text-[#422518]">Parcelamento *</label>
                       <select
                         required={pagamento === 'cartao'}
                         name="parcelas"
                         value={parcelasSelecionadas}
                         onChange={handleChange}
-                        className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#3E2417] text-sm"
+                        className="w-full h-12 px-4 rounded-md bg-white border border-[#C58752]/50 focus:outline-none focus:border-[#422518] text-sm"
                       >
                         {opcoesParcelamento.map((opcao) => (
                           <option key={opcao.parcela} value={String(opcao.parcela)}>
@@ -888,9 +888,9 @@ function FinalizarCompra({ onRetomar }) {
           <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-8 space-y-6">
             
             <div className="bg-[#FDE89C] p-6 rounded-[1.25rem] space-y-6">
-              <div className="flex items-center justify-between border-b border-[#3E2417]/10 pb-4">
-                <h2 className="text-[1.1rem] font-['Archivo_Black',sans-serif] text-[#3E2417] uppercase tracking-wide">SEU PEDIDO</h2>
-                <span className="text-xs font-medium text-[#3E2417]/80">
+              <div className="flex items-center justify-between border-b border-[#422518]/10 pb-4">
+                <h2 className="text-[1.1rem] font-['Archivo',sans-serif] text-[#422518] uppercase tracking-wide">SEU PEDIDO</h2>
+                <span className="text-xs font-medium text-[#422518]/80">
                   {carregandoCarrinho ? '...' : `${quantidadeTotalItens} item${quantidadeTotalItens === 1 ? '' : 's'}`}
                 </span>
               </div>
@@ -916,9 +916,9 @@ function FinalizarCompra({ onRetomar }) {
                     <span>− {formatarPreco(pixDesconto)}</span>
                   </div>
                 )}
-                <div className="flex justify-between items-center gap-3 border-t border-[#3E2417]/10 pt-3">
-                  <span className="font-['Archivo_Black',sans-serif] text-[13px] uppercase text-[#3E2417]">TOTAL</span>
-                  <span className="font-['Archivo_Black',sans-serif] text-2xl text-[#3E2417]">
+                <div className="flex justify-between items-center gap-3 border-t border-[#422518]/10 pt-3">
+                  <span className="font-['Archivo',sans-serif] text-[13px] uppercase text-[#422518]">TOTAL</span>
+                  <span className="font-['Archivo',sans-serif] text-2xl text-[#422518]">
                     {carregandoCarrinho ? 'Atualizando...' : resumo?.total === null || !resumo ? 'Aguardando frete' : pagamento === 'pix' ? formatarPreco(pixTotal) : formatarPreco(totalComFrete)}
                   </span>
                 </div>
@@ -949,7 +949,7 @@ function FinalizarCompra({ onRetomar }) {
                   {pagamentoAprovado && (
                     <>
                       <h4 className="text-green-700 font-bold text-lg">Pagamento Aprovado! 🎉</h4>
-                      <p className="text-xs text-[#3E2417]">Seu pedido já está sendo processado.</p>
+                      <p className="text-xs text-[#422518]">Seu pedido já está sendo processado.</p>
                     </>
                   )}
                   {pagamentoCancelado && (
@@ -961,7 +961,7 @@ function FinalizarCompra({ onRetomar }) {
                     </div>
                   )}
                   {resultado.pedido && !pagamentoAprovado && !pagamentoCancelado && (
-                    <p role="status" className="text-xs text-[#3E2417]">Aguardando confirmação do pagamento. Esta tela será atualizada automaticamente.</p>
+                    <p role="status" className="text-xs text-[#422518]">Aguardando confirmação do pagamento. Esta tela será atualizada automaticamente.</p>
                   )}
                   {acompanhamento?.erro && (
                     <div role="alert" className="text-xs text-red-700">
@@ -970,7 +970,7 @@ function FinalizarCompra({ onRetomar }) {
                     </div>
                   )}
                   {resultado.pedido && (
-                    <p className="text-xs text-[#3E2417] border-t border-[#3E2417]/10 pt-3">
+                    <p className="text-xs text-[#422518] border-t border-[#422518]/10 pt-3">
                       Pedido <span className="font-bold">{resultado.pedido.numero}</span> registrado.{' '}
                       <Link
                         to={resultado.pedido.numero ? `/pedido-status/${encodeURIComponent(resultado.pedido.numero)}` : '/pedido-status'}
@@ -981,7 +981,7 @@ function FinalizarCompra({ onRetomar }) {
                     </p>
                   )}
                   {resultado.erroPedido && (
-                    <p role="alert" className="text-xs text-red-700 border-t border-[#3E2417]/10 pt-3">
+                    <p role="alert" className="text-xs text-red-700 border-t border-[#422518]/10 pt-3">
                       O pagamento foi gerado, mas não conseguimos registrar o pedido ({resultado.erroPedido}). Guarde o código {resultado.dados.id_pagamento} e fale com a gente.
                     </p>
                   )}
@@ -991,7 +991,7 @@ function FinalizarCompra({ onRetomar }) {
                   <button
                     type="submit"
                     disabled={loading || carregandoCarrinho || calculandoFrete || !cartItems.length || !freteSelecionado || !resumo?.cotacao}
-                    className="w-full bg-[#3E2417] hover:bg-[#2A180F] disabled:opacity-50 text-white font-['Archivo_Black',sans-serif] text-sm py-4 rounded-lg transition-colors uppercase flex items-center justify-center gap-2"
+                    className="w-full bg-[#422518] hover:bg-[#2A180F] disabled:opacity-50 text-white font-['Archivo',sans-serif] text-sm py-4 rounded-lg transition-colors uppercase flex items-center justify-center gap-2"
                   >
                     <span>
                       {carregandoCarrinho

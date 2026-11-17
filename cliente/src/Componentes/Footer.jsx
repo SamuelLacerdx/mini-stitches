@@ -4,7 +4,7 @@ import logoMarca from "../assets/logo.svg";
 export default function Footer() {
   return (
     <footer className="w-full font-['Work_Sans',sans-serif]">
-      <div className="w-full bg-[#FDE7B2] px-6 py-12 text-[#3E1B0E] md:px-12 lg:px-16">
+      <div className="w-full bg-[#FFE6A2] px-6 py-12 text-[#422518] md:px-12 lg:px-16">
         <div className="mx-auto grid max-w-full grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col items-start gap-4">
             <Link to="/">
@@ -14,7 +14,7 @@ export default function Footer() {
                 className="h-14 w-auto object-contain"
               />
             </Link>
-            <p className="max-w-xs text-sm font-normal leading-relaxed text-[#3E1B0E]/90">
+            <p className="max-w-xs text-sm font-normal leading-relaxed text-[#422518]/90">
               Bordando memórias, um ponto por vez.
               <br />
               Kits de fazer em casa para crianças criarem longe das telas.
@@ -22,7 +22,7 @@ export default function Footer() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <h3 className="font-['Archivo_Black'] text-base font-normal uppercase text-[#3E1B0E]">
+            <h3 className="font-['Archivo'] text-base font-normal uppercase text-[#422518]">
               {" "}
               DESCOBRIR{" "}
             </h3>
@@ -74,7 +74,7 @@ export default function Footer() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <h3 className="font-['Archivo_Black'] text-base font-normal uppercase text-[#3E1B0E]">
+            <h3 className="font-['Archivo'] text-base font-normal uppercase text-[#422518]">
               AJUDA
             </h3>
             <ul className="flex flex-col gap-3 text-sm leading-snug">
@@ -86,7 +86,7 @@ export default function Footer() {
           </div>
 
           <div className="flex flex-col gap-3">
-            <h3 className="font-['Archivo_Black'] text-base font-normal uppercase text-[#3E1B0E]">
+            <h3 className="font-['Archivo'] text-base font-normal uppercase text-[#422518]">
               {" "}
               ONDE NOS ENCONTRAR{" "}
             </h3>
@@ -104,7 +104,7 @@ export default function Footer() {
           </div>
         </div>
       </div>
-      <div className="h-12 w-full bg-[#4E2206]" />
+      <div className="h-12 w-full bg-[#602C16]" />
     </footer>
   );
 }

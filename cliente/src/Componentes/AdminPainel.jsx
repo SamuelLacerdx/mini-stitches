@@ -79,9 +79,9 @@ function BadgeStatus({ status, statusFinanceiro }) {
 
 function CardMetrica({ titulo, valor, detalhe }) {
   return (
-    <div className="p-6 rounded-xl border border-stone-200 bg-[#FEF8F0]">
+    <div className="p-6 rounded-xl border border-stone-200 bg-[#FEF9F3]">
       <span className="text-stone-500 font-bold text-sm">{titulo}</span>
-      <p className="text-3xl md:text-4xl font-bold text-[#602D15] mt-2">
+      <p className="text-3xl md:text-4xl font-bold text-[#602C16] mt-2">
         {valor}
       </p>
       {detalhe && <p className="text-xs text-stone-500 mt-1">{detalhe}</p>}
@@ -138,7 +138,7 @@ export function VisaoGeral({ onVerPedidos }) {
       </div>
 
       <div>
-        <h2 className="text-lg font-bold text-[#3E2417] mb-3">
+        <h2 className="text-lg font-bold text-[#422518] mb-3">
           Pedidos por status
         </h2>
         <div className="flex flex-wrap gap-3">
@@ -155,7 +155,7 @@ export function VisaoGeral({ onVerPedidos }) {
 
       <div>
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="text-lg font-bold text-[#3E2417]">Últimos pedidos</h2>
+          <h2 className="text-lg font-bold text-[#422518]">Últimos pedidos</h2>
           <button
             type="button"
             onClick={onVerPedidos}
@@ -169,7 +169,7 @@ export function VisaoGeral({ onVerPedidos }) {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-stone-200">
             <table className="w-full text-sm">
-              <thead className="bg-[#FEF8F0] text-left text-xs uppercase text-stone-500">
+              <thead className="bg-[#FEF9F3] text-left text-xs uppercase text-stone-500">
                 <tr>
                   <th className="px-4 py-3">Pedido</th>
                   <th className="px-4 py-3">Cliente</th>
@@ -181,7 +181,7 @@ export function VisaoGeral({ onVerPedidos }) {
               <tbody>
                 {dados.ultimosPedidos.map((pedido) => (
                   <tr key={pedido._id} className="border-t border-stone-100">
-                    <td className="px-4 py-3 font-bold text-[#3E2417]">
+                    <td className="px-4 py-3 font-bold text-[#422518]">
                       {pedido.numero}
                     </td>
                     <td className="px-4 py-3">{pedido.cliente?.nome}</td>
@@ -240,16 +240,16 @@ function DetalhePedido({ pedido, onAtualizado }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 bg-white rounded-xl border border-stone-200 p-4 text-sm text-stone-700">
       <div>
-        <p className="font-bold text-[#3E2417] mb-2">Cliente</p>
+        <p className="font-bold text-[#422518] mb-2">Cliente</p>
         <p>{pedido.cliente?.nome}</p>
         <p className="break-all">{pedido.cliente?.email}</p>
-        <p className="font-bold text-[#3E2417] mt-3 mb-2">Entrega</p>
+        <p className="font-bold text-[#422518] mt-3 mb-2">Entrega</p>
         <p>{pedido.entrega?.endereco}</p>
         <p>CEP {pedido.entrega?.cep}</p>
       </div>
 
       <div>
-        <p className="font-bold text-[#3E2417] mb-2">Itens</p>
+        <p className="font-bold text-[#422518] mb-2">Itens</p>
         <ul className="space-y-1">
           {pedido.itens.map((item) => (
             <li key={item.slug} className="flex justify-between gap-2">
@@ -275,7 +275,7 @@ function DetalhePedido({ pedido, onAtualizado }) {
               <span>- {formatarReais(pedido.desconto)}</span>
             </p>
           )}
-          <p className="flex justify-between font-bold text-[#3E2417]">
+          <p className="flex justify-between font-bold text-[#422518]">
             <span>Total</span> <span>{formatarReais(pedido.total)}</span>
           </p>
         </div>
@@ -284,7 +284,7 @@ function DetalhePedido({ pedido, onAtualizado }) {
       <div className="space-y-3">
         <p className="font-semibold">{situacaoFinanceira(financeiro).titulo}</p>
         {pedido.valorReembolsado > 0 && <p>Reembolso registrado: {formatarReais(pedido.valorReembolsado)}</p>}
-        <p className="font-bold text-[#3E2417]">Atualizar pedido</p>
+        <p className="font-bold text-[#422518]">Atualizar pedido</p>
         <label className="flex flex-col gap-1 font-medium">
           Status
           <select
@@ -324,7 +324,7 @@ function DetalhePedido({ pedido, onAtualizado }) {
           type="button"
           onClick={salvar}
           disabled={salvando}
-          className="w-full bg-[#3E2417] text-white font-bold px-4 py-2 rounded-xl hover:bg-[#602D15] disabled:opacity-60"
+          className="w-full bg-[#422518] text-white font-bold px-4 py-2 rounded-xl hover:bg-[#602C16] disabled:opacity-60"
         >
           {salvando ? "Salvando..." : "Salvar"}
         </button>
@@ -339,7 +339,7 @@ function DetalhePedido({ pedido, onAtualizado }) {
         )}
         {pedido.historicoStatus?.length > 0 && (
           <div>
-            <p className="font-bold text-[#3E2417] mb-1">Histórico</p>
+            <p className="font-bold text-[#422518] mb-1">Histórico</p>
             <ul className="text-xs space-y-1">
               {pedido.historicoStatus.map((h, i) => (
                 <li key={i}>
@@ -375,7 +375,7 @@ export function PedidosAdmin() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-[#3E2417]">Todos os pedidos</h2>
+        <h2 className="text-xl font-bold text-[#422518]">Todos os pedidos</h2>
         <div className="flex flex-wrap gap-2">
           <input
             value={busca}
@@ -411,7 +411,7 @@ export function PedidosAdmin() {
           {pedidos.map((pedido) => (
             <div
               key={pedido._id}
-              className="rounded-2xl border border-stone-200 bg-[#FEF8F0]"
+              className="rounded-2xl border border-stone-200 bg-[#FEF9F3]"
             >
               <button
                 type="button"
@@ -420,7 +420,7 @@ export function PedidosAdmin() {
                 }
                 className="w-full flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-left text-sm"
               >
-                <span className="font-black text-[#3E2417] min-w-20">
+                <span className="font-black text-[#422518] min-w-20">
                   {pedido.numero}
                 </span>
                 <span className="flex-1 min-w-40">
@@ -435,7 +435,7 @@ export function PedidosAdmin() {
                 <span className="text-stone-600">
                   {PAGAMENTO[pedido.pagamento] || pedido.pagamento}
                 </span>
-                <span className="font-bold text-[#3E2417] whitespace-nowrap">
+                <span className="font-bold text-[#422518] whitespace-nowrap">
                   {formatarReais(pedido.total)}
                 </span>
                 <BadgeStatus status={pedido.status} statusFinanceiro={financeiroPedido(pedido)} />
@@ -487,7 +487,7 @@ export function ClubeAdmin() {
         />
       </div>
 
-      <h2 className="text-xl font-bold text-[#3E2417]">Assinantes</h2>
+      <h2 className="text-xl font-bold text-[#422518]">Assinantes</h2>
       {assinaturas.length === 0 ? (
         <p className="text-stone-500">
           Nenhuma contratação registrada ainda.
@@ -495,7 +495,7 @@ export function ClubeAdmin() {
       ) : (
         <div className="overflow-x-auto rounded-xl border border-stone-200">
           <table className="w-full text-sm">
-            <thead className="bg-[#FEF8F0] text-left text-xs uppercase text-stone-500">
+            <thead className="bg-[#FEF9F3] text-left text-xs uppercase text-stone-500">
               <tr>
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Plano</th>
@@ -573,12 +573,12 @@ function CardTroca({ troca, onAtualizado }) {
   };
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 text-sm text-stone-700">
+    <div className="rounded-2xl border border-stone-200 bg-[#FEF9F3] p-4 text-sm text-stone-700">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="rounded-full bg-[#3E2417] text-white px-3 py-1 text-[11px] font-bold uppercase">
+        <span className="rounded-full bg-[#422518] text-white px-3 py-1 text-[11px] font-bold uppercase">
           {troca.tipo === "devolucao" ? "Devolução" : "Troca"}
         </span>
-        <span className="font-black text-[#3E2417]">{troca.numeroPedido}</span>
+        <span className="font-black text-[#422518]">{troca.numeroPedido}</span>
         <span className="flex-1 min-w-40">
           {troca.pedido?.cliente?.nome || "—"}
           <span className="block text-xs text-stone-500 break-all">
@@ -635,7 +635,7 @@ function CardTroca({ troca, onAtualizado }) {
             type="button"
             disabled={salvando}
             onClick={() => mudarStatus("em_analise")}
-            className="rounded-xl border border-stone-300 text-[#3E2417] font-bold px-4 py-2 hover:bg-stone-50 disabled:opacity-60"
+            className="rounded-xl border border-stone-300 text-[#422518] font-bold px-4 py-2 hover:bg-stone-50 disabled:opacity-60"
           >
             Voltar para análise
           </button>
@@ -656,7 +656,7 @@ export function TrocasAdmin() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-[#3E2417]">
+        <h2 className="text-xl font-bold text-[#422518]">
           Trocas e devoluções
         </h2>
         <select

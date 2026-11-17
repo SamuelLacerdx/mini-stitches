@@ -14,7 +14,7 @@ export default function Carrinho() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full flex flex-col lg:flex-row gap-12">
       <div className="flex-1">
-        <h1 className="text-4xl font-['Archivo_Black'] text-[#3E2417] mb-6">
+        <h1 className="text-4xl font-['Archivo'] text-[#422518] mb-6">
           MEU CARRINHO
         </h1>
         <div className="border-b-2 border-orange-400/70 mb-4" />
@@ -47,7 +47,7 @@ export default function Carrinho() {
                   />
                 )}
                 <div>
-                  <h3 className="font-['Archivo_Black'] text-base text-[#3E2417]">
+                  <h3 className="font-['Archivo'] text-base text-[#422518]">
                     {item.nome}
                   </h3>
                   <span className="text-xs text-stone-500">{item.tipo}</span>
@@ -72,11 +72,11 @@ export default function Carrinho() {
                       )
                     }
                     aria-label={`Diminuir quantidade de ${item.nome}`}
-                    className="px-3 py-1 font-['Archivo_Black'] text-[#3E2417] disabled:opacity-40"
+                    className="px-3 py-1 font-['Archivo'] text-[#422518] disabled:opacity-40"
                   >
                     -
                   </button>
-                  <span className="px-3 text-sm font-['Archivo_Black']">
+                  <span className="px-3 text-sm font-['Archivo']">
                     {item.quantidade}
                   </span>
                   <button
@@ -90,13 +90,13 @@ export default function Carrinho() {
                       )
                     }
                     aria-label={`Aumentar quantidade de ${item.nome}`}
-                    className="px-3 py-1 font-['Archivo_Black'] text-[#3E2417] disabled:opacity-40"
+                    className="px-3 py-1 font-['Archivo'] text-[#422518] disabled:opacity-40"
                   >
                     +
                   </button>
                 </div>
 
-                <span className="font-['Archivo_Black'] text-base text-[#3E2417]">
+                <span className="font-['Archivo'] text-base text-[#422518]">
                   {formatarPreco(item.preco * item.quantidade)}
                 </span>
 
@@ -115,8 +115,8 @@ export default function Carrinho() {
         )}
       </div>
 
-      <div className="w-full lg:w-96 bg-[#FBE6A8] p-6 rounded-xl flex flex-col gap-4 h-fit">
-        <h2 className="text-xl font-['Archivo_Black'] text-[#3E2417]">
+      <div className="w-full lg:w-96 bg-[#FFE6A2] p-6 rounded-xl flex flex-col gap-4 h-fit">
+        <h2 className="text-xl font-['Archivo'] text-[#422518]">
           RESUMO
         </h2>
         <div className="border-b border-orange-400/50" />
@@ -133,7 +133,7 @@ export default function Carrinho() {
 
         <div className="border-b border-orange-400/50" />
 
-        <div className="flex justify-between font-['Archivo_Black'] text-base">
+        <div className="flex justify-between font-['Archivo'] text-base">
           <span>No Pix (5% off)</span>
           <span>{formatarPreco(pixTotal)}</span>
         </div>
@@ -142,7 +142,7 @@ export default function Carrinho() {
           type="button"
           disabled={!resumo?.podeContinuar || carregando || salvando || finalizando || Boolean(erro)}
           onClick={irParaCheckout}
-          className="w-full bg-[#3E2417] hover:bg-[#602D15] disabled:opacity-50 text-white py-4 rounded-lg font-['Archivo_Black'] text-base transition-colors mt-2"
+          className="w-full bg-[#422518] hover:bg-[#602C16] disabled:opacity-50 text-white py-4 rounded-lg font-['Archivo'] text-base transition-colors mt-2"
         >
           {finalizando ? 'AGUARDE...' : 'FINALIZAR COMPRA'}
         </button>

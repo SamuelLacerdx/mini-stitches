@@ -89,10 +89,10 @@ export default function Materiais() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full">
-      <h1 className="text-4xl md:text-6xl font-['Archivo_Black'] text-[#3E2417] mb-4">
+      <h1 className="text-4xl md:text-6xl font-['Archivo'] text-[#422518] mb-4">
         MATERIAIS
       </h1>
-      <p className="text-[#3E2417] text-sm md:text-base font-['Archivo_Black'] max-w-3xl leading-relaxed mb-8">
+      <p className="text-[#422518] text-sm md:text-base font-['Archivo'] max-w-3xl leading-relaxed mb-8">
         Fios, agulhas e acessórios dos mesmos fornecedores dos nossos kits.
         Perfeitos para repor o que acabou ou continuar criando.
       </p>
@@ -109,35 +109,35 @@ export default function Materiais() {
               className="bg-white p-6 rounded-xl border border-stone-300 flex flex-col justify-between"
             >
               <div>
-                <span className="text-xs font-semibold text-[#3E2417] block mb-1">
+                <span className="text-xs font-semibold text-[#422518] block mb-1">
                   {item.material?.categoria || "ACESSÓRIOS"}
                 </span>
-                <h3 className="text-base font-black text-[#602D15] mb-2">
+                <h3 className="text-base font-black text-[#602C16] mb-2">
                   {item.nome}
                 </h3>
-                <p className="text-xs text-[#602D15] mb-4">
+                <p className="text-xs text-[#602C16] mb-4">
                   {item.material?.descricao ||
                     "Material complementar para seus kits."}
                 </p>
-                <span className="text-lg font-black text-[#602D15] block mb-4">
+                <span className="text-lg font-black text-[#602C16] block mb-4">
                   {formatarPreco(item.preco)}
                 </span>
               </div>
 
               <div className="flex items-center gap-3">
-                <div className="flex items-center border border-[#3E2417] rounded-full px-3 py-1">
+                <div className="flex items-center border border-[#422518] rounded-full px-3 py-1">
                   <button
                     onClick={() => alterarQuantidade(item._id, -1)}
-                    className="text-lg font-bold px-1 text-[#3E2417]"
+                    className="text-lg font-bold px-1 text-[#422518]"
                   >
                     -
                   </button>
-                  <span className="px-3 text-xs font-['Archivo_Black']">
+                  <span className="px-3 text-xs font-['Archivo']">
                     {quantidades[item._id] || 1}
                   </span>
                   <button
                     onClick={() => alterarQuantidade(item._id, 1)}
-                    className="text-lg font-bold px-1 text-[#3E2417]"
+                    className="text-lg font-bold px-1 text-[#422518]"
                   >
                     +
                   </button>
@@ -147,7 +147,7 @@ export default function Materiais() {
                   type="button"
                   onClick={() => adicionarAoCarrinho(item)}
                   disabled={adicionandoId === item._id}
-                  className="flex-1 bg-[#3E2417] text-white py-2 px-4 rounded-full text-xs font-['Archivo_Black'] hover:bg-[#602D15] disabled:opacity-60 transition-colors cursor-pointer"
+                  className="flex-1 bg-[#422518] text-white py-2 px-4 rounded-full text-xs font-['Archivo'] hover:bg-[#602C16] disabled:opacity-60 transition-colors cursor-pointer"
                 >
                   {adicionandoId === item._id ? "ADICIONANDO..." : "ADICIONAR"}
                 </button>
@@ -156,7 +156,7 @@ export default function Materiais() {
                 <p
                   role="status"
                   className={`mt-3 text-xs ${
-                    mensagens[item._id].sucesso ? "text-[#3E2417]" : "text-red-600"
+                    mensagens[item._id].sucesso ? "text-[#422518]" : "text-red-600"
                   }`}
                 >
                   {mensagens[item._id].texto}{" "}

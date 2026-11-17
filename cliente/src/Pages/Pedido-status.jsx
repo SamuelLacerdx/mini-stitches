@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ETAPAS, situacaoPedido, situacaoFinanceira, financeiroPedido, formatarDinheiro, formatarData, historicoPedido } from '../utils/pedido.mjs';
 
 const card = 'rounded-2xl border border-[#C58752]/25 bg-white p-5 md:p-7';
-const acao = 'inline-flex min-h-11 items-center justify-center rounded-lg bg-[#3E2417] px-5 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4';
+const acao = 'inline-flex min-h-11 items-center justify-center rounded-lg bg-[#422518] px-5 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-4';
 
 // Uma requisição por vez, com pausa fora da aba e atualização após aprovação.
 export default function PedidoStatus() {
@@ -26,7 +26,7 @@ export default function PedidoStatus() {
   };
 
   return (
-    <div className="w-full bg-[#FEF8F0] px-4 py-8 text-[#3E2417] md:px-10">
+    <div className="w-full bg-[#FEF9F3] px-4 py-8 text-[#422518] md:px-10">
       <div className="mx-auto max-w-5xl space-y-6">
         <Link to="/perfil" className="inline-flex min-h-11 items-center text-sm underline">← Meus pedidos</Link>
 
@@ -57,7 +57,7 @@ export default function PedidoStatus() {
             {pedido.statusLogistico === 'cancelado' && financeiroPedido(pedido) === 'aprovado' && <p className="mt-2 text-sm">O pedido foi cancelado na operação. O pagamento permanece aprovado até a confirmação de um estorno pelo provedor.</p>}
           </section>
 
-          <section aria-labelledby="status-pedido" className="space-y-5 rounded-2xl bg-[#F7C6E5]/60 p-6 md:p-8">
+          <section aria-labelledby="status-pedido" className="space-y-5 rounded-2xl bg-[#F6D1E7]/60 p-6 md:p-8">
             <div className="space-y-2" role="status">
               <h2 id="status-pedido" className="text-2xl font-bold md:text-3xl">{situacao.titulo}</h2>
               <p>{situacao.descricao}</p>
@@ -86,7 +86,7 @@ export default function PedidoStatus() {
               {ETAPAS.map((etapa, index) => {
                 const atual = situacao.etapa === index + 1;
                 const concluida = situacao.etapa > index + 1;
-                return <li key={etapa} aria-current={atual ? 'step' : undefined} className={`rounded-lg border p-3 text-sm ${atual ? 'border-[#3E2417] bg-[#FDE89C] font-bold' : 'border-[#C58752]/25'}`}>
+                return <li key={etapa} aria-current={atual ? 'step' : undefined} className={`rounded-lg border p-3 text-sm ${atual ? 'border-[#422518] bg-[#FDE89C] font-bold' : 'border-[#C58752]/25'}`}>
                   <span className="mb-1 block text-xs">{concluida ? 'Concluída' : atual ? 'Etapa atual' : 'Próxima etapa'}</span>
                   {etapa}
                 </li>;

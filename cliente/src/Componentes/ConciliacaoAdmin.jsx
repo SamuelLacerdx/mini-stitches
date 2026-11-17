@@ -70,7 +70,7 @@ export default function ConciliacaoAdmin() {
     {!resultado && <p role="status">Consultando conciliação...</p>}
     {resultado?.erro && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{resultado.erro} {dados && 'Os dados abaixo são da última consulta concluída.'}</p>}
     {dados?.itens.length === 0 && <p>Nenhum registro para esta consulta.</p>}
-    {dados?.itens.map((item) => <article key={item.id} className="space-y-3 rounded-xl border border-stone-200 bg-[#FEF8F0] p-4 text-sm">
+    {dados?.itens.map((item) => <article key={item.id} className="space-y-3 rounded-xl border border-stone-200 bg-[#FEF9F3] p-4 text-sm">
       <h3 className="break-all font-bold">{item.pedidoNumero || item.id}</h3>
       <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {Object.entries({ Cliente: item.clienteId, Tentativa: item.tentativaId, 'Estado da tentativa': item.estadoTentativa,
