@@ -58,6 +58,7 @@ export default function Perfil() {
   const [salvandoCartao, setSalvandoCartao] = useState(false);
   const envioCartaoRef = useRef(false);
   const [senhaStatus, setSenhaStatus] = useState("");
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(null);
 
   async function sair(event) {
     event.preventDefault();
@@ -212,11 +213,19 @@ export default function Perfil() {
     }
   }
 
-  async function excluirEndereco(enderecoId) {
-    if (!window.confirm("Deseja realmente excluir este endereço?")) {
-      return;
-    }
+  function pedirConfirmacao(tipo, id, label) {
+    setConfirmandoExclusao({ tipo, id, label });
+  }
 
+  function confirmarExclusao() {
+    if (!confirmandoExclusao) return;
+    const { tipo, id } = confirmandoExclusao;
+    setConfirmandoExclusao(null);
+    if (tipo === "endereco") excluirEndereco(id);
+    else excluirCartao(id);
+  }
+
+  async function excluirEndereco(enderecoId) {
     try {
       const resposta = await fetch(`/perfil/enderecos/${enderecoId}`, {
         method: "DELETE",
@@ -320,7 +329,6 @@ export default function Perfil() {
   }
 
   async function excluirCartao(cartaoId) {
-    if (!window.confirm("Deseja realmente excluir este cartão?")) return;
     try {
       const resposta = await fetch(`/perfil/cartoes/${cartaoId}`, {
         method: "DELETE",
@@ -504,8 +512,8 @@ export default function Perfil() {
                 )}
                 <button
                   type="button"
-                  onClick={() => excluirEndereco(endereco._id)}
-                  className="text-xs text-amber-800 underline font-semibold hover:opacity-80"
+                  onClick={() => pedirConfirmacao("endereco", endereco._id, endereco.apelido)}
+                  className="text-xs underline font-semibold hover:opacity-80 text-amber-800"
                 >
                   EXCLUIR
                 </button>
@@ -696,8 +704,8 @@ export default function Perfil() {
               </div>
               <button
                 type="button"
-                onClick={() => excluirCartao(cartao._id)}
-                className="text-xs text-amber-800 underline font-semibold hover:opacity-80 self-start sm:self-auto"
+                onClick={() => pedirConfirmacao("cartao", cartao._id, `•••• ${cartao.finalCartao}`)}
+                className="text-xs underline font-semibold hover:opacity-80 self-start sm:self-auto text-amber-800"
               >
                 EXCLUIR
               </button>
@@ -935,6 +943,35 @@ export default function Perfil() {
           </p>
         </section>
       </div>
+
+      {confirmandoExclusao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmandoExclusao(null)}>
+          <div className="bg-white rounded-2xl p-6 mx-4 max-w-sm w-full shadow-xl space-y-4 text-center" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-['Archivo_Black'] text-[#3E2417]">
+              Excluir {confirmandoExclusao.tipo === "endereco" ? "endereço" : "cartão"}?
+            </h3>
+            <p className="text-sm text-stone-600">
+              Tem certeza que deseja excluir <strong>{confirmandoExclusao.label}</strong>? Essa ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setConfirmandoExclusao(null)}
+                className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded-md text-xs font-['Archivo_Black'] hover:bg-orange-100 transition-colors"
+              >
+                CANCELAR
+              </button>
+              <button
+                type="button"
+                onClick={confirmarExclusao}
+                className="px-5 py-2.5 bg-red-600 text-white rounded-md text-xs font-['Archivo_Black'] hover:bg-red-700 transition-colors"
+              >
+                EXCLUIR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
