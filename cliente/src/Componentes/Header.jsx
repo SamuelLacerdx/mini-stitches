@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import logoMarca from "../assets/logo.svg";
 import { useCarrinho } from '../context/CarrinhoContext';
+import { useSessao } from '../context/SessaoContext';
 import {
   Search,
   ShoppingBag,
@@ -15,7 +16,7 @@ import {
 
 export default function Header() {
   const { abrir, aberto } = useCarrinho();
-  const [usuario, setUsuario] = useState(null);
+  const { usuario } = useSessao();
   const [termoBusca, setTermoBusca] = useState("");
   // Guardam a rota em que foram abertos: ao trocar de página fecham sozinhos,
   // sem efeito nem nova chamada à API.
@@ -26,44 +27,6 @@ export default function Header() {
   const location = useLocation();
   const buscaAberta = buscaRota === location.pathname;
   const menuAberto = menuRota === location.pathname;
-
-  useEffect(() => {
-    let ativo = true;
-
-    function carregarUsuario() {
-      fetch("/api/perfil", { credentials: "include" })
-        .then(async (resposta) => {
-          if (!resposta.ok) {
-            if (resposta.status !== 401) {
-              throw new Error("Não foi possível verificar a conta logada.");
-            }
-            return null;
-          }
-
-          const data = await resposta.json();
-          return data.usuario;
-        })
-        .then((dadosUsuario) => {
-          if (ativo) {
-            setUsuario(dadosUsuario);
-          }
-        })
-        .catch((error) => {
-          console.error(error);
-          if (ativo) {
-            setUsuario(null);
-          }
-        });
-    }
-
-    carregarUsuario();
-    window.addEventListener("sessao-alterada", carregarUsuario);
-
-    return () => {
-      ativo = false;
-      window.removeEventListener("sessao-alterada", carregarUsuario);
-    };
-  }, []);
 
   // Foco automático ao abrir a busca
   useEffect(() => {

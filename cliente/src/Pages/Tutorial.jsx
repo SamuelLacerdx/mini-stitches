@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useSessao } from '../context/SessaoContext';
 
 const prepararVideo = (video, index) => {
   const urlOriginal = String(video?.url || '').trim();
@@ -48,10 +49,11 @@ export default function Tutorial() {
   const [carregando, setCarregando] = useState(true);
   const [erroCarregamento, setErroCarregamento] = useState('');
 
-  const [estadoAcesso, setEstadoAcesso] = useState({
-    status: 'verificando',
-    erro: '',
-  });
+  const sessao = useSessao();
+  const estadoAcesso = {
+    status: sessao.carregando ? 'verificando' : sessao.erro ? 'erro' : sessao.usuario ? 'autenticado' : 'visitante',
+    erro: sessao.erro,
+  };
   const usuarioAutenticado = estadoAcesso.status === 'autenticado';
 
   const [selecao, setSelecao] = useState({ videoId: null, estaAplay: false });
@@ -89,36 +91,6 @@ export default function Tutorial() {
     carregar();
     return () => { ativo = false; };
   }, [slug]);
-
-  useEffect(() => {
-    let ativo = true;
-
-    fetch('/api/perfil', { credentials: 'include' })
-      .then(async (resposta) => {
-        if (resposta.status === 401) return false;
-        if (!resposta.ok) throw new Error('Não foi possível verificar sua conta.');
-        return true;
-      })
-      .then((autenticado) => {
-        if (ativo) {
-          setEstadoAcesso({
-            status: autenticado ? 'autenticado' : 'visitante',
-            erro: '',
-          });
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-        if (ativo) {
-          setEstadoAcesso({
-            status: 'erro',
-            erro: error.message || 'Não foi possível verificar sua conta.',
-          });
-        }
-      });
-
-    return () => { ativo = false; };
-  }, []);
 
   const podeAssistir = (index) =>
     estadoAcesso.status === 'autenticado' ||

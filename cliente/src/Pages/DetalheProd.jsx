@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useSessao } from "../context/SessaoContext";
 import { notificarAlteracaoCarrinho } from '../utils/resumoCheckout.mjs';
 
 const formatarPreco = (valor) => {
@@ -14,44 +15,11 @@ export default function DetalheProd() {
   const [quantidade, setQuantidade] = useState(1);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-  const [usuarioAutenticado, setUsuarioAutenticado] = useState(false);
-  const [verificandoAcesso, setVerificandoAcesso] = useState(true);
-  const [erroAcesso, setErroAcesso] = useState("");
+  const { usuario, carregando: verificandoAcesso, erro: erroAcesso } = useSessao();
+  const usuarioAutenticado = Boolean(usuario);
   const [adicionandoAoCarrinho, setAdicionandoAoCarrinho] = useState(false);
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [itemAdicionado, setItemAdicionado] = useState(false);
-
-  useEffect(() => {
-    let ativo = true;
-
-    fetch("/api/perfil", { credentials: "include" })
-      .then((resposta) => {
-        if (resposta.status === 401 || resposta.status === 404) {
-          return false;
-        }
-        if (!resposta.ok) {
-          throw new Error("Não foi possível verificar sua conta.");
-        }
-        return true;
-      })
-      .then((autenticado) => {
-        if (ativo) {
-          setUsuarioAutenticado(autenticado);
-          setVerificandoAcesso(false);
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-        if (ativo) {
-          setErroAcesso(error.message || "Não foi possível verificar sua conta.");
-          setVerificandoAcesso(false);
-        }
-      });
-
-    return () => {
-      ativo = false;
-    };
-  }, []);
 
   useEffect(() => {
     const carregarProduto = async () => {
