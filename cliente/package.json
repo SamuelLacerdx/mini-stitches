@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test:pedidos": "node --test tests/pedidos.test.mjs",
+    "test": "npm run test:pagamentos",
     "test:pagamentos": "node --test tests/parcelamento.test.cjs tests/pagamentos.test.cjs",
     "preview": "vite preview"
   },
