@@ -67,16 +67,14 @@ export default function DetalheProd() {
     const controle = new AbortController();
     let ativo = true;
 
-    Promise.all(["kit", "material"].map((tipo) =>
-      fetch(`/api/produtos?tipo=${tipo}`, { signal: controle.signal }).then((resposta) => {
+    fetch("/api/produtos?tipo=kit", { signal: controle.signal })
+      .then((resposta) => {
         if (!resposta.ok) throw new Error("Não foi possível carregar as sugestões.");
         return resposta.json();
-      }),
-    ))
-      .then((respostas) => {
+      })
+      .then((resposta) => {
         if (!ativo) return;
-        const elegiveis = respostas
-          .flatMap((resposta) => Array.isArray(resposta.produtos) ? resposta.produtos : [])
+        const elegiveis = (Array.isArray(resposta.produtos) ? resposta.produtos : [])
           .filter((item) => item?.slug && item.slug !== produto.slug);
         const semDuplicatas = [...new Map(elegiveis.map((item) => [item.slug, item])).values()];
         for (let indice = semDuplicatas.length - 1; indice > 0; indice -= 1) {
