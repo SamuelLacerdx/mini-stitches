@@ -2,6 +2,16 @@
 
 Loja virtual de kits de bordado e crochê para crianças. A Mini Stitches apresenta os produtos, permite navegar pelo catálogo e inclui páginas de conta, carrinho, clube de assinatura e conteúdo de apoio.
 
+## Capturas de tela
+
+As imagens em [`docs/prints/`](docs/prints) mostram as telas públicas da loja
+(início, kits, materiais, produto, carrinho, clube, trocas, contato, história,
+busca, conta e erro 404), capturadas em ambiente local com dados de teste.
+
+| Página inicial | Catálogo de kits |
+| --- | --- |
+| ![Página inicial da Mini Stitches](docs/prints/home.png) | ![Catálogo de kits da Mini Stitches](docs/prints/kits.png) |
+
 ## O que o projeto oferece
 
 - Página inicial com apresentação da marca, destaques e conteúdo informativo.
