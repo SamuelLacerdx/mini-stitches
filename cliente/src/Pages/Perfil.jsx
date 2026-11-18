@@ -345,11 +345,11 @@ export default function Perfil() {
   }
 
   return (
-    <div className="w-full flex-1 bg-[#FEF8F0] px-4 py-8 md:px-12 md:py-12 text-[#3E2417] font-['Work_Sans']">
+    <div className="w-full flex-1 bg-[#FEF9F3] px-4 py-8 md:px-12 md:py-12 text-[#422518] font-['Work_Sans']">
       <div className="max-w-5xl mx-auto space-y-12">
         {/* Cabecalho da Página */}
         <div className="flex justify-between items-center border-b border-orange-200/60 pb-4">
-          <h1 className="text-3xl md:text-4xl font-['Archivo_Black'] text-[#3E2417]">
+          <h1 className="text-3xl md:text-4xl font-['Archivo'] text-[#422518]">
             MINHA CONTA
           </h1>
           <Link
@@ -363,7 +363,7 @@ export default function Perfil() {
 
         {/* SECÇÃO 1: MEUS DADOS */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-6">
-          <h2 className="text-lg font- font-['Archivo_Black'] border-b border-stone-200 pb-3">
+          <h2 className="text-lg font- font-['Archivo'] border-b border-stone-200 pb-3">
             MEUS DADOS
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -377,7 +377,7 @@ export default function Perfil() {
                   name="nome"
                   readOnly
                   value={usuario.nome || ""}
-                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-[#3E2417] focus:outline-none focus:border-[#3E2417]"
+                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-[#422518] focus:outline-none focus:border-[#422518]"
                 />
               </div>
 
@@ -388,7 +388,7 @@ export default function Perfil() {
                   name="email"
                   value={usuario.email || ""}
                   onChange={handleChange}
-                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#3E2417]"
+                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#422518]"
                 />
               </div>
 
@@ -401,7 +401,7 @@ export default function Perfil() {
                   name="telefone"
                   value={usuario.telefone || ""}
                   onChange={handleChange}
-                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#3E2417]"
+                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#422518]"
                 />
               </div>
 
@@ -412,7 +412,7 @@ export default function Perfil() {
                   name="cpf"
                   value={usuario.cpf || ""}
                   readOnly
-                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#3E2417]"
+                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#422518]"
                 />
               </div>
 
@@ -426,7 +426,7 @@ export default function Perfil() {
                   name="nascimento"
                   value={usuario.nascimento || ""}
                   onChange={handleChange}
-                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#3E2417]"
+                  className="w-full h-10 px-3 bg-white rounded-md border border-orange-400/30 text-xs text-stone-600 focus:outline-none focus:border-[#422518]"
                 />
               </div>
             </div>
@@ -434,7 +434,7 @@ export default function Perfil() {
             <div className="flex flex-wrap items-center gap-4">
               <button
                 type="submit"
-                className="px-6 py-3 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-md text-white font-['Archivo_Black'] text-xs uppercase"
+                className="px-6 py-3 bg-[#422518] hover:bg-[#602C16] transition-colors rounded-md text-white font-['Archivo'] text-xs uppercase"
               >
                 SALVAR DADOS
               </button>
@@ -442,7 +442,7 @@ export default function Perfil() {
                 type="button"
                 onClick={enviarLinkSenha}
                 disabled={senhaStatus === "enviando"}
-                className="px-6 py-3 bg-white border border-orange-400/50 hover:bg-orange-100 transition-colors rounded-md text-yellow-900 font-['Archivo_Black'] text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-3 bg-white border border-orange-400/50 hover:bg-orange-100 transition-colors rounded-md text-yellow-900 font-['Archivo'] text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {senhaStatus === "enviando" ? "ENVIANDO..." : "ATUALIZAR SENHA"}
               </button>
@@ -456,14 +456,14 @@ export default function Perfil() {
         {/* SECÇÃO 2: ENDEREÇOS */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-6">
           <div className="flex justify-between items-center border-b border-stone-200 pb-3">
-            <h2 className="text-lg font-['Archivo_Black']">ENDEREÇOS</h2>
+            <h2 className="text-lg font-['Archivo']">ENDEREÇOS</h2>
             <button
               type="button"
               onClick={() => {
                 setEnderecoForm(enderecoVazio);
                 setMostrarFormularioEndereco(true);
               }}
-              className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
+              className="px-3 py-1.5 bg-[#FEF9F3] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
             >
               + NOVO
             </button>
@@ -478,7 +478,7 @@ export default function Perfil() {
           {enderecos.map((endereco) => (
             <div
               key={endereco._id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF8F0]/50 rounded-lg border border-orange-200/50"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF9F3]/50 rounded-lg border border-orange-200/50"
             >
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="px-2 py-0.5 bg-orange-400 text-white rounded text-[10px] font-bold">
@@ -526,9 +526,9 @@ export default function Perfil() {
           {mostrarFormularioEndereco && (
             <form
               onSubmit={salvarEndereco}
-              className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4"
+              className="p-4 bg-[#FEF9F3] rounded-xl border border-orange-300/60 space-y-4"
             >
-              <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
+              <h3 className="text-xs font-['Archivo'] text-[#422518]">
                 ADICIONAR NOVO ENDEREÇO
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
@@ -653,14 +653,14 @@ export default function Perfil() {
               <div className="flex gap-3">
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
+                  className="px-5 py-2.5 bg-[#422518] text-white rounded text-xs font-['Archivo']"
                 >
                   SALVAR ENDEREÇO
                 </button>
                 <button
                   type="button"
                   onClick={() => setMostrarFormularioEndereco(false)}
-                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
+                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo']"
                 >
                   CANCELAR
                 </button>
@@ -672,14 +672,14 @@ export default function Perfil() {
         {/* SECÇÃO 3: CARTÕES */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-6">
           <div className="flex justify-between items-center border-b border-stone-200 pb-3">
-            <h2 className="text-lg font-['Archivo_Black']">CARTÕES</h2>
+            <h2 className="text-lg font-['Archivo']">CARTÕES</h2>
             <button
               type="button"
               onClick={() => {
                 setCartaoForm({ titular: "", numero: "", validade: "", cvv: "", cpfTitular: "" });
                 setMostrarFormularioCartao(true);
               }}
-              className="px-3 py-1.5 bg-[#FEF8F0] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
+              className="px-3 py-1.5 bg-[#FEF9F3] border border-orange-400/50 rounded-md text-xs font-bold text-yellow-900 hover:bg-orange-100 transition-colors"
             >
               + NOVO
             </button>
@@ -694,7 +694,7 @@ export default function Perfil() {
           {cartoes.map((cartao) => (
             <div
               key={cartao._id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF8F0]/50 rounded-lg border border-orange-200/50"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-[#FEF9F3]/50 rounded-lg border border-orange-200/50"
             >
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="px-2 py-0.5 bg-orange-400 text-white rounded text-[10px] font-bold uppercase">
@@ -722,9 +722,9 @@ export default function Perfil() {
           {mostrarFormularioCartao && (
             <form
               onSubmit={salvarCartao}
-              className="p-4 bg-[#FEF8F0] rounded-xl border border-orange-300/60 space-y-4"
+              className="p-4 bg-[#FEF9F3] rounded-xl border border-orange-300/60 space-y-4"
             >
-              <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417]">
+              <h3 className="text-xs font-['Archivo'] text-[#422518]">
                 ADICIONAR CARTÃO
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
@@ -794,14 +794,14 @@ export default function Perfil() {
                 <button
                   type="submit"
                   disabled={salvandoCartao}
-                  className="px-5 py-2.5 bg-[#3E2417] text-white rounded text-xs font-['Archivo_Black']"
+                  className="px-5 py-2.5 bg-[#422518] text-white rounded text-xs font-['Archivo']"
                 >
                   {salvandoCartao ? 'VALIDANDO...' : 'SALVAR REFERÊNCIA'}
                 </button>
                 <button
                   type="button"
                   onClick={() => { setMostrarFormularioCartao(false); setCartaoForm({ titular: '', numero: '', validade: '', cvv: '', cpfTitular: '' }); }}
-                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo_Black']"
+                  className="px-5 py-2.5 bg-white border border-orange-400/50 text-yellow-900 rounded text-xs font-['Archivo']"
                 >
                   CANCELAR
                 </button>
@@ -812,7 +812,7 @@ export default function Perfil() {
 
         {/* SECÇÃO 4: MEUS PEDIDOS */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-4">
-          <h2 className="text-lg font-['Archivo_Black'] border-b border-stone-200 pb-3">
+          <h2 className="text-lg font-['Archivo'] border-b border-stone-200 pb-3">
             MEUS PEDIDOS
           </h2>
           {statusPedidos === "carregando" && (
@@ -838,7 +838,7 @@ export default function Perfil() {
             const conteudo = (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                  <span className="font-semibold text-[#3E2417]">
+                  <span className="font-semibold text-[#422518]">
                     {pedido.numero} -{" "}
                     {new Date(pedido.criadoEm).toLocaleDateString("pt-BR")}
                   </span>
@@ -847,7 +847,7 @@ export default function Perfil() {
                   >
                     {status.rotulo}
                   </span>
-                  <span className="font-semibold text-[#3E2417]">
+                  <span className="font-semibold text-[#422518]">
                     {formatarPreco(pedido.total)}
                   </span>
                 </div>
@@ -862,7 +862,7 @@ export default function Perfil() {
             );
 
             return (
-              <div key={pedido.numero} className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2">
+              <div key={pedido.numero} className="p-4 bg-[#FEF9F3]/60 rounded-lg text-xs space-y-2">
                 <Link to={`/pedido-status/${encodeURIComponent(pedido.numero)}`} className="block space-y-2 hover:underline">
                   {conteudo}
                   <p className="font-semibold">Acompanhar pedido →</p>
@@ -877,7 +877,7 @@ export default function Perfil() {
 
         {/* SECÇÃO 5: TROCAS */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-3">
-          <h2 className="text-lg font-['Archivo_Black'] border-b border-stone-200 pb-3">
+          <h2 className="text-lg font-['Archivo'] border-b border-stone-200 pb-3">
             TROCAS
           </h2>
           {statusTrocas === "carregando" && (
@@ -901,10 +901,10 @@ export default function Perfil() {
             return (
               <div
                 key={troca._id}
-                className="p-4 bg-[#FEF8F0]/60 rounded-lg text-xs space-y-2"
+                className="p-4 bg-[#FEF9F3]/60 rounded-lg text-xs space-y-2"
               >
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                  <span className="font-semibold text-[#3E2417]">
+                  <span className="font-semibold text-[#422518]">
                     {troca.tipo === "devolucao" ? "Devolução" : "Troca"} ·{" "}
                     {troca.numeroPedido} -{" "}
                     {new Date(troca.criadoEm).toLocaleDateString("pt-BR")}
@@ -923,7 +923,7 @@ export default function Perfil() {
           })}
           <Link
             to="/trocas"
-            className="inline-block text-xs text-[#3E2417] font-medium underline hover:opacity-80"
+            className="inline-block text-xs text-[#422518] font-medium underline hover:opacity-80"
           >
             Pedir troca ou devolução
           </Link>
@@ -931,7 +931,7 @@ export default function Perfil() {
 
         {/* SECÇÃO 6: CLUBE DA CAIXINHA */}
         <section className="bg-white p-6 md:p-8 rounded-2xl border border-orange-400/20 shadow-sm space-y-3">
-          <h2 className="text-lg font-['Archivo_Black'] border-b border-stone-200 pb-3">
+          <h2 className="text-lg font-['Archivo'] border-b border-stone-200 pb-3">
             CLUBE DA CAIXINHA
           </h2>
           <p className="text-sm text-stone-700">

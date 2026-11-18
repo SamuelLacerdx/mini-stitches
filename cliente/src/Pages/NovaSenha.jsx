@@ -39,27 +39,27 @@ export default function NovaSenha() {
   }
 
   return (
-    <div className="flex-1 w-full flex items-center justify-center bg-[#FEF8F0] px-4 py-12">
+    <div className="flex-1 w-full flex items-center justify-center bg-[#FEF9F3] px-4 py-12">
       <div className="w-full max-w-lg flex flex-col justify-center items-center gap-5 text-center">
 
-        <h1 className="text-[#3E2417] text-4xl md:text-5xl font-['Archivo_Black']">
+        <h1 className="text-[#422518] text-4xl md:text-5xl font-['Archivo']">
           NOVA SENHA
         </h1>
 
         {!token && (
           <>
-            <p className="text-[#3E2417] text-base font-['Work_Sans'] leading-relaxed">
+            <p className="text-[#422518] text-base font-['Work_Sans'] leading-relaxed">
               Link inválido ou expirado. Solicite um novo link.
             </p>
             <Link
               to="/esqueci-senha"
-              className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base flex items-center justify-center"
+              className="w-full h-12 px-6 py-3.5 bg-[#422518] hover:bg-[#602C16] transition-colors rounded-[30px] text-white font-['Archivo'] text-base flex items-center justify-center"
             >
               SOLICITAR NOVO LINK
             </Link>
             <Link
               to="/login"
-              className="text-[#3E2417] text-sm font-['Work_Sans'] underline hover:opacity-80 transition-opacity"
+              className="text-[#422518] text-sm font-['Work_Sans'] underline hover:opacity-80 transition-opacity"
             >
               Voltar ao login
             </Link>
@@ -73,7 +73,7 @@ export default function NovaSenha() {
               name="senha"
               placeholder="Nova senha (mínimo 8 caracteres)"
               minLength={8}
-              className="w-full h-12 px-4 py-3 bg-white rounded-md outline outline-1 outline-orange-400/60 text-[#3E2417] placeholder-gray-400 font-['Work_Sans'] text-base focus:outline-2 focus:outline-[#3E2417]"
+              className="w-full h-12 px-4 py-3 bg-white rounded-md outline outline-1 outline-orange-400/60 text-[#422518] placeholder-gray-400 font-['Work_Sans'] text-base focus:outline-2 focus:outline-[#422518]"
               required
             />
 
@@ -82,14 +82,14 @@ export default function NovaSenha() {
               name="confirmar"
               placeholder="Confirme a nova senha"
               minLength={8}
-              className="w-full h-12 px-4 py-3 bg-white rounded-md outline outline-1 outline-orange-400/60 text-[#3E2417] placeholder-gray-400 font-['Work_Sans'] text-base focus:outline-2 focus:outline-[#3E2417]"
+              className="w-full h-12 px-4 py-3 bg-white rounded-md outline outline-1 outline-orange-400/60 text-[#422518] placeholder-gray-400 font-['Work_Sans'] text-base focus:outline-2 focus:outline-[#422518]"
               required
             />
 
             <button
               type="submit"
               disabled={enviando}
-              className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-12 px-6 py-3.5 bg-[#422518] hover:bg-[#602C16] transition-colors rounded-[30px] text-white font-['Archivo'] text-base cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {enviando ? "SALVANDO..." : "SALVAR NOVA SENHA"}
             </button>
@@ -97,13 +97,13 @@ export default function NovaSenha() {
         )}
 
         {mensagem && (
-          <p className="text-[#3E2417] text-sm font-['Work_Sans']">{mensagem}</p>
+          <p className="text-[#422518] text-sm font-['Work_Sans']">{mensagem}</p>
         )}
 
         {sucesso && (
           <Link
             to="/login"
-            className="w-full h-12 px-6 py-3.5 bg-[#3E2417] hover:bg-[#602D15] transition-colors rounded-[30px] text-white font-['Archivo_Black'] text-base flex items-center justify-center"
+            className="w-full h-12 px-6 py-3.5 bg-[#422518] hover:bg-[#602C16] transition-colors rounded-[30px] text-white font-['Archivo'] text-base flex items-center justify-center"
           >
             IR PARA O LOGIN
           </Link>

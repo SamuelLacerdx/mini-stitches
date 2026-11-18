@@ -64,6 +64,10 @@ function criarConsultaConciliacao(modelos, agora = () => new Date()) {
       .sort({ _id: -1 }).skip((pagina - 1) * limite).limit(limite + 1).lean();
     const temProxima = registros.length > limite;
     const base = registros.slice(0, limite);
+    const clientes = modelos.usuarios ? await modelos.usuarios.find({
+      _id: { $in: lista(base.map((r) => r.clienteId)) },
+    }).select('_id nome').lean() : [];
+    const nomesClientes = new Map(clientes.map((cliente) => [id(cliente._id), cliente.nome]));
     const pagamentos = lista(base.map((r) => r.pagamentoId));
     const ids = lista(base.map((r) => r._id));
     let tentativas = origem === 'tentativas' ? base : [];
@@ -143,6 +147,7 @@ function criarConsultaConciliacao(modelos, agora = () => new Date()) {
         ['aguardando', 'preparando'].includes(caixa.statusPreparacao) && !problemas.length);
       return {
         id: id(registro._id), origem, clienteId: id(registro.clienteId),
+        clienteNome: nomesClientes.get(id(registro.clienteId)) || null,
         tentativaId: id(tentativa?._id), estadoTentativa: tentativa?.estado, estoqueEstado: tentativa?.estoqueEstado,
         pedidoNumero: pedido?.numero, pagamentoId: fonte?.pagamentoId, assinaturaId: id(assinatura?._id || mensalidade?.assinaturaId),
         preapprovalId: assinatura?.preapprovalId || mensalidade?.preapprovalId,

@@ -9,15 +9,15 @@ export default function CriarConta() {
   const redirect = destinoSeguro(searchParams.get('redirect'));
 
   return (
-    <div className="min-h-screen w-full bg-[#FEF8F0] px-4 py-12 font-['Work_Sans',sans-serif] text-[#3E2417]">
+    <div className="min-h-screen w-full bg-[#FEF9F3] px-4 py-12 font-['Work_Sans',sans-serif] text-[#422518]">
       <div className="mx-auto flex w-full max-w-141.5 flex-col items-center gap-4">
         
         {/* TÍTULO E SUBTÍTULO */}
-        <h1 className="text-center font-['Archivo_Black',sans-serif] text-3xl uppercase text-[#3E2417] sm:text-4xl">
+        <h1 className="text-center font-['Archivo',sans-serif] text-3xl uppercase text-[#422518] sm:text-4xl">
           CRIAR CONTA
         </h1>
         
-        <p className="max-w-md text-center text-sm leading-relaxed text-[#3E2417]">
+        <p className="max-w-md text-center text-sm leading-relaxed text-[#422518]">
           Com uma conta você finaliza suas compras, acompanha pedidos, assiste a todos os tutoriais e assina o Clube.
         </p>
 
@@ -32,7 +32,7 @@ export default function CriarConta() {
               name="nome"
               required
               placeholder="Nome completo"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518]"
             />
           </div>
 
@@ -43,20 +43,20 @@ export default function CriarConta() {
                 name="cpf"
               required
               placeholder="CPF"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417] sm:w-1/2"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518] sm:w-1/2"
             />
             <input
               type="tel"
               name="telefone"
               required
               placeholder="Celular"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417] sm:w-1/2"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518] sm:w-1/2"
             />
           </div>
 
           {/* Data de Nascimento */}
           <div className="flex w-full flex-col gap-1.5">
-            <label className="text-sm font-semibold text-[#3E2417]">
+            <label className="text-sm font-semibold text-[#422518]">
               Data de nascimento
             </label>
             <div className="relative flex items-center">
@@ -65,7 +65,7 @@ export default function CriarConta() {
                 name="nascimento"
                 required
                 placeholder="dd/mm/aaaa"
-                className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
+                className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518]"
               />
               <Calendar className="pointer-events-none absolute right-3.5 h-4 w-4 text-stone-400" />
             </div>
@@ -78,7 +78,7 @@ export default function CriarConta() {
               name="email"
               required
               placeholder="Seu e-mail"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518]"
             />
           </div>
 
@@ -90,7 +90,7 @@ export default function CriarConta() {
               required
               minLength={8}
               placeholder="Senha"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518]"
             />
           </div>
 
@@ -102,7 +102,7 @@ export default function CriarConta() {
               required
               minLength={8}
               placeholder="Repita a senha"
-              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#3E2417] focus:outline-none focus:ring-1 focus:ring-[#3E2417]"
+              className="h-11 w-full rounded-md border border-stone-400 bg-white px-3.5 text-sm text-stone-800 placeholder-stone-400 focus:border-[#422518] focus:outline-none focus:ring-1 focus:ring-[#422518]"
             />
           </div>
 
@@ -114,7 +114,7 @@ export default function CriarConta() {
           {/* BOTÃO PRINCIPAL: CRIAR CONTA */}
           <button
             type="submit"
-            className="mt-2 h-12 w-full rounded-3xl bg-[#3E2417] font-['Archivo_Black',sans-serif] text-base text-white transition-colors hover:bg-[#602D15]"
+            className="mt-2 h-12 w-full rounded-3xl bg-[#422518] font-['Archivo',sans-serif] text-base text-white transition-colors hover:bg-[#602C16]"
           >
             CRIAR CONTA
           </button>
@@ -123,7 +123,7 @@ export default function CriarConta() {
           <div className="mt-2 text-center">
             <Link
               to={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : "/login"}
-              className="text-sm font-normal text-[#3E2417] underline transition-colors hover:text-amber-900"
+              className="text-sm font-normal text-[#422518] underline transition-colors hover:text-amber-900"
             >
               Já tem conta? Entrar
             </Link>

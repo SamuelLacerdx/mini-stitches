@@ -1034,7 +1034,7 @@ registrarRotasAdmin({ app, autenticarAdmin, mongoose, Produto, Pedido, Assinatur
 
 registrarConciliacaoAdmin({ app, autenticarAdmin, consultar: criarConsultaConciliacao({
   tentativas: TentativaPagamento, pedidos: Pedido, mensalidades: MensalidadeClube,
-  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube,
+  assinaturas: Assinatura, caixas: CaixaClube, operacoes: OperacaoClube, usuarios: Usuario,
 }) });
 
 const { registrarRotasTrocas } = require("./backend/rotas/trocas");

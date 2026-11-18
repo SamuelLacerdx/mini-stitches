@@ -394,7 +394,7 @@ export default function Admin() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-        <h1 className="text-4xl md:text-5xl font-['Archivo_Black'] text-[#3E2417]">
+        <h1 className="text-4xl md:text-5xl font-['Archivo'] text-[#422518]">
           PAINEL DA LOJA
         </h1>
         <button
@@ -413,8 +413,8 @@ export default function Admin() {
             onClick={() => setAbaAtiva(aba)}
             className={`px-5 py-2.5 rounded-full text-xs md:text-sm font-bold border transition-all ${
               abaAtiva === aba
-                ? "bg-[#3E2417] text-white border-[#3E2417]"
-                : "bg-white text-[#3E2417] border-stone-300"
+                ? "bg-[#422518] text-white border-[#422518]"
+                : "bg-white text-[#422518] border-stone-300"
             }`}
           >
             {aba}
@@ -437,7 +437,7 @@ export default function Admin() {
         {abaAtiva === "ESTOQUE" && (
           <div className="space-y-6">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xl font-bold text-[#3E2417]">
+              <h2 className="text-xl font-bold text-[#422518]">
                 {mostrarCadastro
                   ? "Cadastrar item do estoque"
                   : "Itens cadastrados"}
@@ -452,7 +452,7 @@ export default function Admin() {
                     limparFormulario();
                   }
                 }}
-                className="bg-[#3E2417] text-white font-bold px-5 py-2.5 rounded-xl hover:bg-[#602D15] transition-colors"
+                className="bg-[#422518] text-white font-bold px-5 py-2.5 rounded-xl hover:bg-[#602C16] transition-colors"
               >
                 {mostrarCadastro ? "Fechar cadastro" : "Cadastrar item"}
               </button>
@@ -465,58 +465,58 @@ export default function Admin() {
                     onSubmit={handleSubmit}
                     className="grid grid-cols-1 md:grid-cols-2 gap-4"
                   >
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Tipo
                       <select
                         name="tipo"
                         value={form.tipo}
                         onChange={handleChange}
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417] bg-white"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518] bg-white"
                       >
                         <option value="kit">Kit</option>
                         <option value="material">Material</option>
                       </select>
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Nome do item
                       <input
                         name="nome"
                         value={form.nome}
                         onChange={handleChange}
                         placeholder="Ex.: Coelhinho Amigurumi"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                         required
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Slug
                       <input
                         name="slug"
                         value={form.slug}
                         onChange={handleChange}
                         placeholder="coelhinho-amigurumi"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                         required
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Imagem do card
                       <input
                         type="file"
                         accept="image/*"
                         onChange={handleImagemChange}
-                        className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-[#3E2417] file:text-white"
+                        className="block w-full text-sm text-stone-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-[#422518] file:text-white"
                       />
                     </label>
 
                     {form.tipo === "kit" && (
-                      <div className="md:col-span-2 space-y-3 rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4">
+                      <div className="md:col-span-2 space-y-3 rounded-2xl border border-stone-200 bg-[#FEF9F3] p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className="text-sm font-bold text-[#3E2417]">
+                            <p className="text-sm font-bold text-[#422518]">
                               Vídeos do kit
                             </p>
                             <p className="text-xs text-stone-500">
@@ -526,7 +526,7 @@ export default function Admin() {
                           <button
                             type="button"
                             onClick={adicionarVideo}
-                            className="rounded-xl border border-[#3E2417] text-[#3E2417] px-3 py-2 text-xs font-bold hover:bg-[#F5E6D8]"
+                            className="rounded-xl border border-[#422518] text-[#422518] px-3 py-2 text-xs font-bold hover:bg-[#F5E6D8]"
                           >
                             + Adicionar vídeo
                           </button>
@@ -559,7 +559,7 @@ export default function Admin() {
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                                     Título do vídeo
                                     <input
                                       value={video.titulo}
@@ -571,12 +571,12 @@ export default function Admin() {
                                         )
                                       }
                                       placeholder="Aula 1 - Conhecendo os pontos"
-                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                                       required={index < 2}
                                     />
                                   </label>
 
-                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                                  <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                                     URL do vídeo
                                     <input
                                       value={video.url}
@@ -588,7 +588,7 @@ export default function Admin() {
                                         )
                                       }
                                       placeholder="https://youtube.com/watch?..."
-                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                                      className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                                       required={index < 2}
                                     />
                                   </label>
@@ -602,99 +602,99 @@ export default function Admin() {
 
                     {form.tipo === "kit" ? (
                       <>
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                           Nome de chamada
                           <input
                             name="nomeChamada"
                             value={form.nomeChamada}
                             onChange={handleChange}
                             placeholder="Coelhinho Amigurumi"
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                           />
                         </label>
 
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                           Nível
                           <input
                             name="nivel"
                             value={form.nivel}
                             onChange={handleChange}
                             placeholder="Iniciante"
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                           />
                         </label>
 
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                           Faixa etária
                           <input
                             name="faixaEtaria"
                             value={form.faixaEtaria}
                             onChange={handleChange}
                             placeholder="+8 anos"
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                           />
                         </label>
 
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                           Tempo estimado
                           <input
                             name="tempoEstimado"
                             value={form.tempoEstimado}
                             onChange={handleChange}
                             placeholder="2 horas"
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                           />
                         </label>
                       </>
                     ) : (
                       <>
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417] md:col-span-2">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518] md:col-span-2">
                           Descrição do material
                           <textarea
                             name="materialDescricao"
                             value={form.materialDescricao}
                             onChange={handleChange}
                             placeholder="Fibra acrílica, algodão, etc."
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417] min-h-22.5"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518] min-h-22.5"
                           />
                         </label>
 
-                        <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                        <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                           Categoria
                           <input
                             name="materialCategoria"
                             value={form.materialCategoria}
                             onChange={handleChange}
                             placeholder="geral"
-                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                            className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                           />
                         </label>
                       </>
                     )}
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417] md:col-span-2">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518] md:col-span-2">
                       Descrição do produto
                       <textarea
                         name="descricao"
                         value={form.descricao}
                         onChange={handleChange}
                         placeholder="Uma descrição por linha"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417] min-h-25"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518] min-h-25"
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417] md:col-span-2">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518] md:col-span-2">
                       Conteúdo da caixa
                       <textarea
                         name="caixa"
                         value={form.caixa}
                         onChange={handleChange}
                         placeholder="Item por linha"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417] min-h-25"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518] min-h-25"
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Preço (em centavos)
                       <input
                         name="preco"
@@ -704,12 +704,12 @@ export default function Admin() {
                         value={form.preco}
                         onChange={handleChange}
                         placeholder="19900"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                         required
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Estoque
                       <input
                         name="estoque"
@@ -719,12 +719,12 @@ export default function Admin() {
                         value={form.estoque}
                         onChange={handleChange}
                         placeholder="10"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                         required
                       />
                     </label>
 
-                    <label className="flex flex-col gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="flex flex-col gap-2 text-sm font-medium text-[#422518]">
                       Estoque de segurança
                       <input
                         name="estoqueSeguranca"
@@ -734,11 +734,11 @@ export default function Admin() {
                         value={form.estoqueSeguranca}
                         onChange={handleChange}
                         placeholder="0"
-                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#3E2417]"
+                        className="border border-stone-300 rounded-xl px-3 py-2 outline-none focus:border-[#422518]"
                       />
                     </label>
 
-                    <label className="inline-flex items-center gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-[#422518]">
                       <input
                         type="checkbox"
                         name="destaque"
@@ -748,7 +748,7 @@ export default function Admin() {
                       Destaque
                     </label>
 
-                    <label className="inline-flex items-center gap-2 text-sm font-medium text-[#3E2417]">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-[#422518]">
                       <input
                         type="checkbox"
                         name="ativo"
@@ -761,22 +761,22 @@ export default function Admin() {
                     <div className="md:col-span-2 flex gap-3 mt-2">
                       <button
                         type="submit"
-                        className="bg-[#3E2417] text-white font-bold px-5 py-2.5 rounded-xl hover:bg-[#602D15] transition-colors"
+                        className="bg-[#422518] text-white font-bold px-5 py-2.5 rounded-xl hover:bg-[#602C16] transition-colors"
                       >
                         {editandoId ? "Atualizar item" : "Salvar item"}
                       </button>
                       <button
                         type="button"
                         onClick={limparFormulario}
-                        className="border border-stone-300 text-[#3E2417] font-bold px-5 py-2.5 rounded-xl hover:bg-stone-50 transition-colors"
+                        className="border border-stone-300 text-[#422518] font-bold px-5 py-2.5 rounded-xl hover:bg-stone-50 transition-colors"
                       >
                         Limpar
                       </button>
                     </div>
                   </form>
 
-                  <div className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4">
-                    <h3 className="text-lg font-bold text-[#3E2417] mb-3">
+                  <div className="rounded-2xl border border-stone-200 bg-[#FEF9F3] p-4">
+                    <h3 className="text-lg font-bold text-[#422518] mb-3">
                       Preview do card
                     </h3>
                     <div className="overflow-hidden rounded-2xl border border-stone-300 bg-white shadow-sm max-w-sm mx-auto">
@@ -792,7 +792,7 @@ export default function Admin() {
                         <p className="text-xs font-semibold uppercase text-[#7B5E4B]">
                           {form.tipo === "kit" ? "KIT" : "MATERIAL"}
                         </p>
-                        <h4 className="text-lg font-black text-[#3E2417] mt-1">
+                        <h4 className="text-lg font-black text-[#422518] mt-1">
                           {form.nome || "Nome do item"}
                         </h4>
                         <p className="text-sm text-stone-600 mt-2 line-clamp-3">
@@ -800,7 +800,7 @@ export default function Admin() {
                             "Descrição do produto aparecerá aqui."}
                         </p>
                         <div className="mt-4 flex items-center justify-between">
-                          <span className="text-lg font-black text-[#3E2417]">
+                          <span className="text-lg font-black text-[#422518]">
                             {form.preco
                               ? `R$ ${(Number(form.preco) / 100)
                                   .toFixed(2)
@@ -809,7 +809,7 @@ export default function Admin() {
                           </span>
                           <button
                             type="button"
-                            className="bg-[#3E2417] text-white text-xs font-bold px-4 py-2 rounded-full"
+                            className="bg-[#422518] text-white text-xs font-bold px-4 py-2 rounded-full"
                           >
                             ABRIR
                           </button>
@@ -844,7 +844,7 @@ export default function Admin() {
                     {itens.map((item) => (
                       <div
                         key={item._id}
-                        className="overflow-hidden rounded-2xl border border-stone-200 bg-[#FEF8F0] shadow-sm"
+                        className="overflow-hidden rounded-2xl border border-stone-200 bg-[#FEF9F3] shadow-sm"
                       >
                         <img
                           src={
@@ -865,12 +865,12 @@ export default function Admin() {
                             </span>
                           </div>
 
-                          <h3 className="mt-2 text-lg font-black text-[#3E2417]">
+                          <h3 className="mt-2 text-lg font-black text-[#422518]">
                             {item.nome}
                           </h3>
 
                           <div className="mt-3 flex items-center justify-between gap-2">
-                            <span className="text-lg font-black text-[#3E2417]">
+                            <span className="text-lg font-black text-[#422518]">
                               {item.preco
                                 ? `R$ ${(item.preco / 100)
                                     .toFixed(2)
@@ -886,7 +886,7 @@ export default function Admin() {
                                     : item._id,
                                 )
                               }
-                              className="bg-[#3E2417] text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-[#602D15]"
+                              className="bg-[#422518] text-white text-xs font-bold px-4 py-2 rounded-full hover:bg-[#602C16]"
                             >
                               {produtoAbertoId === item._id
                                 ? "FECHAR"
@@ -896,7 +896,7 @@ export default function Admin() {
 
                           {produtoAbertoId === item._id && (
                             <div className="mt-4 rounded-xl border border-stone-200 bg-white p-3 text-sm text-stone-700">
-                              <p className="font-bold text-[#3E2417] mb-2">
+                              <p className="font-bold text-[#422518] mb-2">
                                 Detalhes
                               </p>
                               <p>
@@ -930,7 +930,7 @@ export default function Admin() {
                                 <button
                                   type="button"
                                   onClick={() => abrirFormularioEdicao(item)}
-                                  className="flex-1 rounded-xl bg-[#3E2417] text-white font-bold px-3 py-2 hover:bg-[#602D15]"
+                                  className="flex-1 rounded-xl bg-[#422518] text-white font-bold px-3 py-2 hover:bg-[#602C16]"
                                 >
                                   Editar item
                                 </button>
@@ -956,7 +956,7 @@ export default function Admin() {
 
         {abaAtiva === "MATERIAIS" && (
           <div className="space-y-5">
-            <h2 className="text-xl font-bold text-[#3E2417]">
+            <h2 className="text-xl font-bold text-[#422518]">
               Materiais cadastrados
             </h2>
 
@@ -973,7 +973,7 @@ export default function Admin() {
                   .map((item) => (
                     <div
                       key={item._id}
-                      className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 shadow-sm"
+                      className="rounded-2xl border border-stone-200 bg-[#FEF9F3] p-4 shadow-sm"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-wide text-[#7B5E4B]">
@@ -984,7 +984,7 @@ export default function Admin() {
                         </span>
                       </div>
 
-                      <h3 className="mt-2 text-lg font-black text-[#3E2417]">
+                      <h3 className="mt-2 text-lg font-black text-[#422518]">
                         {item.nome}
                       </h3>
 
@@ -998,7 +998,7 @@ export default function Admin() {
                         {item.material?.categoria || "geral"}
                       </p>
 
-                      <p className="mt-3 text-lg font-black text-[#3E2417]">
+                      <p className="mt-3 text-lg font-black text-[#422518]">
                         {item.preco
                           ? `R$ ${(item.preco / 100).toFixed(2).replace(".", ",")}`
                           : "R$ 0,00"}
@@ -1012,7 +1012,7 @@ export default function Admin() {
 
         {abaAtiva === "TUTORIAIS" && (
           <div className="space-y-5">
-            <h2 className="text-xl font-bold text-[#3E2417]">
+            <h2 className="text-xl font-bold text-[#422518]">
               Tutoriais dos kits
             </h2>
 
@@ -1034,18 +1034,18 @@ export default function Admin() {
                   .map((item) => (
                     <div
                       key={item._id}
-                      className="rounded-2xl border border-stone-200 bg-[#FEF8F0] p-4 shadow-sm"
+                      className="rounded-2xl border border-stone-200 bg-[#FEF9F3] p-4 shadow-sm"
                     >
                       <div className="flex items-start justify-between gap-3 mb-3">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-wide text-[#7B5E4B]">
                             Kit
                           </p>
-                          <h3 className="mt-1 text-lg font-black text-[#3E2417]">
+                          <h3 className="mt-1 text-lg font-black text-[#422518]">
                             {item.nome}
                           </h3>
                         </div>
-                        <span className="rounded-full bg-[#3E2417] text-white px-3 py-1 text-[10px] font-bold uppercase">
+                        <span className="rounded-full bg-[#422518] text-white px-3 py-1 text-[10px] font-bold uppercase">
                           {item.kit?.videos?.length || 0} vídeos
                         </span>
                       </div>
@@ -1057,7 +1057,7 @@ export default function Admin() {
                             className="rounded-xl border border-stone-200 bg-white p-3"
                           >
                             <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <p className="font-bold text-[#3E2417]">
+                              <p className="font-bold text-[#422518]">
                                 {index + 1}.{" "}
                                 {video.titulo || "Vídeo sem título"}
                               </p>
@@ -1069,7 +1069,7 @@ export default function Admin() {
                               href={video.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-2 inline-block text-sm text-[#602D15] underline break-all"
+                              className="mt-2 inline-block text-sm text-[#602C16] underline break-all"
                             >
                               {video.url || "URL não informada"}
                             </a>

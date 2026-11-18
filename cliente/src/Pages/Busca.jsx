@@ -81,10 +81,10 @@ export default function Busca() {
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-12">
-      <h1 className="mb-2 font-['Archivo_Black'] text-3xl text-[#3E2417]">
+      <h1 className="mb-2 font-['Archivo'] text-3xl text-[#422518]">
         RESULTADOS
       </h1>
-      <p className="mb-8 text-sm text-[#3E2417]/70">
+      <p className="mb-8 text-sm text-[#422518]/70">
         {produtos.length} resultado{produtos.length !== 1 && "s"} para &ldquo;{q}&rdquo;
       </p>
 
@@ -104,7 +104,7 @@ export default function Busca() {
             )}
             <div className="flex flex-col gap-2 p-6">
               <h3 className="text-lg font-black text-black">{p.nome}</h3>
-              <span className="text-lg font-black text-[#602D15]">
+              <span className="text-lg font-black text-[#602C16]">
                 {formatarPreco(p.preco)}
               </span>
             </div>

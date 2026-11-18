@@ -15,8 +15,9 @@ import {
 } from "lucide-react";
 
 export default function Header() {
-  const { abrir, aberto } = useCarrinho();
+  const { abrir, aberto, itens, resumo } = useCarrinho();
   const { usuario } = useSessao();
+  const quantidadeItens = resumo?.quantidadeItens ?? itens.reduce((total, item) => total + item.quantidade, 0);
   const [termoBusca, setTermoBusca] = useState("");
   // Guardam a rota em que foram abertos: ao trocar de página fecham sozinhos,
   // sem efeito nem nova chamada à API.
@@ -36,12 +37,12 @@ export default function Header() {
   }, [buscaAberta]);
 
   return (
-    <header className="w-full font-['Archivo_Black',sans-serif]">
+    <header className="w-full font-['Archivo',sans-serif]">
       {/* 1. FAIXA SUPERIOR ESCURA */}
-      <div className="h-7 w-full bg-[#4E2206]" />
+      <div className="h-7 w-full bg-[#602C16]" />
 
       {/* 2. BARRA DE NAVEGAÇÃO PRINCIPAL */}
-      <div className="w-full border-b border-amber-100/50 bg-[#FAF5EF] px-4 py-3 md:px-8">
+      <div className="w-full border-b border-amber-100/50 bg-[#FEF9F3] px-4 py-3 md:px-8">
         <div className="mx-auto flex max-w-full items-center justify-between gap-4">
           {/* LOGÓTIPO */}
           <div className="flex shrink-0 items-center">
@@ -55,7 +56,7 @@ export default function Header() {
           </div>
 
           {/* MENU DE ROTAS PRINCIPAIS */}
-          <nav className="hidden items-center gap-6 text-xs font-normal tracking-wide text-[#3E1B0E] lg:flex">
+          <nav className="hidden items-center gap-6 text-xs font-normal tracking-wide text-[#422518] lg:flex">
             <Link
               to="/"
               className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
@@ -121,7 +122,7 @@ export default function Header() {
                     setTermoBusca("");
                     navigate(`/busca?q=${encodeURIComponent(q)}`);
                   }}
-                  className="absolute right-0 z-20 flex items-center gap-2 rounded-full border border-[#D8C2B0] bg-[#FAF5EF] px-3 py-1.5 text-xs text-[#3E1B0E] shadow-sm sm:w-64"
+                  className="absolute right-0 z-20 flex items-center gap-2 rounded-full border border-[#D8C2B0] bg-[#FEF9F3] px-3 py-1.5 text-xs text-[#422518] shadow-sm sm:w-64"
                 >
                   <Search className="h-4 w-4 shrink-0 stroke-[1.75]" />
                   <input
@@ -129,7 +130,7 @@ export default function Header() {
                     value={termoBusca}
                     onChange={(e) => setTermoBusca(e.target.value)}
                     placeholder="Buscar produtos..."
-                    className="w-full bg-transparent outline-none placeholder:text-[#3E1B0E]/50"
+                    className="w-full bg-transparent outline-none placeholder:text-[#422518]/50"
                   />
                   <button
                     type="button"
@@ -148,13 +149,20 @@ export default function Header() {
             <button
               type="button"
               onClick={abrir}
-              aria-label="Abrir carrinho"
+              aria-label={`Abrir carrinho (${quantidadeItens} ${quantidadeItens === 1 ? "item" : "itens"})`}
               aria-haspopup="dialog"
               aria-expanded={aberto}
               aria-controls="carrinho-lateral"
-              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#422518] transition-colors hover:bg-[#F2E8DD]"
             >
-              <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
+              <span className="relative">
+                <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
+                {quantidadeItens > 0 && (
+                  <span aria-hidden="true" className="absolute -top-2 -right-2 min-w-4 rounded-full bg-[#602C16] px-1 text-center text-[10px] leading-4 text-white">
+                    {quantidadeItens > 99 ? "99+" : quantidadeItens}
+                  </span>
+                )}
+              </span>
               <span className="hidden sm:inline">CARRINHO</span>
             </button>
 
@@ -166,7 +174,7 @@ export default function Header() {
                     : "/perfil"
                   : "/login"
               }
-              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+              className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#422518] transition-colors hover:bg-[#F2E8DD]"
             >
               <User className="h-4 w-4 shrink-0 stroke-[1.75]" />
               <span className="hidden max-w-[100px] truncate sm:inline">{usuario?.nome || "CONTA"}</span>
@@ -195,7 +203,7 @@ export default function Header() {
 
           {/* drawer */}
           <nav
-            className="absolute right-0 top-0 flex h-full w-64 flex-col gap-1 bg-[#FAF5EF] p-6 shadow-xl"
+            className="absolute right-0 top-0 flex h-full w-64 flex-col gap-1 bg-[#FEF9F3] p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -203,7 +211,7 @@ export default function Header() {
               onClick={() => setMenuRota(null)}
               className="mb-4 self-end cursor-pointer rounded-full p-1 hover:bg-[#F2E8DD]"
             >
-              <X className="h-5 w-5 stroke-[1.75] text-[#3E1B0E]" />
+              <X className="h-5 w-5 stroke-[1.75] text-[#422518]" />
             </button>
 
             {[
@@ -228,8 +236,8 @@ export default function Header() {
       )}
 
       {/* 3. FAIXA PROMOCIONAL ROSA */}
-      <div className="w-full bg-[#F7C6E5] py-2 px-4">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-around gap-4 text-xs font-normal tracking-wide text-[#3E1B0E]">
+      <div className="w-full bg-[#F6D1E7] py-2 px-4">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-around gap-4 text-xs font-normal tracking-wide text-[#422518]">
           <div className="flex items-center gap-2">
             <Truck className="h-4 w-4 stroke-[1.75]" />
             <span>ENVIO PARA TODO BRASIL</span>

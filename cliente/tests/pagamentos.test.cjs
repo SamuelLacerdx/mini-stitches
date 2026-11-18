@@ -435,6 +435,7 @@ function painelConciliacao(alteracoes = {}) {
       statusFinanceiro: 'aprovado', aprovadoEm, recebidoEm, competencia: '2026-11' }],
     caixas: [{ _id: 'eeeeeeeeeeeeeeeeeeeeeeee', assinaturaId, clienteId, mensalidadeId: 'fatura-1', pagamentoId: '200',
       competencia: '2026-11', lote: '2026-11', statusFinanceiro: 'aprovado', statusPreparacao: 'preparando', bloqueada: false }],
+    usuarios: [{ _id: clienteId, nome: 'Cliente de Teste' }],
     operacoes: [], ...alteracoes,
   };
   const consultas = [];
@@ -466,6 +467,18 @@ test('PAG-17: conciliação vincula tentativa e pedido sem confundir entrega com
   assert.notEqual(itens[0].aprovadoEm, itens[0].notificacaoRecebidaEm);
   assert.deepEqual(itens[0].problemas, []);
   assert.equal(JSON.stringify(painel.dados), anterior);
+});
+
+test('PAG-17: conciliação resolve nomes em lote e preserva fallback de cliente ausente', async () => {
+  const painel = painelConciliacao();
+  painel.dados.tentativas.push({ ...painel.dados.tentativas[0], _id: 'ffffffffffffffffffffffff', clienteId: '999999999999999999999999' });
+  painel.dados.pedidos = [];
+  const { itens } = await painel.consultar();
+  assert.equal(itens[0].clienteNome, 'Cliente de Teste');
+  assert.equal(itens[1].clienteNome, null);
+  const consultasUsuarios = painel.consultas.filter(({ nome }) => nome === 'usuarios');
+  assert.equal(consultasUsuarios.length, 1);
+  assert.deepEqual(consultasUsuarios[0].filtro._id.$in.sort(), ['999999999999999999999999', 'aaaaaaaaaaaaaaaaaaaaaaaa'].sort());
 });
 
 test('PAG-17: reembolso parcial após entrega mantém total original e saldo exato', async () => {

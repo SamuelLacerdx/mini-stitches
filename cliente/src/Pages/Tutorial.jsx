@@ -104,7 +104,7 @@ export default function Tutorial() {
 
   if (carregando) {
     return (
-      <div className="w-full flex-1 bg-[#FEF8F0] py-10 px-6 font-['Work_Sans'] text-[#3E2417]">
+      <div className="w-full flex-1 bg-[#FEF9F3] py-10 px-6 font-['Work_Sans'] text-[#422518]">
         <div className="max-w-6xl mx-auto text-center">Carregando tutorial...</div>
       </div>
     );
@@ -112,21 +112,21 @@ export default function Tutorial() {
 
   if (erroCarregamento) {
     return (
-      <div className="w-full flex-1 bg-[#FEF8F0] py-10 px-6 font-['Work_Sans'] text-[#3E2417]">
+      <div className="w-full flex-1 bg-[#FEF9F3] py-10 px-6 font-['Work_Sans'] text-[#422518]">
         <div className="max-w-6xl mx-auto text-center text-red-600">{erroCarregamento}</div>
       </div>
     );
   }
 
   return (
-    <div className="w-full flex-1 bg-[#FEF8F0] py-10 px-6 font-['Work_Sans'] text-[#3E2417]">
+    <div className="w-full flex-1 bg-[#FEF9F3] py-10 px-6 font-['Work_Sans'] text-[#422518]">
       <div className="max-w-6xl mx-auto space-y-8">
 
         <div className="space-y-1">
-          <h1 className="text-3xl sm:text-5xl font-['Archivo_Black'] text-[#3E2417] tracking-tight uppercase">
+          <h1 className="text-3xl sm:text-5xl font-['Archivo'] text-[#422518] tracking-tight uppercase">
             VÍDEO PASSO A PASSO
           </h1>
-          <h2 className="text-xl sm:text-3xl font-['Archivo_Black'] text-[#3E2417] tracking-tight uppercase">
+          <h2 className="text-xl sm:text-3xl font-['Archivo'] text-[#422518] tracking-tight uppercase">
             {kitNome.toUpperCase()}
           </h2>
         </div>
@@ -170,11 +170,11 @@ export default function Tutorial() {
                     onClick={() =>
                       setSelecao({ videoId: videoAtivo.id, estaAplay: true })
                     }
-                    className="absolute left-1/2 top-1/2 z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-[#3E2417] bg-white/80 shadow-md transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="absolute left-1/2 top-1/2 z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-[#422518] bg-white/80 shadow-md transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label={`Reproduzir ${videoAtivo.titulo}`}
                   >
                     <svg
-                      className="h-8 w-8 translate-x-0.5 text-[#3E2417]"
+                      className="h-8 w-8 translate-x-0.5 text-[#422518]"
                       fill="currentColor"
                       viewBox="0 0 24 24"
                     >
@@ -193,7 +193,7 @@ export default function Tutorial() {
                       href={videoAtivo.urlOriginal}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-full bg-[#3E2417] px-5 py-2 text-sm font-bold text-white"
+                      className="rounded-full bg-[#422518] px-5 py-2 text-sm font-bold text-white"
                     >
                       Abrir vídeo
                     </a>
@@ -203,11 +203,11 @@ export default function Tutorial() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 pt-1">
-              <h3 className="text-lg sm:text-xl font-['Archivo_Black'] text-[#3E2417] uppercase">
+              <h3 className="text-lg sm:text-xl font-['Archivo'] text-[#422518] uppercase">
                 {videoAtivo.titulo}
               </h3>
               {videoAtivo.duracaoExtensa && (
-                <span className="px-3 py-1 bg-[#FEF9A7] rounded-full text-xs font-bold text-[#3E2417]">
+                <span className="px-3 py-1 bg-[#FEF9A7] rounded-full text-xs font-bold text-[#422518]">
                   {videoAtivo.duracaoExtensa}
                 </span>
               )}
@@ -216,7 +216,7 @@ export default function Tutorial() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-xs font-['Archivo_Black'] text-[#3E2417] tracking-wider uppercase">
+            <h3 className="text-xs font-['Archivo'] text-[#422518] tracking-wider uppercase">
               TODOS VÍDEOS
             </h3>
 
@@ -235,15 +235,15 @@ export default function Tutorial() {
                     }
                     className={`w-full p-3 rounded-2xl flex items-center justify-between gap-3 text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-[#FEF9A7] border-2 border-[#3E2417] shadow-sm'
+                        ? 'bg-[#FEF9A7] border-2 border-[#422518] shadow-sm'
                         : 'bg-[#FEF9A7]/70 border border-transparent hover:bg-[#FEF9A7]'
                     } disabled:cursor-not-allowed disabled:opacity-60`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-12 h-12 rounded-xl bg-[#E2B79A]/40 border border-[#3E2417]/20 shrink-0 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-xl bg-[#E2B79A]/40 border border-[#422518]/20 shrink-0 flex items-center justify-center">
                         {bloqueado ? (
                           <svg
-                            className="h-5 w-5 text-[#3E2417]"
+                            className="h-5 w-5 text-[#422518]"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -257,9 +257,9 @@ export default function Tutorial() {
                             />
                           </svg>
                         ) : (
-                          <div className="w-6 h-6 rounded-full border border-[#3E2417] flex items-center justify-center bg-white/60">
+                          <div className="w-6 h-6 rounded-full border border-[#422518] flex items-center justify-center bg-white/60">
                             <svg
-                              className="w-3 h-3 text-[#3E2417] translate-x-0.5"
+                              className="w-3 h-3 text-[#422518] translate-x-0.5"
                               fill="currentColor"
                               viewBox="0 0 24 24"
                             >
@@ -269,13 +269,13 @@ export default function Tutorial() {
                         )}
                       </div>
 
-                      <span className="text-xs sm:text-sm font-medium text-[#3E2417] truncate">
+                      <span className="text-xs sm:text-sm font-medium text-[#422518] truncate">
                         {video.tituloCurto}
                       </span>
                     </div>
 
                     {video.duracaoCurta && (
-                      <span className="text-[11px] font-medium text-[#3E2417]/70 whitespace-nowrap pl-2">
+                      <span className="text-[11px] font-medium text-[#422518]/70 whitespace-nowrap pl-2">
                         {video.duracaoCurta}
                       </span>
                     )}
