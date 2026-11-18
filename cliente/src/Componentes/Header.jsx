@@ -50,13 +50,13 @@ export default function Header() {
               <img
                 src={logoMarca}
                 alt="Logótipo Mini Stitches"
-                className="h-10 w-auto object-contain"
+                className="h-14 w-auto object-contain md:h-[72px]"
               />
             </Link>
           </div>
 
           {/* MENU DE ROTAS PRINCIPAIS */}
-          <nav className="hidden items-center gap-6 text-xs font-normal tracking-wide text-[#422518] lg:flex">
+          <nav className="hidden items-center gap-4 text-xs font-normal tracking-wide text-[#422518] lg:flex xl:gap-6">
             <Link
               to="/"
               className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
