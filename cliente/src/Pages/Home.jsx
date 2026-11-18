@@ -4,11 +4,7 @@ import imgPrincipal from "../assets/imgPrincipal.jpg"
 // Importação de ícones para enriquecer o visual
 import { Sparkles, Box, Heart } from "lucide-react";
 
-const formatarPreco = (valor) => {
-  const numero = Number(valor ?? 0);
-  if (!Number.isFinite(numero)) return "R$ 0,00";
-  return `R$ ${(numero / 100).toFixed(2).replace(".", ",")}`;
-};
+import CardKit from "../Componentes/CardKit";
 
 export default function Home() {
   const [featuredProducts, setFeaturedProducts] = useState([]);
@@ -156,42 +152,7 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
             {featuredProducts.map((product) => (
-              <Link
-                key={product._id}
-                to={`/produto/${product.slug}`}
-                className="flex flex-col overflow-hidden rounded-2xl border border-stone-300 bg-white transition-shadow hover:shadow-md"
-              >
-                <img
-                  src={product.imagemUrl || "https://placehold.co/400x400"}
-                  alt={product.nome}
-                  className="h-80 w-full object-cover"
-                />
-                <div className="flex grow flex-col justify-between p-5 font-['Work_Sans',sans-serif]">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-yellow-950">
-                      {product.kit?.nivel || "Iniciante"} ·{" "}
-                      {product.kit?.faixaEtaria || "A partir de 7 anos"}
-                    </span>
-                    <h3 className="text-base font-black text-black">
-                      {product.nome}
-                    </h3>
-                    <p className="text-xs font-normal text-yellow-900">
-                      {product.kit?.descricao?.[0] ||
-                        product.kit?.nomeChamada ||
-                        "Kit Mini Stitches"}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 flex items-baseline gap-2.5">
-                    <span className="text-base font-black text-yellow-900">
-                      {formatarPreco(product.preco)}
-                    </span>
-                    <span className="text-xs font-normal text-stone-700 line-through">
-                      {formatarPreco(product.preco + 3000)}
-                    </span>
-                  </div>
-                </div>
-              </Link>
+              <CardKit key={product._id} kit={product} />
             ))}
           </div>
         )}
