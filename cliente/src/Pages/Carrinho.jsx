@@ -76,9 +76,7 @@ export default function Carrinho() {
                   >
                     -
                   </button>
-                  <span className="px-3 text-sm font-['Archivo']">
-                    {item.quantidade}
-                  </span>
+                  <QuantidadeCarrinho item={item} disabled={salvando} alterar={alterarCarrinho} />
                   <button
                     type="button"
                     disabled={salvando}
@@ -150,3 +148,4 @@ export default function Carrinho() {
     </div>
   );
 }
+import QuantidadeCarrinho from "../Componentes/QuantidadeCarrinho";

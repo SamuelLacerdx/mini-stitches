@@ -19,7 +19,8 @@ export default function Header() {
 }
 
 function ConteudoHeader() {
-  const { abrir, aberto } = useCarrinho();
+  const { abrir, aberto, itens, resumo } = useCarrinho();
+  const quantidadeItens = resumo?.quantidadeItens ?? itens.reduce((total, item) => total + item.quantidade, 0);
   const [usuario, setUsuario] = useState(null);
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
@@ -179,13 +180,20 @@ function ConteudoHeader() {
             <button
               type="button"
               onClick={abrir}
-              aria-label="Abrir carrinho"
+              aria-label={`Abrir carrinho (${quantidadeItens} ${quantidadeItens === 1 ? "item" : "itens"})`}
               aria-haspopup="dialog"
               aria-expanded={aberto}
               aria-controls="carrinho-lateral"
               className="flex cursor-pointer items-center gap-2 rounded-full border border-[#D8C2B0] px-4 py-1.5 text-xs text-[#422518] transition-colors hover:bg-[#F2E8DD]"
             >
-              <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
+              <span className="relative">
+                <ShoppingBag className="h-4 w-4 shrink-0 stroke-[1.75]" />
+                {quantidadeItens > 0 && (
+                  <span aria-hidden="true" className="absolute -top-2 -right-2 min-w-4 rounded-full bg-[#602C16] px-1 text-center text-[10px] leading-4 text-white">
+                    {quantidadeItens > 99 ? "99+" : quantidadeItens}
+                  </span>
+                )}
+              </span>
               <span className="hidden sm:inline">CARRINHO</span>
             </button>
 

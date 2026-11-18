@@ -129,10 +129,16 @@ export default function DetalheProd() {
   }, [produto, slug]);
 
   const alterarQuantidade = (delta) => {
-    setQuantidade((prev) => Math.max(1, prev + delta));
+    setQuantidade((prev) => Math.max(1, (Number(prev) || 1) + delta));
   };
 
   const adicionarAoCarrinho = async () => {
+    const unidades = Number(quantidade);
+    if (!Number.isSafeInteger(unidades) || unidades < 1) {
+      setItemAdicionado(false);
+      setMensagemCarrinho("Digite uma quantidade inteira maior que zero.");
+      return;
+    }
     try {
       setAdicionandoAoCarrinho(true);
       setMensagemCarrinho("");
@@ -142,7 +148,7 @@ export default function DetalheProd() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: produto.slug, quantidade }),
+        body: JSON.stringify({ slug: produto.slug, quantidade: unidades }),
       });
       const dados = await resposta.json();
       if (!resposta.ok) {
@@ -248,9 +254,16 @@ export default function DetalheProd() {
                 >
                   -
                 </button>
-                <span className="px-4 text-sm font-['Archivo']">
-                  {quantidade}
-                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  step="1"
+                  aria-label="Quantidade"
+                  value={quantidade}
+                  onChange={(evento) => setQuantidade(evento.target.value)}
+                  className="w-16 text-center text-sm"
+                />
                 <button
                   onClick={() => alterarQuantidade(1)}
                   className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"
@@ -350,9 +363,16 @@ export default function DetalheProd() {
                 >
                   -
                 </button>
-                <span className="px-4 text-sm font-['Archivo']">
-                  {quantidade}
-                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  step="1"
+                  aria-label="Quantidade"
+                  value={quantidade}
+                  onChange={(evento) => setQuantidade(evento.target.value)}
+                  className="w-16 text-center text-sm"
+                />
                 <button
                   onClick={() => alterarQuantidade(1)}
                   className="text-lg font-bold px-2 text-[#422518] hover:opacity-70"

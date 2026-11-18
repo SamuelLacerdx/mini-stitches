@@ -55,7 +55,7 @@ export default function CarrinhoLateral() {
             <div className="carrinho-controles">
               <div className="carrinho-quantidade">
                 <button type="button" aria-label={`Diminuir quantidade de ${item.nome}`} disabled={ocupado || item.quantidade <= 1} onClick={() => alterar(item.produtoId, 'PATCH', item.quantidade - 1)}><img src={menosIcone} alt="" width="14" height="14" /></button>
-                <span aria-label={`Quantidade de ${item.nome}`}>{item.quantidade}</span>
+                <QuantidadeCarrinho item={item} disabled={ocupado} alterar={alterar} />
                 <button type="button" aria-label={`Aumentar quantidade de ${item.nome}`} disabled={ocupado || !item.ativo || item.quantidade >= item.estoqueDisponivel} onClick={() => alterar(item.produtoId, 'PATCH', item.quantidade + 1)}><img src={maisIcone} alt="" width="14" height="14" /></button>
               </div>
               <button type="button" className="carrinho-remover" aria-label={`Remover ${item.nome} do carrinho`} disabled={ocupado} onClick={() => alterar(item.produtoId, 'DELETE')}><img src={removerIcone} alt="" width="36" height="36" /></button>
@@ -81,3 +81,4 @@ export default function CarrinhoLateral() {
     </div>
   </dialog>;
 }
+import QuantidadeCarrinho from "./QuantidadeCarrinho";
