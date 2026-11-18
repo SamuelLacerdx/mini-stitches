@@ -20,6 +20,7 @@ export default function DetalheProd() {
   const [adicionandoAoCarrinho, setAdicionandoAoCarrinho] = useState(false);
   const [mensagemCarrinho, setMensagemCarrinho] = useState("");
   const [itemAdicionado, setItemAdicionado] = useState(false);
+  const [recomendacoes, setRecomendacoes] = useState([]);
 
   useEffect(() => {
     let ativo = true;
@@ -54,30 +55,78 @@ export default function DetalheProd() {
   }, []);
 
   useEffect(() => {
+    const controle = new AbortController();
+    let ativo = true;
+
     const carregarProduto = async () => {
       try {
         setCarregando(true);
         setErro("");
+        setProduto(null);
+        setRecomendacoes([]);
 
-        const resposta = await fetch(`/api/produto/${slug}`);
+        const resposta = await fetch(`/api/produto/${encodeURIComponent(slug)}`, {
+          signal: controle.signal,
+        });
         const dados = await resposta.json();
 
         if (!resposta.ok) {
           throw new Error(dados.erro || "Produto não encontrado.");
         }
 
-        setProduto(dados.produto);
+        if (ativo) setProduto(dados.produto);
       } catch (error) {
-        setErro(error.message || "Não foi possível carregar o produto.");
+        if (error.name !== "AbortError" && ativo) {
+          setErro(error.message || "Não foi possível carregar o produto.");
+        }
       } finally {
-        setCarregando(false);
+        if (ativo) setCarregando(false);
       }
     };
 
     if (slug) {
       carregarProduto();
     }
+
+    return () => {
+      ativo = false;
+      controle.abort();
+    };
   }, [slug]);
+
+  useEffect(() => {
+    if (!produto || produto.slug !== slug) return undefined;
+
+    const controle = new AbortController();
+    let ativo = true;
+
+    Promise.all(["kit", "material"].map((tipo) =>
+      fetch(`/api/produtos?tipo=${tipo}`, { signal: controle.signal }).then((resposta) => {
+        if (!resposta.ok) throw new Error("Não foi possível carregar as sugestões.");
+        return resposta.json();
+      }),
+    ))
+      .then((respostas) => {
+        if (!ativo) return;
+        const elegiveis = respostas
+          .flatMap((resposta) => Array.isArray(resposta.produtos) ? resposta.produtos : [])
+          .filter((item) => item?.slug && item.slug !== produto.slug);
+        const semDuplicatas = [...new Map(elegiveis.map((item) => [item.slug, item])).values()];
+        for (let indice = semDuplicatas.length - 1; indice > 0; indice -= 1) {
+          const aleatorio = Math.floor(Math.random() * (indice + 1));
+          [semDuplicatas[indice], semDuplicatas[aleatorio]] = [semDuplicatas[aleatorio], semDuplicatas[indice]];
+        }
+        setRecomendacoes(semDuplicatas.slice(0, 3));
+      })
+      .catch(() => {
+        if (ativo) setRecomendacoes([]);
+      });
+
+    return () => {
+      ativo = false;
+      controle.abort();
+    };
+  }, [produto, slug]);
 
   const alterarQuantidade = (delta) => {
     setQuantidade((prev) => Math.max(1, prev + delta));
@@ -147,7 +196,7 @@ export default function DetalheProd() {
     };
   }, [produto]);
 
-  if (carregando) {
+  if (carregando || (produto && produto.slug !== slug)) {
     return <div className="w-full p-10 text-center">Carregando produto...</div>;
   }
 
@@ -442,51 +491,40 @@ export default function DetalheProd() {
           </div>
         </div>
 
-        <div className="space-y-6 pt-6 border-t border-orange-200/60">
+        {recomendacoes.length > 0 && <div className="space-y-6 pt-6 border-t border-orange-200/60">
           <h2 className="text-2xl md:text-3xl font-['Archivo'] text-[#422518]">
             TAMBÉM VÃO GOSTAR
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                nome: "Bolsinha de Crochê",
-                nivel: "Avançado · 7 a 10 anos",
-                preco: "R$129,60",
-              },
-              {
-                nome: "Mantinha da Boneca",
-                nivel: "Iniciante · A partir de 7 anos",
-                preco: "R$129,60",
-              },
-              {
-                nome: "Guirlanda de Flores",
-                nivel: "Iniciante · A partir de 7 anos",
-                preco: "R$129,60",
-              },
-            ].map((prod, index) => (
-              <div
-                key={index}
+            {recomendacoes.map((prod) => (
+              <Link
+                key={prod.slug}
+                to={`/produto/${prod.slug}`}
                 className="bg-white rounded-2xl border border-stone-300 overflow-hidden flex flex-col justify-between"
               >
-                <img
-                  src="https://placehold.co/400x400"
-                  alt={prod.nome}
-                  className="w-full h-48 object-cover"
-                />
+                {prod.imagemUrl && (
+                  <img
+                    src={prod.imagemUrl}
+                    alt={prod.nome}
+                    className="w-full h-48 object-cover"
+                  />
+                )}
                 <div className="p-4 space-y-2">
-                  <span className="text-[11px] font-semibold text-[#422518]">
-                    {prod.nivel}
-                  </span>
+                  {(prod.tipo === "kit" && (prod.kit?.nivel || prod.kit?.faixaEtaria)) && (
+                    <span className="text-[11px] font-semibold text-[#422518]">
+                      {[prod.kit?.nivel, prod.kit?.faixaEtaria].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
                   <h3 className="text-sm font-black text-black">{prod.nome}</h3>
                   <span className="text-sm font-black text-[#602C16] block">
-                    {prod.preco}
+                    {formatarPreco(prod.preco)}
                   </span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
