@@ -56,7 +56,7 @@ export default function Header() {
           </div>
 
           {/* MENU DE ROTAS PRINCIPAIS */}
-          <nav className="hidden items-center gap-4 text-xs font-normal tracking-wide text-[#422518] lg:flex xl:gap-6">
+          <nav className="hidden items-center gap-4 font-['Archivo_Black',sans-serif] text-sm font-normal text-[#422518] xl:flex 2xl:gap-6 2xl:text-base">
             <Link
               to="/"
               className="cursor-pointer whitespace-nowrap uppercase transition-colors duration-200 hover:text-amber-800"
@@ -184,7 +184,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setMenuRota(location.pathname)}
-              className="flex cursor-pointer items-center rounded-full border border-[#D8C2B0] p-1.5 text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] lg:hidden"
+              className="flex cursor-pointer items-center rounded-full border border-[#D8C2B0] p-1.5 text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD] xl:hidden"
             >
               <Menu className="h-5 w-5 stroke-[1.75]" />
             </button>
@@ -195,7 +195,7 @@ export default function Header() {
       {/* MENU LATERAL MOBILE */}
       {menuAberto && (
         <div
-          className="fixed inset-0 z-50 lg:hidden"
+          className="fixed inset-0 z-50 xl:hidden"
           onClick={() => setMenuRota(null)}
         >
           {/* overlay */}
@@ -226,7 +226,7 @@ export default function Header() {
                 key={to}
                 to={to}
                 onClick={() => setMenuRota(null)}
-                className="rounded-lg px-3 py-2.5 text-sm tracking-wide text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
+                className="rounded-lg px-3 py-2.5 font-['Archivo_Black',sans-serif] text-base font-normal text-[#3E1B0E] transition-colors hover:bg-[#F2E8DD]"
               >
                 {label}
               </Link>
