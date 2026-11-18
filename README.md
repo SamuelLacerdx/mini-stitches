@@ -2,20 +2,13 @@
 
 Loja virtual de kits de bordado e crochê para crianças. A Mini Stitches apresenta os produtos, permite navegar pelo catálogo e inclui páginas de conta, carrinho, clube de assinatura e conteúdo de apoio.
 
-## Capturas de tela
-
-As capturas mostram a interface da página inicial e do catálogo. O produto exibido foi incluído com dados de demonstração somente para gerar as imagens; ele não representa um registro já cadastrado no banco de dados.
-
-| Página inicial | Catálogo de kits |
-| --- | --- |
-| ![Página inicial da Mini Stitches](docs/screenshots/home.png) | ![Catálogo de kits da Mini Stitches](docs/screenshots/kits.png) |
-
 ## O que o projeto oferece
 
 - Página inicial com apresentação da marca, destaques e conteúdo informativo.
 - Catálogo de kits com filtros por idade e dificuldade e listagem de materiais.
 - Detalhes de produto e carrinho que pode ser usado como visitante ou com uma conta.
-- Cadastro, login, perfil e gerenciamento de endereços, incluindo consulta de CEP pelo ViaCEP.
+- Cadastro, login, recuperação de senha por e-mail, perfil e gerenciamento de endereços, incluindo consulta de CEP pelo ViaCEP.
+- Busca de kits e solicitação/consulta de trocas pelo cliente.
 - Cálculo de frete no checkout a partir dos itens do carrinho e do CEP de destino, com cotação pela API do Melhor Envio.
 - Pagamentos pelo Mercado Pago no checkout: Pix (com desconto), boleto e cartão de crédito, além de assinatura recorrente para o Clube da Caixinha. Um webhook recebe as atualizações de status dos pagamentos.
 - Área administrativa para gerenciar produtos e conteúdos de kits.
@@ -47,6 +40,7 @@ dados fictícios e não substitui a integração com os serviços externos.
 - **Servidor:** Node.js, Express 5, Mongoose 9 e SDK do Mercado Pago.
 - **Banco de dados:** MongoDB.
 - **Autenticação:** sessões Express, JWT e bcryptjs.
+- **E-mail:** Nodemailer com conta Gmail (senha de app), usado na recuperação de senha.
 - **Qualidade de código:** ESLint 9.
 - **Serviços externos:** ViaCEP para consulta de CEP, Melhor Envio para cálculo de frete e Mercado Pago para pagamentos.
 
@@ -75,6 +69,10 @@ MONGO_URI=mongodb://127.0.0.1:27017/mini_stitches
 SESSION_SECRET=substitua-por-um-segredo-local
 JWT_SECRET=substitua-por-outro-segredo-local
 ```
+
+Para a recuperação de senha, configure também `GMAIL_USER` e `GMAIL_PASS`
+(senha de app do Gmail). Em produção, `APP_URL` (URL pública HTTPS) e
+`CRON_SECRET` são necessários, conforme as etapas PAG-10 e PAG-12.
 
 Se usar MongoDB Atlas ou outra instância, substitua `MONGO_URI` pela URI correspondente. Não compartilhe nem versione esse arquivo.
 
@@ -131,9 +129,12 @@ Execute estes comandos a partir da pasta `cliente`:
 npm run lint
 npm run build
 npm run preview
+npm test
 ```
 
 `npm run preview` serve localmente a versão gerada por `npm run build`.
+`npm test` é um atalho para `npm run test:pagamentos`, que executa a suíte
+financeira em `cliente/tests/`.
 
 ## Dados e estado atual
 
@@ -141,7 +142,7 @@ O repositório não inclui script de seed nem produtos de demonstração; um ban
 
 O checkout já conta com cálculo de frete pelo Melhor Envio e com as rotas de pagamento do Mercado Pago (Pix, boleto, cartão e assinatura), além de um webhook para atualização de status. Essas integrações dependem das credenciais informadas no `.env`; mantenha `MELHOR_ENVIO_SANDBOX=true` e as credenciais de teste do Mercado Pago enquanto estiver desenvolvendo, para não processar cobranças reais.
 
-As páginas de contato, newsletter, clube e solicitação de troca ainda não estão integradas por completo a operações de servidor.
+As páginas de contato e newsletter ainda não estão integradas a operações de servidor.
 
 ### Tentativas de pagamento (PAG-05)
 
@@ -163,7 +164,7 @@ O controle de reserva antecipada e a idempotência entre requisições estão
 descritos abaixo. A conciliação completa de notificações permanece uma etapa
 separada (PAG-08).
 Os testes locais estão disponíveis em `npm run test:pagamentos`, na pasta
-`cliente`; arquivos ignorados em `cliente/tests/` precisam existir localmente.
+`cliente`.
 
 ### Reserva de estoque (PAG-06)
 
@@ -616,7 +617,7 @@ convertidas silenciosamente nesses cálculos. A nova cobertura inclui 5.000
 amostras determinísticas, limites de frete/parcelas, overflow, preço alterado,
 replay, timeout, concorrência simulada e recuperação de operações interrompidas.
 
-A execução local aprovou 126 testes financeiros e 8 testes HTTP de pedidos.
+A execução local, na data do relatório, aprovou 126 testes financeiros e 8 testes HTTP de pedidos.
 A concorrência real no MongoDB e os pagamentos, renovações, cancelamentos e
 reembolsos no provedor continuam exigindo homologação. Por isso, a PAG-14 ainda
 não está integralmente concluída em ambiente integrado.
@@ -853,12 +854,18 @@ cliente/
 ├── api/                 # entrada da API para deploy serverless
 ├── backend/
 │   ├── db/              # modelos e conexão com MongoDB
-│   └── functions/       # autenticação, carrinho e validações
+│   ├── functions/       # autenticação, carrinho, pagamentos e validações
+│   └── rotas/           # rotas de produtos, carrinho, conta, perfil, trocas e painel
 ├── src/
 │   ├── Componentes/     # cabeçalho, rodapé e componentes compartilhados
-│   └── Pages/           # páginas da loja
+│   ├── Pages/           # páginas da loja
+│   ├── context/         # contextos de carrinho, sessão e avisos
+│   ├── hooks/           # consultas de resumo, pedido e acompanhamento
+│   └── utils/           # cálculos e helpers compartilhados
+├── scripts/             # utilitários de verificação manual
+├── tests/               # suíte financeira (node --test)
 ├── server.js            # servidor Express local
 └── package.json         # dependências e scripts
-docs/
-└── screenshots/         # capturas incluídas neste README
+docs/                    # relatório da PAG-14 e guia de operação
+modelos/                 # diagrama do banco (draw.io)
 ```
