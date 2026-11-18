@@ -49,7 +49,7 @@ export default function Header() {
             <Link to="/" className="flex cursor-pointer items-center gap-2">
               <img
                 src={logoMarca}
-                alt="Logótipo Mini Stitches"
+                alt="Mini Stitches"
                 className="h-14 w-auto object-contain md:h-[72px]"
               />
             </Link>
